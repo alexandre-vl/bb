@@ -439,7 +439,8 @@ export function PluginDetail({
     (plugin.updateState.availableVersion !== null ||
       plugin.updateState.blockedVersion !== null ||
       plugin.updateState.lastFailure !== null ||
-      plugin.updateState.outsideRange !== null);
+      plugin.updateState.outsideRange !== null ||
+      plugin.updateState.detail !== null);
   const hasConfiguration =
     plugin.hasSettings ||
     settingsSections.some((section) => section.pluginId === plugin.id);

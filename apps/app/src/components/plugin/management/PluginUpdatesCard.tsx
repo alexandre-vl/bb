@@ -235,6 +235,29 @@ function PluginDetailPrimaryReleaseStatus({
     );
   }
 
+  if (
+    blockedVersion === null &&
+    plugin.updateState.outcome === "current" &&
+    plugin.updateState.detail !== null
+  ) {
+    return (
+      <div
+        role="status"
+        aria-label="Update check note"
+        className="flex min-w-0 items-start gap-2.5"
+      >
+        <Icon
+          name="Info"
+          className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
+        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
+          {plugin.updateState.detail}
+        </p>
+      </div>
+    );
+  }
+
   if (blockedVersion === null) return null;
   return (
     <div

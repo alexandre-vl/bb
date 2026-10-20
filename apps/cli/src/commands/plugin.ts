@@ -1320,6 +1320,11 @@ export function registerPluginCommands(
     .command("update-jobs [job-id]")
     .description(
       "Show background plugin updates and results retained for ten minutes; running jobs survive client disconnections, but not a server restart",
+        for (const result of results) {
+          if (result.detail !== undefined) {
+            console.log(`${result.id}: ${result.detail}`);
+          }
+        }
     )
     .option("--json", "Output JSON")
     .action(

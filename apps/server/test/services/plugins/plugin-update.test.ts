@@ -477,6 +477,61 @@ describe("plugin update service and routes", () => {
     );
   });
 
+  it("shows why a current plugin did not follow a dist-tag that moved below it", async () => {
+    upsertInstalledPlugin(db, {
+      id: "tagged-npm",
+      source: "npm:bb-plugin-tagged-npm@next",
+      provenance: { kind: "direct" },
+      sourceIntent: {
+        kind: "npm",
+        packageName: "bb-plugin-tagged-npm",
+        registry: "https://tagged-npm.test",
+        requestedSpec: "next",
+        specKind: "tag",
+      },
+      exactResolution: {
+        kind: "npm",
+        version: "2.0.0",
+        integrity: "sha512-current",
+      },
+      updateState: {
+        lastCheckAt: null,
+        availableCompatibleVersion: null,
+        newestIncompatibleVersion: null,
+        statusDetail: null,
+      },
+      activeArtifactId: null,
+      rootDir: join(workDir, "tagged-npm"),
+      version: "2.0.0",
+      enabled: false,
+      enabledFollowsDefault: false,
+    });
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(
+          JSON.stringify({
+            versions: {
+              "2.0.0": { version: "2.0.0", dist: { integrity: "sha512-a" } },
+              "1.0.0": { version: "1.0.0", dist: { integrity: "sha512-b" } },
+            },
+            "dist-tags": { next: "1.0.0" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+
+    await service.checkForUpdates("tagged-npm");
+
+    expect(
+      service.list().find((entry) => entry.id === "tagged-npm")?.updateState,
+    ).toMatchObject({
+      outcome: "current",
+      detail:
+        'npm dist-tag "next" points to 1.0.0, older than the installed 2.0.0; bb does not downgrade',
+    });
+  });
+
   it("reports legacy retired-marketplace installs as unavailable without fetching", async () => {
     upsertInstalledPlugin(db, {
       id: "legacy-marketplace",

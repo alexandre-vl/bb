@@ -95,6 +95,13 @@ describe("bb plugin update commands", () => {
               range: "^0.1.0",
             },
           },
+          {
+            id: "h",
+            outcome: "current",
+            installed: version("2.0.0"),
+            detail:
+              'npm dist-tag "next" points to 1.0.0, older than the installed 2.0.0; bb does not downgrade',
+          },
         ],
       }),
     );
@@ -118,6 +125,13 @@ describe("bb plugin update commands", () => {
     expect(output).toContain(
       "Outside range: the newest release the installed range excludes; compatibility not checked.",
     );
+    expect(output.split("\n")).toEqual(
+      expect.arrayContaining([
+        "e: registry offline",
+        'h: npm dist-tag "next" points to 1.0.0, older than the installed 2.0.0; bb does not downgrade',
+      ]),
+    );
+    expect(output).not.toMatch(/^[abcdfg]: /mu);
   });
 
   it("outdated --json prints the parsed results", async () => {

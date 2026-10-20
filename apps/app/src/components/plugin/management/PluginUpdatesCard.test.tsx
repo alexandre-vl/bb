@@ -266,6 +266,20 @@ describe("PluginDetailReleaseStatus", () => {
     expect(screen.getByRole("status").textContent).toBe("0.6.2Available");
   });
 
+  it("explains why a current plugin was not moved to the release its source names", () => {
+    renderStatus({
+      outcome: "current",
+      detail:
+        'npm dist-tag "next" points to 1.0.0, older than the installed 1.6.2; bb does not downgrade',
+    });
+
+    expect(
+      screen.getByRole("status", { name: "Update check note" }).textContent,
+    ).toBe(
+      'npm dist-tag "next" points to 1.0.0, older than the installed 1.6.2; bb does not downgrade',
+    );
+  });
+
   it("warns that an available release may break and names it by tag", () => {
     renderStatus({
       outcome: "update-available",
