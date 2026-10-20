@@ -182,6 +182,29 @@ describe("bb plugin update commands", () => {
     expect(output).toContain("1.1.0");
   });
 
+  it("source names the dist-tag an npm install follows", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        requested: "npm:notes@beta",
+        resolved: "notes@1.3.0-beta.2",
+        npmSpecKind: "tag",
+        distTag: "beta",
+        engines: {},
+        history: [],
+      }),
+    );
+
+    await runCommand(["plugin", "source", "notes"], register);
+
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
+      "notes",
+      "  requested: npm:notes@beta",
+      "  resolved: notes@1.3.0-beta.2",
+      "  dist-tag: beta",
+      "  history: none",
+    ]);
+  });
+
   it("source --json prints the shared source contract", async () => {
     const source = {
       requested: "path:/plugins/notes",

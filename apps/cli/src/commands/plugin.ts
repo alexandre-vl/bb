@@ -1064,6 +1064,9 @@ export function registerPluginCommands(
           console.log(`  subdirectory: ${source.subdirectory}`);
         }
         if (source.range !== undefined) console.log(`  range: ${source.range}`);
+        if (source.distTag !== undefined) {
+          console.log(`  dist-tag: ${source.distTag}`);
+        }
         if (source.tagPrefix !== undefined) {
           console.log(`  tag prefix: ${source.tagPrefix}`);
         }

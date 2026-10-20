@@ -933,6 +933,48 @@ describe("plugin tracking range service and route", () => {
     expect(requested).toContain("https://registry.test/bb-plugin-linear");
   });
 
+  it.each([
+    ["beta", "tag", { npmSpecKind: "tag", distTag: "beta" }],
+    ["", "default", { npmSpecKind: "default" }],
+    ["1.0.0", "exact", { npmSpecKind: "exact" }],
+    ["^1.0.0", "range", { npmSpecKind: "range", range: "^1.0.0" }],
+  ] as const)(
+    "reports what an npm %j spec follows in the plugin's source",
+    async (spec, kind, expected) => {
+      upsertInstalledPlugin(db, {
+        id: "linear",
+        source:
+          kind === "default"
+            ? "npm:bb-plugin-linear"
+            : `npm:bb-plugin-linear@${spec}`,
+        provenance: { kind: "direct" },
+        sourceIntent: {
+          kind: "npm",
+          packageName: "bb-plugin-linear",
+          registry: "https://registry.test",
+          requestedSpec: spec,
+          specKind: kind,
+        },
+        exactResolution: {
+          kind: "npm",
+          version: "1.0.0",
+          integrity: "sha512-current",
+        },
+        updateState: EMPTY_UPDATE_STATE,
+        activeArtifactId: null,
+        rootDir: join(workDir, "linear"),
+        version: "1.0.0",
+        enabled: false,
+        enabledFollowsDefault: false,
+      });
+
+      const { range, npmSpecKind, distTag } =
+        (await service.getSource("linear")) ?? {};
+
+      expect({ range, npmSpecKind, distTag }).toEqual(expected);
+    },
+  );
+
   it("gives a pinned legacy npm install the reinstall guidance track refuses it with", async () => {
     upsertInstalledPlugin(db, {
       id: "linear",

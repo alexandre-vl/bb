@@ -647,6 +647,13 @@ export function createPluginUpdates(
               row.sourceNpmRequestedSpec !== null
             ? { range: row.sourceNpmRequestedSpec }
             : {}),
+        ...(row.sourceNpmSpecKind === null
+          ? {}
+          : { npmSpecKind: row.sourceNpmSpecKind }),
+        ...(row.sourceNpmSpecKind === "tag" &&
+        row.sourceNpmRequestedSpec !== null
+          ? { distTag: row.sourceNpmRequestedSpec }
+          : {}),
         ...(row.sourceGitTagPrefix === null ||
         row.sourceGitTagPrefix.length === 0
           ? {}

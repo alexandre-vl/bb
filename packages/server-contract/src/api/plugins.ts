@@ -157,6 +157,15 @@ export const pluginSourceDetailSchema = z.object({
   resolved: z.string(),
   subdirectory: z.string().optional(),
   range: z.string().optional(),
+  /**
+   * How an npm install picks releases: a semver `range` (see `range`), a
+   * dist-`tag` (see `distTag`), an `exact` version it is pinned to, or
+   * `default` when it named no version and follows its latest release.
+   * Absent for other sources.
+   */
+  npmSpecKind: z.enum(["default", "exact", "tag", "range"]).optional(),
+  /** The npm dist-tag a `tag` install follows. */
+  distTag: z.string().optional(),
   tagPrefix: z.string().optional(),
   resolvedTag: z.string().optional(),
   integrity: z.string().optional(),
