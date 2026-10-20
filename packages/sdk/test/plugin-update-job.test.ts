@@ -161,3 +161,77 @@ describe("background plugin updates", () => {
     ).resolves.toEqual(result);
   });
 });
+
+describe("plugin rollback", () => {
+  const reverted = {
+    applied: true,
+    from: { version: "1.1.0", display: "1.1.0" },
+    to: { version: "1.0.0", display: "1.0.0" },
+    outcome: "reverted",
+  };
+
+  it("starts a rollback job bound to the reviewed version and waits for its result", async () => {
+    const { sdk, requests } = server({
+      kind: "rollback",
+      state: "completed",
+      result: reverted,
+    });
+    await expect(
+      sdk.plugins.experimental_rollbackUpdate({
+        pluginId: "notes",
+        expectedVersion: "1.0.0",
+      }),
+    ).resolves.toEqual(reverted);
+    expect(
+      requests.map((request) => [
+        request.method,
+        new URL(request.url).pathname,
+      ]),
+    ).toEqual([
+      ["POST", "/api/v1/plugins/notes/rollback"],
+      ["GET", "/api/v1/plugins/update-jobs/update-1"],
+    ]);
+    expect(requests[0]?.headers.get("prefer")).toBe("respond-async");
+    await expect(requests[0]?.json()).resolves.toEqual({
+      expectedVersion: "1.0.0",
+    });
+  });
+
+  it("returns the started job for callers that follow it themselves", async () => {
+    const { sdk, requests } = server({
+      state: "failed",
+      error: "no rollback point",
+    });
+    await expect(
+      sdk.plugins.experimental_startRollbackUpdate({ pluginId: "notes" }),
+    ).resolves.toMatchObject({ id: "update-1", state: "running" });
+    expect(requests).toHaveLength(1);
+    await expect(requests[0]?.json()).resolves.toEqual({});
+  });
+
+  it("reports a refused rollback as an error", async () => {
+    const { sdk } = server({
+      kind: "rollback",
+      state: "failed",
+      error: 'plugin "notes" has no rollback point',
+    });
+    await expect(
+      sdk.plugins.experimental_rollbackUpdate({ pluginId: "notes" }),
+    ).rejects.toThrow('plugin "notes" has no rollback point');
+  });
+
+  it("explains that a server without the rollback route cannot roll back", async () => {
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        runtime: "node",
+        fetch: async () => new Response("404 Not Found", { status: 404 }),
+      }),
+    });
+    await expect(
+      sdk.plugins.experimental_startRollbackUpdate({ pluginId: "notes" }),
+    ).rejects.toThrow(
+      "Rollback not started; this BB server predates plugin rollback. Upgrade the BB server to roll back an update",
+    );
+  });
+});

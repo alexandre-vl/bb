@@ -31,6 +31,7 @@ import {
   pluginCachePruneResponseSchema,
   pluginInstallRequestSchema,
   pluginRemoveResponseSchema,
+  pluginRollbackRequestSchema,
   pluginSafeModeRequestSchema,
   pluginSafeModeResponseSchema,
   pluginSafeModeUpdateResponseSchema,
@@ -121,6 +122,10 @@ export interface PluginIdArgs {
 }
 
 export interface PluginApplyUpdateArgs extends PluginIdArgs {
+  expectedVersion?: string;
+}
+
+export interface PluginRollbackUpdateArgs extends PluginIdArgs {
   expectedVersion?: string;
 }
 
@@ -323,6 +328,12 @@ export interface PluginsArea {
     args: PluginApplyUpdateArgs,
   ): Promise<PluginUpdateJob>;
   experimental_updateJobs: PluginUpdateJobsArea;
+  experimental_rollbackUpdate(
+    args: PluginRollbackUpdateArgs,
+  ): Promise<PluginApplyUpdateResult>;
+  experimental_startRollbackUpdate(
+    args: PluginRollbackUpdateArgs,
+  ): Promise<PluginUpdateJob>;
   callRpc<TOutput>(args: PluginRpcArgs<TOutput>): Promise<TOutput>;
   checkUpdates(
     args?: PluginCheckUpdatesArgs,
@@ -466,6 +477,52 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       }
       throw error;
     }
+  }
+
+  async function startRollback(
+    input: PluginRollbackUpdateArgs,
+  ): Promise<PluginUpdateJob> {
+    const body = pluginRollbackRequestSchema.parse(
+      input.expectedVersion === undefined
+        ? {}
+        : { expectedVersion: input.expectedVersion },
+    );
+    try {
+      const response = await requestParsed(
+        pluginPath(input.pluginId, "/rollback"),
+        pluginUpdateJobResponseSchema,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            prefer: "respond-async",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      return response.job;
+    } catch (error) {
+      if (error instanceof BbHttpError && error.status === 404) {
+        throw new Error(
+          "Rollback not started; this BB server predates plugin rollback. Upgrade the BB server to roll back an update",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async function settleUpdateJob(
+    started: PluginUpdateJob,
+  ): Promise<PluginApplyUpdateResult> {
+    let job = started;
+    while (job.state === "queued" || job.state === "running") {
+      await new Promise((resolve) =>
+        setTimeout(resolve, INSTALL_JOB_POLL_INTERVAL_MS),
+      );
+      job = await updateJobs.get({ jobId: job.id });
+    }
+    if (job.state === "completed") return job.result;
+    throw new Error(job.error);
   }
 
   const installJobs: PluginInstallJobsArea = {
@@ -663,6 +720,10 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       );
     },
     experimental_updateJobs: updateJobs,
+    async experimental_rollbackUpdate(input) {
+      return settleUpdateJob(await startRollback(input));
+    },
+    experimental_startRollbackUpdate: startRollback,
     async experimental_discoverRpc(input = {}) {
       const query = pluginRpcDiscoveryQuerySchema.parse(input);
       const params = new URLSearchParams();
