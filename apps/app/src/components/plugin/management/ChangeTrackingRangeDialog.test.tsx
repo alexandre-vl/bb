@@ -25,6 +25,7 @@ import { makePluginListItem } from "@/test/fixtures/plugins";
 import {
   ChangeTrackingRangeDialog,
   pluginTrackingSpec,
+  trackingRangeCheckSummary,
   type PluginTrackingSpec,
 } from "./ChangeTrackingRangeDialog";
 
@@ -169,7 +170,7 @@ describe("ChangeTrackingRangeDialog", () => {
     expect(
       (await screen.findByRole("status", { name: "Range preview" }))
         .textContent,
-    ).toBe("Offers https://github.com/acme/notes@v0.2.0 (bbbbbbbbbbbb).");
+    ).toBe("Offers v0.2.0.");
     expect(changeButton().disabled).toBe(false);
     fireEvent.click(changeButton());
 
@@ -192,8 +193,7 @@ describe("ChangeTrackingRangeDialog", () => {
     ).toEqual([
       {
         title: "Notes now tracks >=0.1.0 <1.0.0",
-        description:
-          "Offers https://github.com/acme/notes@v0.2.0 (bbbbbbbbbbbb).",
+        description: "Offers v0.2.0.",
       },
     ]);
   });
@@ -282,7 +282,7 @@ describe("ChangeTrackingRangeDialog", () => {
       (await screen.findByRole("status", { name: "Range preview" }))
         .textContent,
     ).toBe(
-      "Offers https://github.com/acme/notes@v0.2.0 (bbbbbbbbbbbb).This range has no upper bound, so every future major release will be offered as an update.",
+      "Offers v0.2.0.This range has no upper bound, so every future major release will be offered as an update.",
     );
     fireEvent.click(changeButton());
 
@@ -316,6 +316,52 @@ describe("ChangeTrackingRangeDialog", () => {
   });
 
   it.each([
+    {
+      installedVersion: "0.1.0",
+      currentRange: "^0.1.0",
+      outside: "0.2.0",
+      suggested: ">=0.1.0 <1.0.0",
+    },
+    {
+      installedVersion: "1.4.0",
+      currentRange: "^1.4.0",
+      outside: "2.0.0",
+      suggested: ">=1.4.0 <3.0.0",
+    },
+  ])(
+    "suggests $suggested to reach $outside, outside $currentRange",
+    async ({ installedVersion, currentRange, outside, suggested }) => {
+      const { bodies } = stubTrackingServer();
+      renderDialog(
+        makePluginListItem({
+          ...GIT_PLUGIN,
+          version: installedVersion,
+          updateState: {
+            ...GIT_PLUGIN.updateState,
+            outsideRange: {
+              version: outside,
+              display: `https://github.com/acme/notes@v${outside} (cccccccccccc)`,
+              breaking: true,
+              range: currentRange,
+            },
+          },
+        }),
+        { kind: "range", range: currentRange },
+      );
+
+      expect(rangeInput().value).toBe(suggested);
+      expect(
+        screen.getByText(
+          `Suggested to include ${outside}, the newest release outside ${currentRange}.`,
+        ),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+      await screen.findByRole("status", { name: "Range preview" });
+      expect(bodies).toEqual([{ range: suggested, dryRun: true }]);
+    },
+  );
+
+  it.each([
     [
       { kind: "none" },
       "This install follows no semver range yet. Choose which releases bb offers as updates.",
@@ -347,6 +393,57 @@ describe("ChangeTrackingRangeDialog", () => {
       expect(screen.getByText(description)).toBeTruthy();
     },
   );
+});
+
+describe("trackingRangeCheckSummary", () => {
+  const candidate = {
+    version: "b".repeat(40),
+    display: "https://github.com/acme/notes@v0.2.0 (bbbbbbbbbbbb)",
+  };
+  const outsideRange = {
+    version: "1.0.0",
+    display: "https://github.com/acme/notes@v1.0.0 (dddddddddddd)",
+    breaking: true,
+    range: "^0.2.0",
+  };
+
+  it.each([
+    [
+      {
+        id: "notes",
+        outcome: "update-available" as const,
+        installed,
+        candidate,
+      },
+      "Offers v0.2.0.",
+    ],
+    [
+      {
+        id: "notes",
+        outcome: "update-available" as const,
+        installed,
+        candidate,
+        candidateBreaking: true as const,
+        outsideRange,
+      },
+      "Offers v0.2.0, which may include breaking changes. 1.0.0 stays outside this range.",
+    ],
+    [
+      { id: "notes", outcome: "current" as const, installed, outsideRange },
+      "v0.1.0 is the newest compatible release in this range. 1.0.0 stays outside this range.",
+    ],
+    [
+      {
+        id: "notes",
+        outcome: "unavailable" as const,
+        installed,
+        detail: "git ls-remote failed",
+      },
+      "git ls-remote failed",
+    ],
+  ])("summarizes %#", (check, summary) => {
+    expect(trackingRangeCheckSummary(check)).toBe(summary);
+  });
 });
 
 describe("pluginTrackingSpec", () => {

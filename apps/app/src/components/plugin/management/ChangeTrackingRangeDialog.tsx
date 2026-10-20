@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { PluginUpdateCheckEntry } from "@bb/server-contract";
+import type {
+  PluginOutsideRangeRelease,
+  PluginUpdateCheckEntry,
+} from "@bb/server-contract";
 import { Button } from "@bb/shared-ui/button";
 import {
   Dialog,
@@ -18,6 +21,7 @@ import type { PluginListItem } from "@/hooks/queries/plugin-settings-queries";
 import { setPluginTrackingRange } from "@/hooks/queries/plugin-tracking-range-queries";
 import { pluginAdminErrorMessage } from "@/lib/plugin-admin-error";
 import { pluginHasUpdateSurfaces } from "./PluginUpdatesCard";
+import { pluginReleaseLabel } from "./plugin-ui";
 
 export type PluginTrackingSpec =
   | { kind: "range"; range: string }
@@ -84,14 +88,28 @@ function TrackingSpecLabel({ tracking }: { tracking: PluginTrackingSpec }) {
   }
 }
 
+function releaseLabel(release: { version: string; display: string }): string {
+  return pluginReleaseLabel(release.version, release.display);
+}
+
 export function trackingRangeCheckSummary(
   check: PluginUpdateCheckEntry,
 ): string {
+  const outside =
+    check.outsideRange === undefined
+      ? ""
+      : ` ${check.outsideRange.version} stays outside this range.`;
   if (check.outcome === "update-available") {
-    return `Offers ${check.candidate?.display ?? "a newer release"}.`;
+    const offer =
+      check.candidate === undefined
+        ? "a newer release"
+        : releaseLabel(check.candidate);
+    return check.candidateBreaking === true
+      ? `Offers ${offer}, which may include breaking changes.${outside}`
+      : `Offers ${offer}.${outside}`;
   }
   if (check.outcome === "current") {
-    return `${check.installed.display} is the newest compatible release in this range.`;
+    return `${releaseLabel(check.installed)} is the newest compatible release in this range.${outside}`;
   }
   if (check.outcome === "incompatible" && check.blocked !== undefined) {
     return `${check.blocked.version} doesn’t run on this bb: ${check.blocked.reasons.join("; ")}`;
@@ -158,6 +176,21 @@ export function ChangeTrackingRangeDialog({
   );
 }
 
+const RELEASE_VERSION = /^(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+
+function outsideRangeSuggestion(
+  plugin: PluginListItem,
+): { range: string; release: PluginOutsideRangeRelease } | null {
+  const release = plugin.updateState.outsideRange;
+  if (release === null || !RELEASE_VERSION.test(plugin.version)) return null;
+  const major = RELEASE_VERSION.exec(release.version)?.[1];
+  if (major === undefined) return null;
+  return {
+    range: `>=${plugin.version} <${Number(major) + 1}.0.0`,
+    release,
+  };
+}
+
 function ChangeTrackingRangeDialogContent({
   plugin,
   tracking,
@@ -169,8 +202,10 @@ function ChangeTrackingRangeDialogContent({
 }) {
   const queryClient = useQueryClient();
   const name = plugin.name ?? plugin.id;
+  const [suggestion] = useState(() => outsideRangeSuggestion(plugin));
   const [rangeText, setRangeText] = useState(
-    tracking.kind === "range" ? tracking.range : `^${plugin.version}`,
+    suggestion?.range ??
+      (tracking.kind === "range" ? tracking.range : `^${plugin.version}`),
   );
   const range = rangeText.trim();
   const preview = useMutation({
@@ -237,8 +272,14 @@ function ChangeTrackingRangeDialogContent({
             }}
           />
           <p className="mt-1.5 text-2xs text-subtle-foreground">
-            For example ^1.2.0, or &gt;=0.2.0 &lt;1.0.0 to follow every 0.x
-            release (a 0.x minor may break).
+            {suggestion === null ? (
+              <>
+                For example ^1.2.0, or &gt;=0.2.0 &lt;1.0.0 to follow every 0.x
+                release (a 0.x minor may break).
+              </>
+            ) : (
+              `Suggested to include ${suggestion.release.version}, the newest release outside ${suggestion.release.range}.`
+            )}
           </p>
         </div>
         {previewed !== null ? (
