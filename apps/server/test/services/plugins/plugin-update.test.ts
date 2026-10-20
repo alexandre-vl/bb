@@ -854,8 +854,8 @@ describe("plugin update service and routes", () => {
       activeArtifactId: expect.any(String),
     });
     expect(updated?.rootDir).not.toBe(oldRoot);
-    await expect(stat(oldRoot)).rejects.toMatchObject({ code: "ENOENT" });
-    expect(listPluginArtifacts(db, "updater")).toHaveLength(1);
+    await stat(oldRoot);
+    expect(listPluginArtifacts(db, "updater")).toHaveLength(2);
   });
 
   it("rolls back when a background service crashes during stabilization", async () => {
@@ -1128,7 +1128,7 @@ describe("plugin update service and routes", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("deletes the replaced version once the update settles and keeps rollback state through the grace period", async () => {
+  it("keeps the replaced version as the rollback point until its retention ends", async () => {
     await service.stop();
     let clock = Date.now();
     const makeService = () =>
@@ -1162,23 +1162,55 @@ describe("plugin update service and routes", () => {
       ok: true,
       result: { applied: true },
     });
-    expect(listPluginStateSnapshots(db, "updater")).toHaveLength(1);
-    const remaining = listPluginArtifacts(db, "updater");
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0]?.id).toBe(
-      getInstalledPluginRegistration(db, "updater")?.activeArtifactId,
+    expect(listPluginStateSnapshots(db, "updater")).toMatchObject([
+      { status: "ready", retainedUntil: clock + 50 },
+    ]);
+    const activeArtifactId = getInstalledPluginRegistration(
+      db,
+      "updater",
+    )?.activeArtifactId;
+    const active = listPluginArtifacts(db, "updater").find(
+      (artifact) => artifact.id === activeArtifactId,
     );
-    await expect(stat(oldArtifact.path)).rejects.toMatchObject({
-      code: "ENOENT",
+    if (active === undefined) throw new Error("missing active artifact");
+    expect(
+      listPluginArtifacts(db, "updater")
+        .map((artifact) => artifact.id)
+        .sort(),
+    ).toEqual([oldArtifact.id, active.id].sort());
+    await stat(oldArtifact.path);
+    await expect(service.pruneCache({ dryRun: false })).resolves.toMatchObject({
+      removed: [],
     });
-    await stat(remaining[0]!.path);
+    await stat(oldArtifact.path);
+    expect(
+      service.list().find((entry) => entry.id === "updater")?.updateState
+        .rollback,
+    ).toEqual({
+      version: oldArtifact.gitResolvedCommit,
+      display: expect.stringContaining(
+        `@main (${oldArtifact.gitResolvedCommit?.slice(0, 12)})`,
+      ),
+      until: clock + 50,
+    });
 
     clock += 51;
+    expect(
+      service.list().find((entry) => entry.id === "updater")?.updateState,
+    ).not.toHaveProperty("rollback");
+    await expect(service.rollbackUpdate("updater")).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("has no rollback point"),
+    });
     await service.stop();
     service = makeService();
     await service.start();
     expect(listPluginStateSnapshots(db, "updater")).toHaveLength(0);
-    expect(listPluginArtifacts(db, "updater")).toEqual(remaining);
+    expect(listPluginArtifacts(db, "updater")).toEqual([active]);
+    await expect(stat(oldArtifact.path)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await stat(active.path);
   }, 60_000);
 
   it("orders removal after an in-flight update without resurrecting the plugin", async () => {

@@ -830,6 +830,7 @@ export function createPluginUpdates(
           db: deps.db,
           dataDir: deps.dataDir,
           pluginId: id,
+          now: now(),
           warn: (message) => deps.logger.warn(message),
         });
         await runArtifactGc();

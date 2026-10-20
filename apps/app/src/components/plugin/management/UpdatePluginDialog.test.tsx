@@ -254,6 +254,7 @@ describe("UpdatePluginDialog", () => {
       id: "update-1",
       pluginId: "linear",
       displayName: "Linear",
+      kind: "update",
       state: "running",
       phase: "checking",
     };

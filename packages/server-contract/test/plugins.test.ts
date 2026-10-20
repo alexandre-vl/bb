@@ -5,7 +5,9 @@ import {
   pluginCatalogSearchResponseSchema,
   pluginCatalogSearchResultSchema,
   pluginCatalogStatusSchema,
+  pluginRollbackRequestSchema,
   pluginSettingDescriptorSchema,
+  pluginUpdateJobListResponseSchema,
 } from "../src/index.js";
 
 describe("plugin contracts", () => {
@@ -153,5 +155,36 @@ describe("plugin contracts", () => {
     expect(
       installedPluginSchema.shape.collections.safeParse(undefined).success,
     ).toBe(false);
+  });
+
+  it("reads a job from a server that predates rollback as an update", () => {
+    const job = {
+      id: "job-1",
+      pluginId: "notes",
+      displayName: "Notes",
+      state: "running",
+      phase: "checking",
+    };
+    expect(
+      pluginUpdateJobListResponseSchema
+        .parse({
+          jobs: [job, { ...job, id: "job-2", kind: "rollback" }],
+        })
+        .jobs.map((entry) => entry.kind),
+    ).toEqual(["update", "rollback"]);
+  });
+
+  it("accepts only an expected version on a rollback request", () => {
+    expect(pluginRollbackRequestSchema.parse({})).toEqual({});
+    expect(
+      pluginRollbackRequestSchema.parse({ expectedVersion: "1.0.0" }),
+    ).toEqual({ expectedVersion: "1.0.0" });
+    for (const body of [
+      { expectedVersion: "" },
+      { version: "1.0.0" },
+      { expectedVersion: "1.0.0", force: true },
+    ]) {
+      expect(pluginRollbackRequestSchema.safeParse(body).success).toBe(false);
+    }
   });
 });

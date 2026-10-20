@@ -18,6 +18,7 @@ export interface PluginUpdateJobs {
   start(args: {
     pluginId: string;
     displayName: string;
+    kind: PluginUpdateJob["kind"];
     expectedVersion: string | null;
     run: () => Promise<PluginApplyUpdateResult>;
   }): PluginUpdateJob;
@@ -61,8 +62,8 @@ export function createPluginUpdateJobs(deps: {
     );
     if (entry === undefined) return;
     running = true;
-    const { id, pluginId, displayName } = entry.job;
-    const base = { id, pluginId, displayName };
+    const { id, pluginId, displayName, kind } = entry.job;
+    const base = { id, pluginId, displayName, kind };
     update(entry, { ...base, state: "running", phase: "preparing" });
     void withPluginUpdateProgress(
       (phase) => update(entry, { ...base, state: "running", phase }),
@@ -84,11 +85,12 @@ export function createPluginUpdateJobs(deps: {
   }
 
   return {
-    start({ pluginId, displayName, expectedVersion, run }) {
+    start({ pluginId, displayName, kind, expectedVersion, run }) {
       pruneFinished();
       const duplicate = [...entries.values()].find(
         (entry) =>
           entry.job.pluginId === pluginId &&
+          entry.job.kind === kind &&
           entry.expectedVersion === expectedVersion &&
           (entry.job.state === "queued" || entry.job.state === "running"),
       );
@@ -98,7 +100,13 @@ export function createPluginUpdateJobs(deps: {
         settle = resolve;
       });
       const entry: JobEntry = {
-        job: { id: randomUUID(), pluginId, displayName, state: "queued" },
+        job: {
+          id: randomUUID(),
+          pluginId,
+          displayName,
+          kind,
+          state: "queued",
+        },
         expectedVersion,
         run,
         finishedAt: null,

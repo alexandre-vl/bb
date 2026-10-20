@@ -1,4 +1,5 @@
 import type { PluginUpdateJobs } from "../services/plugins/plugin-update-jobs.js";
+import { respondWithUpdateJob } from "./plugin-update-jobs.js";
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
@@ -28,10 +29,7 @@ import type {
 import { PluginSettingsValidationError } from "../services/plugins/plugin-settings.js";
 import { PLUGIN_RPC_CALLER_HEADER } from "../services/plugins/plugin-rpc-caller.js";
 import type { PluginInstallJobs } from "../services/plugins/plugin-install-jobs.js";
-import {
-  prefersRespondAsync,
-  respondWithInstallJob,
-} from "./plugin-install-jobs.js";
+import { respondWithInstallJob } from "./plugin-install-jobs.js";
 import {
   createAppAssetCompressionCache,
   type AppAssetCompressionCache,
@@ -46,6 +44,7 @@ import {
   pluginCachePruneRequestSchema,
   pluginRpcDiscoveryQuerySchema,
   pluginInstallRequestSchema,
+  pluginRollbackRequestSchema,
   pluginSafeModeRequestSchema,
   pluginSettingsUpdateRequestSchema,
   pluginTokenRequestSchema,
@@ -703,6 +702,7 @@ export function registerPluginRoutes(
     const job = updateJobs.start({
       pluginId,
       displayName: plugins.getDisplayName(pluginId),
+      kind: "update",
       expectedVersion: request.expectedVersion ?? null,
       run: async () => {
         const outcome = await plugins.applyUpdate(pluginId, request);
@@ -710,19 +710,32 @@ export function registerPluginRoutes(
         return outcome.result;
       },
     });
-    if (prefersRespondAsync(context)) return context.json({ job }, 202);
-    const settled = (await updateJobs.settled(job.id)) ?? job;
-    return settled.state === "completed"
-      ? context.json(settled.result)
-      : context.json(
-          {
-            error:
-              settled.state === "failed"
-                ? settled.error
-                : "update did not complete",
-          },
-          422,
-        );
+    return respondWithUpdateJob(context, updateJobs, job);
+  });
+
+  app.post("/plugins/:id/rollback", async (context) => {
+    const json: unknown = await context.req.json().catch(() => null);
+    const body = pluginRollbackRequestSchema.safeParse(json);
+    if (!body.success) {
+      return context.json(
+        { error: 'expected { "expectedVersion"?: string }' },
+        400,
+      );
+    }
+    const pluginId = context.req.param("id");
+    const request = body.data;
+    const job = updateJobs.start({
+      pluginId,
+      displayName: plugins.getDisplayName(pluginId),
+      kind: "rollback",
+      expectedVersion: request.expectedVersion ?? null,
+      run: async () => {
+        const outcome = await plugins.rollbackUpdate(pluginId, request);
+        if (!outcome.ok) throw new Error(outcome.error);
+        return outcome.result;
+      },
+    });
+    return respondWithUpdateJob(context, updateJobs, job);
   });
 
   app.post("/plugins/install", async (context) => {

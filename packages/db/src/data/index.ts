@@ -226,11 +226,13 @@ export {
 export {
   createPluginStateSnapshot,
   deletePluginStateSnapshot,
+  findPluginRollbackSnapshot,
   getPluginStateSnapshot,
   listExpiredPluginStateSnapshots,
   listGarbageCollectablePluginArtifacts,
   listIncompletePluginRollbackSnapshots,
   listPluginStateSnapshots,
+  listRetainedPluginRollbackSnapshots,
   replacePluginSnapshotState,
   setPluginStateSnapshotStatus,
   setPluginStateSnapshotRollbackPending,

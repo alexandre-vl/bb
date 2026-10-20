@@ -5,7 +5,12 @@ import type { PluginUpdateJob } from "@bb/server-contract";
 import { appToast } from "@/components/ui/app-toast";
 import { reportPluginUpdateJobs } from "./PluginUpdateJobsHost";
 
-const base = { id: "update-1", pluginId: "notes", displayName: "Notes" };
+const base = {
+  id: "update-1",
+  pluginId: "notes",
+  displayName: "Notes",
+  kind: "update",
+} as const;
 
 beforeEach(() => {
   vi.stubGlobal("sessionStorage", createMemoryStorage());

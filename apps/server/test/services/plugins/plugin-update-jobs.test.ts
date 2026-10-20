@@ -14,6 +14,7 @@ it("deduplicates an active update, queues other updates, and proceeds after fail
   const first = jobs.start({
     pluginId: "one",
     displayName: "One",
+    kind: "update",
     expectedVersion: null,
     run: async () => {
       reportPluginUpdatePhase("checking");
@@ -29,12 +30,14 @@ it("deduplicates an active update, queues other updates, and proceeds after fail
   const second = jobs.start({
     pluginId: "two",
     displayName: "Two",
+    kind: "update",
     expectedVersion: null,
     run: next,
   });
   const duplicate = jobs.start({
     pluginId: "one",
     displayName: "One",
+    kind: "update",
     expectedVersion: null,
     run: next,
   });
@@ -71,24 +74,28 @@ it("joins an active update only when it applies the same reviewed version", asyn
   const reviewed = jobs.start({
     pluginId: "notes",
     displayName: "Notes",
+    kind: "update",
     expectedVersion: "1.1.0",
     run: () => waiting,
   });
   const sameReview = jobs.start({
     pluginId: "notes",
     displayName: "Notes",
+    kind: "update",
     expectedVersion: "1.1.0",
     run: async () => result,
   });
   const otherReview = jobs.start({
     pluginId: "notes",
     displayName: "Notes",
+    kind: "update",
     expectedVersion: "1.2.0",
     run: async () => result,
   });
   const unbound = jobs.start({
     pluginId: "notes",
     displayName: "Notes",
+    kind: "update",
     expectedVersion: null,
     run: async () => result,
   });
@@ -100,4 +107,53 @@ it("joins an active update only when it applies the same reviewed version", asyn
   await expect(jobs.settled(unbound.id)).resolves.toMatchObject({
     state: "completed",
   });
+});
+
+it("never merges a rollback into an update of the same plugin", async () => {
+  let finish = (_result: PluginApplyUpdateResult) => {};
+  const waiting = new Promise<PluginApplyUpdateResult>((resolve) => {
+    finish = resolve;
+  });
+  const result: PluginApplyUpdateResult = {
+    applied: true,
+    from: { version: "1.1.0", display: "1.1.0" },
+    to: { version: "1.0.0", display: "1.0.0" },
+    outcome: "reverted",
+  };
+  const jobs = createPluginUpdateJobs({ notifyChanged: () => {} });
+  const update = jobs.start({
+    pluginId: "notes",
+    displayName: "Notes",
+    kind: "update",
+    expectedVersion: "1.0.0",
+    run: () => waiting,
+  });
+  const rollback = jobs.start({
+    pluginId: "notes",
+    displayName: "Notes",
+    kind: "rollback",
+    expectedVersion: "1.0.0",
+    run: async () => result,
+  });
+  const sameRollback = jobs.start({
+    pluginId: "notes",
+    displayName: "Notes",
+    kind: "rollback",
+    expectedVersion: "1.0.0",
+    run: async () => result,
+  });
+
+  expect(rollback.id).not.toBe(update.id);
+  expect(sameRollback.id).toBe(rollback.id);
+  expect(jobs.get(rollback.id)).toMatchObject({
+    kind: "rollback",
+    state: "queued",
+  });
+  finish({ ...result, outcome: "updated" });
+  await expect(jobs.settled(rollback.id)).resolves.toMatchObject({
+    kind: "rollback",
+    state: "completed",
+    result: { outcome: "reverted" },
+  });
+  expect(jobs.get(update.id)).toMatchObject({ kind: "update" });
 });

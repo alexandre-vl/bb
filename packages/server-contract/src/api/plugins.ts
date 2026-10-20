@@ -79,7 +79,7 @@ export const pluginApplyUpdateResultSchema = z.object({
   applied: z.boolean(),
   from: pluginResolvedVersionSchema,
   to: pluginResolvedVersionSchema.optional(),
-  outcome: z.enum(["current", "updated", "rolled-back"]),
+  outcome: z.enum(["current", "updated", "rolled-back", "reverted"]),
   detail: z.string().optional(),
 });
 export type PluginApplyUpdateResult = z.infer<
@@ -98,6 +98,7 @@ const pluginUpdateJobFields = {
   id: z.string().min(1),
   pluginId: z.string().min(1),
   displayName: z.string().min(1),
+  kind: z.enum(["update", "rollback"]).default("update"),
 };
 
 export const pluginUpdateJobSchema = z.discriminatedUnion("state", [
@@ -181,6 +182,18 @@ export const pluginSourceDetailSchema = z.object({
 });
 export type PluginSourceDetail = z.infer<typeof pluginSourceDetailSchema>;
 
+export const pluginRollbackRequestSchema = z
+  .object({ expectedVersion: z.string().min(1).optional() })
+  .strict();
+export type PluginRollbackRequest = z.infer<typeof pluginRollbackRequestSchema>;
+
+export const pluginRollbackPointSchema = z.object({
+  version: z.string(),
+  display: z.string(),
+  until: z.number(),
+});
+export type PluginRollbackPoint = z.infer<typeof pluginRollbackPointSchema>;
+
 export const pluginUpdateStateSchema = z.object({
   outcome: pluginUpdateOutcomeSchema.optional(),
   detail: z.string().optional(),
@@ -194,6 +207,7 @@ export const pluginUpdateStateSchema = z.object({
   lastFailure: z
     .object({ version: z.string(), at: z.number(), detail: z.string() })
     .optional(),
+  rollback: pluginRollbackPointSchema.optional(),
 });
 
 export const pluginHandlerStatsSchema = z.object({

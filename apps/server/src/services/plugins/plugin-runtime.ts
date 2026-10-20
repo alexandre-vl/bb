@@ -363,7 +363,7 @@ export interface SafeModeActivationRefusalArgs {
   pluginId: string;
   provenance: InstalledPluginRow["provenance"];
   builtinName: string | null;
-  action: "install" | "update";
+  action: "install" | "update" | "roll back";
 }
 
 const PLUGIN_SAFE_MODE_DETAIL = "safe mode is on";

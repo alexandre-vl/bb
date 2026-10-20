@@ -16,6 +16,7 @@ import {
   type PluginStateSnapshotRow,
 } from "@bb/db";
 import {
+  applyPluginStateSnapshot,
   createPluginStateSnapshotOnDisk,
   readPluginSnapshotRegistration,
   restorePluginHostStateSnapshot,
@@ -24,6 +25,7 @@ import {
 import {
   garbageCollectPluginArtifacts,
   pluginArtifactStorageRoot,
+  removePluginStateSnapshots,
 } from "./plugin-artifact-gc.js";
 import type { PluginRuntimeStatus } from "@bb/server-contract";
 import type { PluginServiceDeps } from "./plugin-service-internal.js";
@@ -34,6 +36,11 @@ export class PluginActivationRolledBackError extends Error {
     super(message);
     this.name = "PluginActivationRolledBackError";
   }
+}
+
+export interface PluginRollbackActivation {
+  snapshotId: string;
+  registration: InstalledPluginRow;
 }
 
 interface PluginActivationContext {
@@ -68,6 +75,10 @@ interface PluginActivationContext {
     readonly statusDetail: null;
   };
   sourceFingerprint: (row: InstalledPluginRow) => string;
+  rememberSnapshotRegistration: (
+    snapshotId: string,
+    registration: InstalledPluginRow,
+  ) => void;
   syncCliSkill: () => Promise<void>;
   notifyPluginsChanged: () => void;
 }
@@ -91,6 +102,7 @@ export function createPluginActivation(context: PluginActivationContext) {
     registrationMatchesForActivation,
     emptyPluginUpdateState,
     sourceFingerprint,
+    rememberSnapshotRegistration,
     syncCliSkill,
     notifyPluginsChanged,
   } = context;
@@ -173,6 +185,17 @@ export function createPluginActivation(context: PluginActivationContext) {
 
   async function recoverIncompletePluginRollbacks(): Promise<void> {
     for (const snapshot of listIncompletePluginRollbackSnapshots(deps.db)) {
+      if (getInstalledPlugin(deps.db, snapshot.pluginId) === undefined) {
+        logger.warn(
+          `plugin ${snapshot.pluginId} was removed before bb finished restoring it, so bb deletes its snapshots instead of restoring it`,
+        );
+        await removePluginStateSnapshots({
+          db: deps.db,
+          pluginId: snapshot.pluginId,
+          warn: (message) => logger.warn(message),
+        });
+        continue;
+      }
       const artifact = getPluginArtifact(deps.db, snapshot.toArtifactId);
       const artifactLockKey =
         (artifact === undefined ? null : pluginArtifactStorageRoot(artifact)) ??
@@ -194,14 +217,32 @@ export function createPluginActivation(context: PluginActivationContext) {
     exactResolution: PluginExactResolution;
     artifactId: string;
     beforePersist?: () => Promise<void>;
+    rollback?: PluginRollbackActivation;
   }): Promise<void> {
     const provenance = provenanceForRow(args.row);
+    const registration = args.rollback?.registration ?? args.row;
     const candidateVersion =
       args.exactResolution.kind === "npm"
         ? args.exactResolution.version
         : args.exactResolution.kind === "git"
           ? args.exactResolution.commit
           : args.manifest.version;
+    const markRollbackPending = (snapshotId: string, detail: string) => {
+      if (
+        !setPluginStateSnapshotRollbackPending(deps.db, snapshotId, {
+          candidateVersion,
+          sourceFingerprint: sourceFingerprint(args.row),
+          bbVersion: deps.appVersion,
+          sdkVersion: PLUGIN_SDK_VERSION,
+          detail,
+          updatedAt: now(),
+        })
+      ) {
+        throw new Error(
+          `plugin rollback snapshot ${snapshotId} could not be marked pending`,
+        );
+      }
+    };
     await withLifecycleLock(args.row.id, async () => {
       const beforeDispose = getInstalledPlugin(deps.db, args.row.id);
       if (
@@ -231,8 +272,15 @@ export function createPluginActivation(context: PluginActivationContext) {
         if (previous) await loadOne(previous);
         throw error;
       }
+      rememberSnapshotRegistration(snapshot.id, args.row);
       let pointerWritten = false;
       try {
+        if (args.rollback !== undefined) {
+          markRollbackPending(
+            snapshot.id,
+            `rolling back to ${args.manifest.version} was interrupted before it finished`,
+          );
+        }
         reportPluginUpdatePhase("activating");
         await args.beforePersist?.();
         const beforeWrite = getInstalledPlugin(deps.db, args.row.id);
@@ -250,14 +298,31 @@ export function createPluginActivation(context: PluginActivationContext) {
           provenance,
           sourceIntent: args.sourceIntent,
           exactResolution: args.exactResolution,
-          updateState: emptyPluginUpdateState(),
+          updateState:
+            args.rollback === undefined
+              ? emptyPluginUpdateState()
+              : {
+                  lastCheckAt: registration.lastUpdateCheckAt,
+                  availableCompatibleVersion:
+                    registration.availableCompatibleVersion,
+                  newestIncompatibleVersion:
+                    registration.newestIncompatibleVersion,
+                  statusDetail: registration.updateStatusDetail,
+                },
           activeArtifactId: args.artifactId,
           rootDir: args.rootDir,
           version: args.manifest.version,
-          enabled: args.row.enabled,
-          enabledFollowsDefault: args.row.enabledFollowsDefault,
+          enabled: registration.enabled,
+          enabledFollowsDefault: registration.enabledFollowsDefault,
         });
         pointerWritten = true;
+        if (args.rollback !== undefined) {
+          await applyPluginStateSnapshot({
+            db: deps.db,
+            dataDir: deps.dataDir,
+            snapshotId: args.rollback.snapshotId,
+          });
+        }
         const current = getInstalledPlugin(deps.db, args.row.id);
         stabilizingPluginIds.add(args.row.id);
         if (current) await loadOne(current);
@@ -303,31 +368,42 @@ export function createPluginActivation(context: PluginActivationContext) {
           });
           if (failure !== null) throw new Error(failure);
         }
+        if (args.rollback !== undefined) {
+          setPluginStateSnapshotStatus(
+            deps.db,
+            snapshot.id,
+            "discarded",
+            now(),
+          );
+          setPluginStateSnapshotStatus(
+            deps.db,
+            args.rollback.snapshotId,
+            "restored",
+            now(),
+          );
+        }
       } catch (error) {
         if (!pointerWritten) {
+          if (args.rollback !== undefined) {
+            setPluginStateSnapshotStatus(
+              deps.db,
+              snapshot.id,
+              "discarded",
+              now(),
+            );
+          }
           const previous = getInstalledPlugin(deps.db, args.row.id);
           if (previous) await loadOne(previous);
           throw error;
         }
         const detail = error instanceof Error ? error.message : String(error);
-        if (
-          !setPluginStateSnapshotRollbackPending(deps.db, snapshot.id, {
-            candidateVersion,
-            sourceFingerprint: sourceFingerprint(args.row),
-            bbVersion: deps.appVersion,
-            sdkVersion: PLUGIN_SDK_VERSION,
-            detail,
-            updatedAt: now(),
-          })
-        ) {
-          throw new Error(
-            `plugin rollback snapshot ${snapshot.id} could not be marked pending`,
-          );
-        }
+        markRollbackPending(snapshot.id, detail);
         reportPluginUpdatePhase("rolling-back");
         await recoverRollbackWithinLifecycle(snapshot.id);
         throw new PluginActivationRolledBackError(
-          `activation of ${args.manifest.version} failed and was rolled back: ${detail}; run apply update again to retry explicitly`,
+          args.rollback === undefined
+            ? `activation of ${args.manifest.version} failed and was rolled back: ${detail}; run apply update again to retry explicitly`
+            : `rolling back to ${args.manifest.version} failed, so bb restored ${args.row.version} and the data it had before the rollback: ${detail}`,
         );
       } finally {
         stabilizingPluginIds.delete(args.row.id);

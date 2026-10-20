@@ -1,9 +1,11 @@
 import {
   and,
   asc,
+  desc,
   eq,
   gt,
   inArray,
+  isNotNull,
   lte,
   notExists,
   notInArray,
@@ -18,6 +20,7 @@ import {
   pluginSettings,
   pluginStateSnapshots,
 } from "../schema.js";
+import type { PluginArtifactRow } from "./plugin-artifacts.js";
 import type { PluginKvRow, PluginSettingRow } from "./plugin-storage.js";
 import type { PluginScheduleRow } from "./plugin-schedules.js";
 
@@ -37,6 +40,7 @@ export interface PluginStateSnapshotRow {
     | "rollback-pending"
     | "restoring"
     | "restored"
+    | "discarded"
     | "failed";
   rollbackCandidateVersion: string | null;
   rollbackSourceFingerprint: string | null;
@@ -119,7 +123,7 @@ export function setPluginStateSnapshotRollbackPending(
       .where(
         and(
           eq(pluginStateSnapshots.id, id),
-          eq(pluginStateSnapshots.status, "ready"),
+          inArray(pluginStateSnapshots.status, ["ready", "rollback-pending"]),
         ),
       )
       .run().changes > 0
@@ -158,6 +162,56 @@ export function listExpiredPluginStateSnapshots(
       ),
     )
     .orderBy(asc(pluginStateSnapshots.retainedUntil))
+    .all();
+}
+
+export function findPluginRollbackSnapshot(
+  db: DbConnection,
+  args: { pluginId: string; activeArtifactId: string; now: number },
+):
+  | { snapshot: PluginStateSnapshotRow; artifact: PluginArtifactRow | null }
+  | undefined {
+  return db
+    .select({ snapshot: pluginStateSnapshots, artifact: pluginArtifacts })
+    .from(pluginStateSnapshots)
+    .leftJoin(
+      pluginArtifacts,
+      eq(pluginArtifacts.id, pluginStateSnapshots.fromArtifactId),
+    )
+    .where(
+      and(
+        eq(pluginStateSnapshots.pluginId, args.pluginId),
+        eq(pluginStateSnapshots.toArtifactId, args.activeArtifactId),
+        eq(pluginStateSnapshots.status, "ready"),
+        gt(pluginStateSnapshots.retainedUntil, args.now),
+        isNotNull(pluginStateSnapshots.fromArtifactId),
+        isNotNull(pluginStateSnapshots.registrationPath),
+      ),
+    )
+    .orderBy(
+      desc(pluginStateSnapshots.createdAt),
+      desc(pluginStateSnapshots.id),
+    )
+    .limit(1)
+    .get();
+}
+
+export function listRetainedPluginRollbackSnapshots(
+  db: DbConnection,
+  now: number,
+): PluginStateSnapshotRow[] {
+  return db
+    .select()
+    .from(pluginStateSnapshots)
+    .where(
+      and(
+        eq(pluginStateSnapshots.status, "ready"),
+        gt(pluginStateSnapshots.retainedUntil, now),
+        isNotNull(pluginStateSnapshots.fromArtifactId),
+        isNotNull(pluginStateSnapshots.registrationPath),
+      ),
+    )
+    .orderBy(asc(pluginStateSnapshots.createdAt), asc(pluginStateSnapshots.id))
     .all();
 }
 
@@ -201,7 +255,8 @@ export function replacePluginSnapshotState(
 export function listGarbageCollectablePluginArtifacts(
   db: DbConnection,
   args: {
-    retention: { now: number; cutoff: number } | null;
+    now: number;
+    retentionCutoff: number | null;
     pluginId: string | null;
   },
 ): Array<typeof pluginArtifacts.$inferSelect> {
@@ -209,25 +264,33 @@ export function listGarbageCollectablePluginArtifacts(
     .select({ id: installedPlugins.id })
     .from(installedPlugins)
     .where(eq(installedPlugins.activeArtifactId, pluginArtifacts.id));
-  const pendingRollback = inArray(pluginStateSnapshots.status, [
-    "rollback-pending",
-    "restoring",
-  ]);
+  const referencesArtifact = or(
+    eq(pluginStateSnapshots.fromArtifactId, pluginArtifacts.id),
+    eq(pluginStateSnapshots.toArtifactId, pluginArtifacts.id),
+  );
   const retainingSnapshot = db
     .select({ id: pluginStateSnapshots.id })
     .from(pluginStateSnapshots)
     .where(
-      and(
-        args.retention === null
-          ? pendingRollback
-          : or(
-              gt(pluginStateSnapshots.retainedUntil, args.retention.now),
-              pendingRollback,
-            ),
-        or(
-          eq(pluginStateSnapshots.fromArtifactId, pluginArtifacts.id),
-          eq(pluginStateSnapshots.toArtifactId, pluginArtifacts.id),
+      or(
+        and(
+          inArray(pluginStateSnapshots.status, [
+            "rollback-pending",
+            "restoring",
+          ]),
+          referencesArtifact,
         ),
+        and(
+          eq(pluginStateSnapshots.status, "ready"),
+          gt(pluginStateSnapshots.retainedUntil, args.now),
+          eq(pluginStateSnapshots.fromArtifactId, pluginArtifacts.id),
+        ),
+        args.retentionCutoff === null
+          ? undefined
+          : and(
+              gt(pluginStateSnapshots.retainedUntil, args.now),
+              referencesArtifact,
+            ),
       ),
     );
   return db
@@ -235,9 +298,9 @@ export function listGarbageCollectablePluginArtifacts(
     .from(pluginArtifacts)
     .where(
       and(
-        args.retention === null
+        args.retentionCutoff === null
           ? undefined
-          : lte(pluginArtifacts.updatedAt, args.retention.cutoff),
+          : lte(pluginArtifacts.updatedAt, args.retentionCutoff),
         args.pluginId === null
           ? undefined
           : eq(pluginArtifacts.pluginId, args.pluginId),

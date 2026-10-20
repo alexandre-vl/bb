@@ -417,6 +417,7 @@ export const pluginStateSnapshots = sqliteTable(
         "rollback-pending",
         "restoring",
         "restored",
+        "discarded",
         "failed",
       ],
     }).notNull(),

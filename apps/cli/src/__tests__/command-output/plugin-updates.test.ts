@@ -316,6 +316,7 @@ describe("bb plugin update commands", () => {
       id: "update-1",
       pluginId: "notes",
       displayName: "Notes",
+      kind: "update",
       state: "running",
       phase: "checking",
     };

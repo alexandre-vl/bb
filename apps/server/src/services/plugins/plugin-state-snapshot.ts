@@ -226,6 +226,40 @@ export async function restorePluginStateSnapshot(args: {
     );
   }
   setPluginStateSnapshotStatus(args.db, snapshot.id, "restoring", args.now);
+  await writePluginStateSnapshotData({
+    db: args.db,
+    dataDir: args.dataDir,
+    snapshot,
+  });
+}
+
+export async function applyPluginStateSnapshot(args: {
+  db: DbConnection;
+  dataDir: string;
+  snapshotId: string;
+}): Promise<void> {
+  const snapshot = getPluginStateSnapshot(args.db, args.snapshotId);
+  if (snapshot === undefined) {
+    throw new Error(`plugin state snapshot disappeared: ${args.snapshotId}`);
+  }
+  if (snapshot.status !== "ready") {
+    throw new Error(
+      `plugin state snapshot ${snapshot.id} is no longer a rollback point (${snapshot.status})`,
+    );
+  }
+  await writePluginStateSnapshotData({
+    db: args.db,
+    dataDir: args.dataDir,
+    snapshot,
+  });
+}
+
+async function writePluginStateSnapshotData(args: {
+  db: DbConnection;
+  dataDir: string;
+  snapshot: PluginStateSnapshotRow;
+}): Promise<void> {
+  const { snapshot } = args;
   const targetDir = pluginDataDir(args.dataDir, snapshot.pluginId);
   await mkdir(targetDir, { recursive: true });
   const targetDatabasePath = join(targetDir, "data.db");

@@ -57,6 +57,7 @@ import {
   type PluginApplyUpdateRequest,
   type PluginCapabilitySummary,
   type PluginCachePruneResponse,
+  type PluginRollbackRequest,
   type PluginSafeModeUpdateResponse,
   type PluginSourceDetail,
   type PluginSourceSelection,
@@ -120,6 +121,7 @@ import {
 } from "./install-sources.js";
 import {
   prunePluginCache,
+  removePluginStateSnapshots,
   removeUnusedPluginArtifacts,
 } from "./plugin-artifact-gc.js";
 import { readPluginManifest, type PluginManifest } from "./manifest.js";
@@ -153,6 +155,10 @@ import {
   type PluginSettingsView,
 } from "./plugin-settings.js";
 import { createPluginActivation } from "./plugin-activation.js";
+import {
+  createPluginRollback,
+  createPluginRollbackPoints,
+} from "./plugin-rollback.js";
 import {
   createManagedPluginArtifacts,
   type InstallContext,
@@ -309,6 +315,10 @@ export interface PluginService {
   ): Promise<PluginTrackingRangeOutcome>;
   remove(id: string): Promise<boolean>;
   pruneCache(args: { dryRun: boolean }): Promise<PluginCachePruneResponse>;
+  rollbackUpdate(
+    id: string,
+    request?: PluginRollbackRequest,
+  ): Promise<PluginApplyUpdateOutcome>;
   setEnabled(
     id: string,
     enabled: boolean,
@@ -716,6 +726,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     assertInstallRegistrationAvailable,
     backfillNormalizedPluginRegistrations,
     emptyPluginUpdateState,
+    exactResolutionForRow,
     installBuiltinSource,
     installPathSource,
     installedUpdateVersion,
@@ -727,6 +738,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     refuseBuiltinShadow,
     restoreRegistration,
     sourceFingerprint,
+    sourceIntentForRow,
   } = createPluginRegistration({
     runInstallHandlers,
     safeModeActivationRefusal,
@@ -742,6 +754,12 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     syncCliSkill,
     notifyPluginsChanged,
     list,
+  });
+
+  const rollbackPoints = createPluginRollbackPoints({
+    deps,
+    now,
+    installedUpdateVersion,
   });
 
   const {
@@ -766,8 +784,24 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     registrationMatchesForActivation,
     emptyPluginUpdateState,
     sourceFingerprint,
+    rememberSnapshotRegistration: rollbackPoints.remember,
     syncCliSkill,
     notifyPluginsChanged,
+  });
+
+  const pluginRollback = createPluginRollback({
+    deps,
+    now,
+    registrationMutationKey: REGISTRATION_MUTATION_KEY,
+    withPluginOperationLock,
+    withArtifactLock,
+    safeModeActivationRefusal,
+    installedUpdateVersion,
+    sourceIntentForRow,
+    exactResolutionForRow,
+    rollbackPoints,
+    activateManagedUpdate,
+    runArtifactGc,
   });
 
   const managedPluginArtifacts = createManagedPluginArtifacts({
@@ -980,6 +1014,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
             detail: row.lastFailureDetail,
           }
         : undefined;
+    const rollback = rollbackPoints.find(row);
     return {
       ...(persisted === undefined ? {} : { outcome: persisted.outcome }),
       ...(persisted?.outcome === "unavailable" ||
@@ -1008,6 +1043,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         ? {}
         : { lastCheckAt: row.lastUpdateCheckAt }),
       ...(failure === undefined ? {} : { lastFailure: failure }),
+      ...(rollback === undefined ? {} : { rollback }),
     };
   }
 
@@ -1525,6 +1561,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
             );
           }
           await recoverIncompletePluginRollbacks();
+          await rollbackPoints.load();
         });
         await handOverRetiredBuiltins();
         await reconcileBundled();
@@ -1776,10 +1813,16 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           if (managedDir !== undefined) {
             await rm(managedDir, { recursive: true, force: true });
           }
+          await removePluginStateSnapshots({
+            db: deps.db,
+            pluginId: id,
+            warn: (message) => logger.warn(message),
+          });
           await removeUnusedPluginArtifacts({
             db: deps.db,
             dataDir: deps.dataDir,
             pluginId: id,
+            now: now(),
             warn: (message) => logger.warn(message),
           });
         }
@@ -1795,10 +1838,13 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           db: deps.db,
           dataDir: deps.dataDir,
           dryRun,
+          now: now(),
           warn: (message) => logger.warn(message),
         }),
       );
     },
+
+    rollbackUpdate: pluginRollback.rollbackUpdate,
 
     async setEnabled(id, enabled) {
       return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {

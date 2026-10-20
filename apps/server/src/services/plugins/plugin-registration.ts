@@ -805,6 +805,7 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
     assertInstallRegistrationAvailable,
     backfillNormalizedPluginRegistrations,
     emptyPluginUpdateState,
+    exactResolutionForRow,
     installBuiltinSource,
     installPathSource,
     installedUpdateVersion,
@@ -816,5 +817,6 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
     refuseBuiltinShadow,
     restoreRegistration,
     sourceFingerprint,
+    sourceIntentForRow,
   };
 }
