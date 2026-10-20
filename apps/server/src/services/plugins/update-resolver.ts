@@ -56,6 +56,7 @@ export type PluginUpdateResolution =
   | ({
       outcome: "pinned";
       current: PluginResolvedUpdateVersion;
+      detail?: string;
     } & ResolutionFlags)
   | ({
       outcome: "incompatible";

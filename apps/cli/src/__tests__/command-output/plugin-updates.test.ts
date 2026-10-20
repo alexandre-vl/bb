@@ -269,7 +269,6 @@ describe("bb plugin update commands", () => {
               id: "notes",
               outcome: "pinned",
               installed: version("1.0.0"),
-              detail: "source pins 1.0.0",
             },
           ],
         }),

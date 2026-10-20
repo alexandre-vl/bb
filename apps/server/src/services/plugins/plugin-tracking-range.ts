@@ -74,7 +74,7 @@ function rangeProblem(range: string, installed: string): string | null {
   return `${range} would only offer releases older than the installed ${installed}; bb does not downgrade. Use a range that includes ${installed} or only newer releases`;
 }
 
-function sourceRefusal(row: InstalledPluginRow): string | null {
+export function trackingRangeRefusal(row: InstalledPluginRow): string | null {
   if (row.sourceKind === "path") {
     return `plugin "${row.id}" is a local path source and has no release range; edit it in place and run \`bb plugin reload ${row.id}\``;
   }
@@ -94,7 +94,10 @@ function sourceRefusal(row: InstalledPluginRow): string | null {
     return `plugin "${row.id}" ${follows}, not a release range; to track releases, remove it and install \`git:${row.sourceGitUrl ?? "<url>"}@semver:<range>\` (${REMOVE_DELETES_DATA})`;
   }
   if (row.activeArtifactId === null) {
-    return `plugin "${row.id}" was installed by an earlier bb into a directory named after its npm version spec, so bb cannot change its range in place; its next \`bb plugin update ${row.id}\` moves it to managed storage, after which the range can change. To change it now, remove it and install \`npm:${row.sourceNpmPackage ?? row.id}@<range>\` (${REMOVE_DELETES_DATA})`;
+    const reinstall = `remove it and install \`npm:${row.sourceNpmPackage ?? row.id}@<range>\` (${REMOVE_DELETES_DATA})`;
+    return row.sourceNpmSpecKind === "exact"
+      ? `plugin "${row.id}" was installed by an earlier bb into a directory named after its pinned npm version, so bb cannot change its range in place; to track releases, ${reinstall}`
+      : `plugin "${row.id}" was installed by an earlier bb into a directory named after its npm version spec, so bb cannot change its range in place; the next update bb applies to it moves it to managed storage, after which the range can change. To change it now, ${reinstall}`;
   }
   return null;
 }
@@ -163,7 +166,7 @@ export function planTrackingRangeChange(
   row: InstalledPluginRow,
   requestedRange: string,
 ): PlanResult {
-  const unsupported = sourceRefusal(row);
+  const unsupported = trackingRangeRefusal(row);
   if (unsupported !== null) return refused(unsupported);
   if (row.sourceKind !== "git" && row.sourceKind !== "npm") {
     return refused(`plugin "${row.id}" has no release range to change`);

@@ -486,8 +486,8 @@ function pinnedSkipMessage(
   result: PluginUpdateResult,
   source: string | undefined,
 ): string {
-  const detail = updateDetail(result);
-  const skipped = `${result.id}: skipped — pinned${detail ? ` (${detail})` : ""}`;
+  const skipped = `${result.id}: skipped — pinned`;
+  if (result.detail !== undefined) return `${skipped}: ${result.detail}.`;
   if (source?.startsWith("npm:")) {
     return `${skipped}; run \`bb plugin track ${result.id} <range>\` (for example ^${result.installed.version}) to receive updates; settings, secrets, and schedules are kept.`;
   }

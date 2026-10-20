@@ -240,7 +240,21 @@ describe("bb plugin track", () => {
     ]);
   });
 
-  it("points a pinned npm plugin at bb plugin track instead of a reinstall", async () => {
+  const legacyRefusal =
+    'plugin "linear" was installed by an earlier bb into a directory named after its pinned npm version, so bb cannot change its range in place; to track releases, remove it and install `npm:bb-plugin-linear@<range>` (removing deletes its settings, secrets, and schedules)';
+
+  it.each([
+    [
+      "a managed pinned npm install at bb plugin track",
+      undefined,
+      "linear: skipped — pinned; run `bb plugin track linear <range>` (for example ^1.2.3) to receive updates; settings, secrets, and schedules are kept.",
+    ],
+    [
+      "a pinned npm install track cannot change at the server's guidance",
+      legacyRefusal,
+      `linear: skipped — pinned: ${legacyRefusal}.`,
+    ],
+  ])("points %s", async (_case, detail, line) => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         Response.json({
@@ -252,6 +266,7 @@ describe("bb plugin track", () => {
                 version: "1.2.3",
                 display: "bb-plugin-linear@1.2.3",
               },
+              ...(detail === undefined ? {} : { detail }),
             },
           ],
         }),
@@ -291,9 +306,7 @@ describe("bb plugin track", () => {
 
     await runCommand(["plugin", "update", "linear"], register);
 
-    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      "linear: skipped — pinned; run `bb plugin track linear <range>` (for example ^1.2.3) to receive updates; settings, secrets, and schedules are kept.",
-    ]);
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([line]);
   });
 
   it("documents its flags in help", async () => {

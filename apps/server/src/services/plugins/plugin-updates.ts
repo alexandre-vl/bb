@@ -56,6 +56,7 @@ import type {
 } from "./plugin-service-internal.js";
 import {
   createPluginTrackingRange,
+  trackingRangeRefusal,
   type PluginTrackingRangeOutcome,
 } from "./plugin-tracking-range.js";
 
@@ -73,6 +74,16 @@ function npmRunForRow(row: InstalledPluginRow): NpmResolverRun {
           }),
       })
     : createListedRegistryNpmResolverRun(registry);
+}
+
+function untrackableResolution(
+  resolution: PluginUpdateResolution,
+  refusal: string,
+): PluginUpdateResolution {
+  if (resolution.outcome === "pinned") {
+    return { ...resolution, detail: refusal };
+  }
+  return resolution;
 }
 
 export interface PluginUpdates {
@@ -177,7 +188,10 @@ export function createPluginUpdates(
     if (resolution.outcome === "unavailable") {
       return { ...common, detail: resolution.detail };
     }
-    if (resolution.outcome === "current" && resolution.detail !== undefined) {
+    if (
+      (resolution.outcome === "current" || resolution.outcome === "pinned") &&
+      resolution.detail !== undefined
+    ) {
       return { ...common, detail: resolution.detail };
     }
     return common;
@@ -358,12 +372,16 @@ export function createPluginUpdates(
       };
     }
     if (args.row.sourceKind === "npm") {
-      return resolveNpmUpdate({
+      const resolution = await resolveNpmUpdate({
         intent: npmIntentForRow(args.row),
         current: installed,
         appVersion: deps.appVersion,
         run: args.npmRun,
       });
+      const refusal = trackingRangeRefusal(args.row);
+      return refusal === null
+        ? resolution
+        : untrackableResolution(resolution, refusal);
     }
     if (args.row.gitResolvedCommit === null) {
       throw new Error(

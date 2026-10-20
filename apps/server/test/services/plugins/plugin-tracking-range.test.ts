@@ -429,7 +429,17 @@ describe("planTrackingRangeChange", () => {
     ).toEqual({
       ok: false,
       error:
-        'plugin "linear" was installed by an earlier bb into a directory named after its npm version spec, so bb cannot change its range in place; its next `bb plugin update linear` moves it to managed storage, after which the range can change. To change it now, remove it and install `npm:bb-plugin-linear@<range>` (removing deletes its settings, secrets, and schedules)',
+        'plugin "linear" was installed by an earlier bb into a directory named after its npm version spec, so bb cannot change its range in place; the next update bb applies to it moves it to managed storage, after which the range can change. To change it now, remove it and install `npm:bb-plugin-linear@<range>` (removing deletes its settings, secrets, and schedules)',
+    });
+  });
+
+  it("sends a pinned legacy npm install to a reinstall, since it never updates", () => {
+    expect(
+      planTrackingRangeChange(npmRow("1.2.3", "exact", null), "^1.2.3"),
+    ).toEqual({
+      ok: false,
+      error:
+        'plugin "linear" was installed by an earlier bb into a directory named after its pinned npm version, so bb cannot change its range in place; to track releases, remove it and install `npm:bb-plugin-linear@<range>` (removing deletes its settings, secrets, and schedules)',
     });
   });
 });
@@ -921,5 +931,48 @@ describe("plugin tracking range service and route", () => {
       range: "^1.0.0",
     });
     expect(requested).toContain("https://registry.test/bb-plugin-linear");
+  });
+
+  it("gives a pinned legacy npm install the reinstall guidance track refuses it with", async () => {
+    upsertInstalledPlugin(db, {
+      id: "linear",
+      source: "npm:bb-plugin-linear@1.0.0",
+      provenance: { kind: "direct" },
+      sourceIntent: {
+        kind: "npm",
+        packageName: "bb-plugin-linear",
+        registry: "https://registry.test",
+        requestedSpec: "1.0.0",
+        specKind: "exact",
+      },
+      exactResolution: {
+        kind: "npm",
+        version: "1.0.0",
+        integrity: "sha512-current",
+      },
+      updateState: EMPTY_UPDATE_STATE,
+      activeArtifactId: null,
+      rootDir: join(workDir, "linear"),
+      version: "1.0.0",
+      enabled: false,
+      enabledFollowsDefault: false,
+    });
+    const refusal =
+      'plugin "linear" was installed by an earlier bb into a directory named after its pinned npm version, so bb cannot change its range in place; to track releases, remove it and install `npm:bb-plugin-linear@<range>` (removing deletes its settings, secrets, and schedules)';
+
+    await expect(service.checkForUpdates("linear")).resolves.toEqual([
+      {
+        id: "linear",
+        outcome: "pinned",
+        installed: {
+          version: "1.0.0",
+          display: "bb-plugin-linear@1.0.0",
+        },
+        detail: refusal,
+      },
+    ]);
+    await expect(
+      service.setTrackingRange("linear", { range: "^1.0.0" }),
+    ).resolves.toEqual({ ok: false, reason: "refused", error: refusal });
   });
 });
