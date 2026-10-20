@@ -77,6 +77,24 @@ describe("bb plugin update commands", () => {
             installed: version("1.0.0"),
             detail: "registry offline",
           },
+          {
+            id: "f",
+            outcome: "update-available",
+            installed: version("1.4.0"),
+            candidate: version("2.0.0"),
+            candidateBreaking: true,
+          },
+          {
+            id: "g",
+            outcome: "current",
+            installed: version("0.1.0"),
+            outsideRange: {
+              version: "0.2.0",
+              display: "g@0.2.0",
+              breaking: true,
+              range: "^0.1.0",
+            },
+          },
         ],
       }),
     );
@@ -84,6 +102,8 @@ describe("bb plugin update commands", () => {
     await runCommand(["plugin", "outdated"], register);
 
     const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
+    const row = (id: string) =>
+      output.split("\n").find((line) => line.startsWith(`${id} `)) ?? "";
     expect(output).toContain("update available");
     expect(output).toContain("pinned");
     expect(output).toContain("2.0.0: requires bb >= 9");
@@ -91,6 +111,13 @@ describe("bb plugin update commands", () => {
       "incompatible [dev build: engines.bb not enforced]",
     );
     expect(output).toContain("unavailable");
+    expect(output).toContain("Outside range");
+    expect(row("b")).not.toContain("may break");
+    expect(row("f")).toContain("update available (may break)");
+    expect(row("g")).toMatch(/0\.2\.0 \(may break\)\s+current$/u);
+    expect(output).toContain(
+      "Outside range: the newest release the installed range excludes; compatibility not checked.",
+    );
   });
 
   it("outdated --json prints the parsed results", async () => {
@@ -99,6 +126,12 @@ describe("bb plugin update commands", () => {
         id: "notes",
         outcome: "current",
         installed: version("1.0.0"),
+        outsideRange: {
+          version: "2.0.0",
+          display: "notes@2.0.0",
+          breaking: true,
+          range: "^1.0.0",
+        },
       },
     ];
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results }));
@@ -263,6 +296,9 @@ describe("bb plugin update commands", () => {
       register,
     );
     expect(fetch).toHaveBeenCalledTimes(3);
+    expect(
+      JSON.parse(String(vi.mocked(fetch).mock.calls[2]?.[1]?.body)),
+    ).toEqual({ expectedVersion: "1.1.0" });
     expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
       "bb plugin update-jobs update-1",
     );
@@ -312,7 +348,70 @@ describe("bb plugin update commands", () => {
     expect(output).toContain("pin: skipped — pinned");
     expect(output).toContain("bad: skipped — incompatible: requires newer bb");
     expect(output).toContain("good: updated and activated 1 → 2");
-    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({});
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      expectedVersion: "2",
+    });
+  });
+
+  it("explains a current plugin whose newest release is outside its range", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            id: "agent-board",
+            outcome: "current",
+            installed: version("0.6.1"),
+            outsideRange: {
+              version: "0.7.0",
+              display: "agent-board@0.7.0",
+              breaking: true,
+              range: "^0.6.1",
+            },
+          },
+        ],
+      }),
+    );
+
+    await runCommand(["plugin", "update", "agent-board"], register);
+
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
+      "agent-board: current within ^0.6.1; 0.7.0 is outside the range (compatibility not checked).",
+    ]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns about a breaking candidate before asking to apply it", async () => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: false,
+      configurable: true,
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [
+            {
+              id: "notes",
+              outcome: "update-available",
+              installed: version("1.4.0"),
+              candidate: version("2.0.0"),
+              candidateBreaking: true,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(Response.json(pluginList("notes", "npm:notes")));
+
+    await expect(
+      runCommand(["plugin", "update", "notes"], register),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
+      "notes: 2.0.0 may include breaking changes",
+    );
+    expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+      "Refusing to update without confirmation — re-run with --yes.",
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("renders a rolled-back server result", async () => {

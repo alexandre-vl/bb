@@ -463,6 +463,15 @@ function blockedSummary(result: PluginUpdateResult): string {
   return `${result.blocked.version}: ${result.blocked.reasons.join("; ")}`;
 }
 
+function outsideRangeSummary(result: PluginUpdateResult): string {
+  if (!result.outsideRange) return "—";
+  return `${result.outsideRange.version}${result.outsideRange.breaking ? " (may break)" : ""}`;
+}
+
+function updateStatusSummary(result: PluginUpdateResult): string {
+  return `${UPDATE_STATUS_LABELS[result.outcome]}${result.candidateBreaking ? " (may break)" : ""}${result.devMode ? " [dev build: engines.bb not enforced]" : ""}`;
+}
+
 function updateDetail(result: PluginUpdateResult): string {
   return result.detail ?? result.blocked?.reasons.join("; ") ?? "";
 }
@@ -1279,7 +1288,8 @@ export function registerPluginCommands(
           result.installed.display,
           result.candidate?.display ?? "—",
           blockedSummary(result),
-          `${UPDATE_STATUS_LABELS[result.outcome]}${result.devMode ? " [dev build: engines.bb not enforced]" : ""}`,
+          outsideRangeSummary(result),
+          updateStatusSummary(result),
         ]);
         console.log(
           renderBorderlessTable(
@@ -1289,14 +1299,20 @@ export function registerPluginCommands(
                 "Installed",
                 "Latest compatible",
                 "Blocked newer",
+                "Outside range",
                 "Status",
               ],
-              colWidths: [22, 20, 22, 42, 54],
+              colWidths: [22, 20, 22, 42, 24, 54],
               trimTrailingWhitespace: true,
             },
             rows,
           ),
         );
+        if (results.some((result) => result.outsideRange !== undefined)) {
+          console.log(
+            "Outside range: the newest release the installed range excludes; compatibility not checked.",
+          );
+        }
       }),
     );
 
@@ -1397,9 +1413,13 @@ export function registerPluginCommands(
                 console.log(
                   `${result.id}: skipped — unavailable${detail ? `: ${detail}` : "."}`,
                 );
+              } else if (result.outsideRange) {
+                console.log(
+                  `${result.id}: current within ${result.outsideRange.range}; ${result.outsideRange.version} is outside the range (compatibility not checked).`,
+                );
               } else {
                 console.log(
-                  `${result.id}: current (${result.installed.display}).`,
+                  `${result.id}: current (${result.installed.display})${result.detail ? ` — ${result.detail}` : ""}.`,
                 );
               }
               continue;
@@ -1409,16 +1429,31 @@ export function registerPluginCommands(
             console.log(
               `${result.id}: ${result.installed.display} → ${target} from ${source}. Plugins are full-trust code.`,
             );
+            if (result.candidateBreaking) {
+              console.log(
+                `${result.id}: ${target} may include breaking changes — it moves to a new major version, or to a new minor version before 1.0. bb does not check that this plugin's settings and data carry over.`,
+              );
+            }
+            if (result.outsideRange) {
+              console.log(
+                `${result.id}: ${result.outsideRange.version} is outside the range ${result.outsideRange.range} and is not part of this update (compatibility not checked).`,
+              );
+            }
             await confirmPluginAction(
               "Update and activate?",
               "Refusing to update without confirmation — re-run with --yes.",
               opts.yes === true,
             );
+            const updateArgs = {
+              pluginId: result.id,
+              ...(result.candidate === undefined
+                ? {}
+                : { expectedVersion: result.candidate.version }),
+            };
 
             if (opts.wait === false) {
-              const job = await sdk.plugins.experimental_startUpdate({
-                pluginId: result.id,
-              });
+              const job =
+                await sdk.plugins.experimental_startUpdate(updateArgs);
               console.log(
                 `Updating ${job.displayName} in the background (job ${job.id}).`,
               );
@@ -1430,9 +1465,7 @@ export function registerPluginCommands(
 
             let mutation: PluginApplyUpdateResult;
             try {
-              mutation = await sdk.plugins.applyUpdate({
-                pluginId: result.id,
-              });
+              mutation = await sdk.plugins.applyUpdate(updateArgs);
             } catch (error) {
               exitWithError({ error: sdkErrorMessage(error) });
             }
