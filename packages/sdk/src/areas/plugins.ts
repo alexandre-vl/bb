@@ -39,6 +39,8 @@ import {
   pluginSourceDetailSchema,
   pluginTokenRequestSchema,
   pluginTokenResponseSchema,
+  pluginTrackingRangeRequestSchema,
+  pluginTrackingRangeResultSchema,
   pluginUpdateCheckRequestSchema,
   pluginUpdateCheckResponseSchema,
   type InstalledPlugin,
@@ -61,6 +63,7 @@ import {
   type PluginSourceDetail,
   type PluginSourceSelection,
   type PluginTokenResponse,
+  type PluginTrackingRangeResult,
   type PluginUpdateCheckEntry,
 } from "@bb/server-contract";
 import { z } from "zod";
@@ -231,6 +234,12 @@ export interface PluginPruneCacheArgs {
   signal?: AbortSignal;
 }
 
+export interface PluginSetTrackingRangeArgs extends PluginIdArgs {
+  range: string;
+  dryRun?: boolean;
+  signal?: AbortSignal;
+}
+
 export type PluginDisableResult = InstalledPlugin;
 export type PluginEnableResult = InstalledPlugin;
 export type PluginGetSettingsResult = PluginSettingsResponse;
@@ -242,6 +251,7 @@ export type PluginRemoveResult = PluginRemoveResponse;
 export type PluginSafeModeResult = PluginSafeModeResponse;
 export type PluginSetSafeModeResult = PluginSafeModeUpdateResponse;
 export type PluginPruneCacheResult = PluginCachePruneResponse;
+export type PluginSetTrackingRangeResult = PluginTrackingRangeResult;
 export type PluginTokenResult = PluginTokenResponse;
 export type PluginUpdateSettingsResult = PluginSettingsResponse;
 export type PluginGetSourceResult = PluginSourceDetail;
@@ -305,6 +315,9 @@ export interface PluginsArea {
   experimental_pruneCache(
     args?: PluginPruneCacheArgs,
   ): Promise<PluginPruneCacheResult>;
+  experimental_setTrackingRange(
+    args: PluginSetTrackingRangeArgs,
+  ): Promise<PluginSetTrackingRangeResult>;
   applyUpdate(args: PluginApplyUpdateArgs): Promise<PluginApplyUpdateResult>;
   experimental_startUpdate(
     args: PluginApplyUpdateArgs,
@@ -704,6 +717,18 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       return requestParsed(
         "/api/v1/plugins/cache/prune",
         pluginCachePruneResponseSchema,
+        { ...jsonInit("POST", body), signal: input.signal },
+      );
+    },
+    async experimental_setTrackingRange(input) {
+      const body = pluginTrackingRangeRequestSchema.parse(
+        input.dryRun === undefined
+          ? { range: input.range }
+          : { range: input.range, dryRun: input.dryRun },
+      );
+      return requestParsed(
+        pluginPath(input.pluginId, "/tracking-range"),
+        pluginTrackingRangeResultSchema,
         { ...jsonInit("POST", body), signal: input.signal },
       );
     },
