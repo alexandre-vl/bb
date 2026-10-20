@@ -157,6 +157,37 @@ describe("bb plugin track", () => {
     ]);
   });
 
+  it("marks a candidate that may break and a release the range still excludes", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...trackingResult(false, "^0.2.0"),
+        check: {
+          id: "notes",
+          outcome: "update-available",
+          installed,
+          candidate,
+          candidateBreaking: true,
+          outsideRange: {
+            version: "1.0.0",
+            display: "repo@v1.0.0 (cccccccccccc)",
+            breaking: true,
+            range: "^0.2.0",
+          },
+        },
+      }),
+    );
+
+    await runCommand(
+      ["plugin", "track", "notes", "^0.2.0", "--dry-run"],
+      register,
+    );
+
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
+      "notes would track ^0.2.0 instead of ^0.1.0; nothing changed (dry run).",
+      "  update available (may break): repo@v0.1.0 (aaaaaaaaaaaa) → repo@v0.2.0 (bbbbbbbbbbbb); 1.0.0 stays outside the range (compatibility not checked).",
+    ]);
+  });
+
   it("--dry-run --json prints the preview result", async () => {
     const preview = trackingResult(false);
     vi.mocked(fetch).mockResolvedValueOnce(Response.json(preview));

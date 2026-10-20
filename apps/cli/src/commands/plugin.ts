@@ -510,14 +510,17 @@ function trackingCheckSummary(
   check: PluginUpdateResult,
   applied: boolean,
 ): string {
+  const outside = check.outsideRange
+    ? `; ${check.outsideRange.version} stays outside the range (compatibility not checked)`
+    : "";
   if (check.outcome === "update-available") {
-    const offer = `update available: ${check.installed.display} → ${check.candidate?.display ?? "a newer release"}`;
+    const offer = `update available${check.candidateBreaking ? " (may break)" : ""}: ${check.installed.display} → ${check.candidate?.display ?? "a newer release"}${outside}`;
     return applied
       ? `${offer}; apply it with \`bb plugin update ${id}\`.`
       : `${offer}.`;
   }
   if (check.outcome === "current") {
-    return `current: ${check.installed.display} is the newest compatible release in range.`;
+    return `current: ${check.installed.display} is the newest compatible release in range${outside}.`;
   }
   const detail = updateDetail(check);
   return `${UPDATE_STATUS_LABELS[check.outcome]}${detail ? `: ${detail}` : "."}`;
