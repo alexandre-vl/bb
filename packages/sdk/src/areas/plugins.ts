@@ -116,6 +116,10 @@ export interface PluginIdArgs {
   pluginId: string;
 }
 
+export interface PluginApplyUpdateArgs extends PluginIdArgs {
+  expectedVersion?: string;
+}
+
 export interface PluginInstallArgs {
   source: string;
   subdirectory?: string;
@@ -300,8 +304,10 @@ export interface PluginsArea {
   experimental_pruneCache(
     args?: PluginPruneCacheArgs,
   ): Promise<PluginPruneCacheResult>;
-  applyUpdate(args: PluginIdArgs): Promise<PluginApplyUpdateResult>;
-  experimental_startUpdate(args: PluginIdArgs): Promise<PluginUpdateJob>;
+  applyUpdate(args: PluginApplyUpdateArgs): Promise<PluginApplyUpdateResult>;
+  experimental_startUpdate(
+    args: PluginApplyUpdateArgs,
+  ): Promise<PluginUpdateJob>;
   experimental_updateJobs: PluginUpdateJobsArea;
   callRpc<TOutput>(args: PluginRpcArgs<TOutput>): Promise<TOutput>;
   checkUpdates(
@@ -391,7 +397,12 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     },
   };
 
-  function requestUpdate(input: PluginIdArgs) {
+  function requestUpdate(input: PluginApplyUpdateArgs) {
+    const body = pluginApplyUpdateRequestSchema.parse(
+      input.expectedVersion === undefined
+        ? {}
+        : { expectedVersion: input.expectedVersion },
+    );
     return requestParsed(
       pluginPath(input.pluginId, "/update"),
       z.union([pluginUpdateJobResponseSchema, pluginApplyUpdateResultSchema]),
@@ -401,7 +412,7 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
           "content-type": "application/json",
           prefer: "respond-async",
         },
-        body: JSON.stringify(pluginApplyUpdateRequestSchema.parse({})),
+        body: JSON.stringify(body),
       },
     );
   }

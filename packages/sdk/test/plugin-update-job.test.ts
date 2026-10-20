@@ -78,6 +78,29 @@ describe("background plugin updates", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("sends the reviewed version so the server can refuse a different release", async () => {
+    const { sdk, requests } = server({ state: "completed", result });
+    await sdk.plugins.applyUpdate({
+      pluginId: "notes",
+      expectedVersion: "1.1.0",
+    });
+    await sdk.plugins.experimental_startUpdate({
+      pluginId: "notes",
+      expectedVersion: "1.1.0",
+    });
+    await sdk.plugins.experimental_startUpdate({ pluginId: "notes" });
+    const bodies = await Promise.all(
+      requests
+        .filter((request) => request.method === "POST")
+        .map((request) => request.json()),
+    );
+    expect(bodies).toEqual([
+      { expectedVersion: "1.1.0" },
+      { expectedVersion: "1.1.0" },
+      {},
+    ]);
+  });
+
   it("reports a failed job instead of a successful update", async () => {
     const { sdk } = server({ state: "failed", error: "source unavailable" });
     await expect(
