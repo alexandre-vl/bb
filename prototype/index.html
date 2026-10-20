@@ -239,6 +239,22 @@ body.framed .stage.phone .gh.panel{height:100vh}
 .dmeta .branch .hd{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dmeta .branch .bs{flex:none;white-space:pre}
 .pill{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px 0 5px;border:1px solid var(--line);border-radius:999px;font-size:var(--text-xs);color:var(--t1);white-space:nowrap}
+.pill.st{cursor:pointer;padding-right:4px;transition:background-color .15s}
+.pill.st .pchev{color:var(--t3);transition:color .15s}
+.pill.st:hover,.pill.st.open{background:var(--hover)}
+.pill.st:hover .pchev,.pill.st.open .pchev{color:var(--t1)}
+.pill.st[disabled]{cursor:progress;padding-right:7px;color:var(--t2)}
+.mchip{display:inline-flex;align-items:center;gap:6px;min-width:0;height:22px;margin:0 -5px;padding:0 5px;border-radius:6px;transition:background-color .15s,color .15s}
+.mchip:hover{background:var(--hover);color:var(--t1)}
+.bchip{flex:0 1 auto;font-family:var(--mono)}
+.bchip .cpi{flex:none;color:var(--t3);transition:color .15s}
+.bchip:hover .cpi{color:var(--t1)}
+.bchip.done .cpi{color:var(--green)}
+.dstat{gap:4px;font-variant-numeric:tabular-nums}
+/* bb's DiffSizeBar: five 6 px blocks (diff-stats-tally.tsx:52-75) */
+.dsb{display:inline-flex;gap:1px;margin-left:3px}
+.dsb i{width:6px;height:6px;border-radius:1px;background:var(--muted-bg)}
+.dsb i.a{background:var(--add)}.dsb i.r{background:var(--rem)}
 .add{color:var(--add)}.rem{color:var(--rem)}
 .next{margin:0 -17px;border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:12px}
 .next .follow{margin-top:-2px}
@@ -349,6 +365,14 @@ body.framed .stage.phone .gh.panel{height:100vh}
 .peek{animation:rv .15s ease-out both}
 .mi{display:flex;align-items:center;gap:8px;width:100%;min-height:26px;padding:5px 8px;border-radius:4px;font-size:var(--text-xs);line-height:var(--lh-xs);color:var(--t1)}
 .mi:hover,.mi.on{background:var(--hover)}
+.mi:focus-visible{outline:none;background:var(--hover)}
+.stpop .mi .stl{flex:none;min-width:4.8em}
+.stpop .mi .std{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)}
+.stpop .mi.cur,.stpop .mi[aria-disabled=true]{cursor:default}
+.stpop .mi[aria-disabled=true]:hover{background:none}
+.stpop .mi[aria-disabled=true] .i,.stpop .mi[aria-disabled=true] .stl{opacity:.45}
+.stpop .mi.danger,.stpop .mi.danger:hover,.stpop .mi.danger:focus-visible{background:color-mix(in oklab,var(--red) 12%,transparent);color:var(--red)}
+.stpop .mi.danger .std,.stpop .mi.danger .hint{color:var(--red)}
 .mi .ic{color:var(--mfg)}
 .mi .hint{margin-left:auto;padding-left:12px;color:var(--t2);display:inline-flex;gap:2px;align-items:center}
 .mi .hint kbd{height:18px;min-width:18px;padding:0 4px}
@@ -393,6 +417,8 @@ body.framed .stage.phone .gh.panel{height:100vh}
 .bulk .btn.sm{height:28px;padding:0 8px}
 .vsep{width:1px;height:16px;background:var(--line);margin:0 6px}
 .toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:8px;max-width:calc(100% - 32px);padding:8px 12px;border-radius:8px;background:var(--bg);border:1px solid var(--line);box-shadow:var(--sh-md);font-size:var(--text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:pop .14s ease-out}
+.toast .tact{margin:-4px -6px -4px 6px;height:24px;padding:0 8px;border-radius:4px;font-weight:500;color:var(--t1)}
+.toast .tact:hover{background:var(--hover)}
 
 /* other surfaces */
 .home{display:flex;flex-direction:column;align-items:center;gap:32px;padding:48px 20px 40px}
@@ -481,6 +507,7 @@ body.framed .gh.panel{height:100vh}
   .nact .btn{width:100%}
   .crumb .pre{display:none}
   .pill{height:24px}
+  .pill.st,.mchip{height:28px}
   .shell{grid-template-columns:1fr}.sbar{display:none}
 }
 </style>
@@ -595,10 +622,10 @@ const S = {
   disp: params.get("disp") === "1", help: params.get("help") === "1", pop: params.get("pop") === "1",
   snoozed: { ...SC.snoozed }, follow: { ...SC.follow }, to: "agent", toMenu: false, descOpen: false, loading: params.get("loading") === "1", syncing: false, toast: null, fpick: new Set([0, 1]),
   net: ["slow", "offline"].includes(params.get("net")) ? params.get("net") : "fast", warm: params.get("load") === "warm",
-  drafts: {}, sent: {}, flash: {}, busy: {}, merging: new Set(), openedAt: null, syncErr: false, syncedAt: null
+  drafts: {}, sent: {}, flash: {}, busy: {}, stBusy: {}, stEv: {}, stMenu: params.get("st") ? Number(params.get("st")) : null, stAt: "pill", stConfirm: null, copied: null, refocus: null, menuFocus: false, scrollTabs: false, merging: new Set(), openedAt: null, syncErr: false, syncedAt: null
 };
 
-const OPEN = DATA.open.map((p) => ({ ...p, failing: [...new Set(p.failing)] }));
+const OPEN = DATA.open.map((p) => ({ ...p, d0: p.d, failing: [...new Set(p.failing)] }));
 const MERGED = DATA.merged.map((p) => ({ ...p, merged: true }));
 const byN = (n) => OPEN.find((p) => p.n === n) || MERGED.find((p) => p.n === n);
 const HEAD = Object.fromEntries(OPEN.map((p) => [p.h, p]));
@@ -610,7 +637,7 @@ const nFail = (p) => p.failing.length || p.fail;
 const INIT = JSON.stringify({ open: OPEN, merged: MERGED, agents: AGENTS, snoozed: SC.snoozed });
 const now = () => performance.now();
 const DELAY = 200, FADE = 150;
-const LAT = { list: 1150, detail: 700, sync: 1500, merge: 1300, launch: 900, send: 700, rerun: 700 };
+const LAT = { list: 1150, detail: 700, sync: 1500, merge: 1300, launch: 900, send: 700, rerun: 700, status: 700 };
 const lat = (kind, p) => Math.round((kind === "files" ? Math.min(1300, 120 + 40 * (p?.f ?? 10)) : LAT[kind]) * (S.net === "slow" ? 3.2 : 1) * (0.85 + Math.random() * 0.3));
 const L = { done: new Map(), pend: new Map(), err: new Map() };
 function need(key, kind, p) {
@@ -698,7 +725,7 @@ function replay() {
   Object.assign(AGENTS, d.agents);
   L.done.clear(); L.pend.clear(); L.err.clear();
   S.merging.clear(); S.picked.clear();
-  Object.assign(S, { snoozed: { ...d.snoozed }, warm: false, loading: false, syncing: false, syncErr: false, syncedAt: null, busy: {}, flash: {}, sent: {}, drafts: {}, sheet: null, mergePop: null, peek: null, sel: -1, toast: null, openedAt: S.open == null ? null : now() });
+  Object.assign(S, { snoozed: { ...d.snoozed }, warm: false, loading: false, syncing: false, syncErr: false, syncedAt: null, busy: {}, stBusy: {}, stEv: {}, stMenu: null, stConfirm: null, copied: null, flash: {}, sent: {}, drafts: {}, sheet: null, mergePop: null, peek: null, sel: -1, toast: null, openedAt: S.open == null ? null : now() });
   closePops();
 }
 const flipKeys = () => { const m = new Map(); document.querySelectorAll(".lcol .row[data-n], .lcol .grp[data-g]").forEach((el) => m.set(el.dataset.n ? `r${el.dataset.n}` : `g${el.dataset.g}`, el.getBoundingClientRect().top)); return m; };
@@ -759,6 +786,7 @@ function tween() {
 
 const attention = (p) => {
   if (p.merged) return "merged";
+  if (p.closed) return "closed";
   if (p.m === "CONFLICTING") return "conflict";
   if (p.fail) return "failing";
   if (p.d) return "draft";
@@ -768,6 +796,7 @@ const attention = (p) => {
 };
 const bucket = (p) => {
   if (p.merged) return "merged";
+  if (p.closed) return "closed";
   if (S.snoozed[p.n]) return "snoozed";
   const ag = AGENTS[p.n]?.status;
   if (ag === "waiting") return "you";
@@ -783,7 +812,8 @@ const GROUPS = [
   { id: "open", label: "Open" },
   { id: "draft", label: "Drafts" },
   { id: "snoozed", label: "Snoozed" },
-  { id: "merged", label: "Merged" }
+  { id: "merged", label: "Merged" },
+  { id: "closed", label: "Closed" }
 ];
 const VIEWS = [
   { id: "inbox", label: "Inbox", match: (p) => ["you", "ready", "fixing", "progress", "snoozed"].includes(bucket(p)) },
@@ -795,6 +825,7 @@ const VIEWS = [
 const glyphOf = (p) => {
   const b = bucket(p), ag = AGENTS[p.n]?.status;
   if (b === "merged") return ["merge", "g-purple", "Merged"];
+  if (b === "closed") return ["prclosed", "g-red", "Closed"];
   if (b === "snoozed") return ["snooze", "g-mfg", "Snoozed"];
   if (ag === "waiting") return ["question", "g-t1", "Waiting for you"];
   if (ag === "running") return ["dash", "g-spin spin", "Agent working"];
@@ -808,6 +839,7 @@ const status = (p) => {
   let s;
   if (S.merging.has(p.n)) s = `Merging into ${esc(p.b ?? SC.base)}…`;
   else if (p.merged) s = `Merged into ${esc(p.b ?? SC.base)}`;
+  else if (p.closed) s = "Closed without merging";
   else if (S.snoozed[p.n]) s = `Snoozed ${SNOOZE[S.snoozed[p.n]]}`;
   else if (ag?.status === "waiting") s = `Agent asks ${esc(ag.ask)}`;
   else if (ag?.status === "running") s = `Agent ${esc(ag.doing)} · ${esc(ag.since)}`;
@@ -827,7 +859,7 @@ const matchQuery = (p, raw) => raw.trim().toLowerCase().split(/\s+/).filter(Bool
   const m = tok.match(/^(\w+):(.+)$/);
   if (!m || !QKEYS.has(m[1])) return `${p.t} #${p.n} ${p.h} ${p.k ?? ""}`.toLowerCase().includes(tok);
   const [, k, v] = m, a = attention(p), ag = AGENTS[p.n]?.status;
-  if (k === "is") return v === "draft" ? p.d : v === "ready" ? a === "ready" : v === "conflict" ? a === "conflict" : v === "failing" ? !!p.fail : v === "stacked" ? !!stackOf(p) : v === "snoozed" ? !!S.snoozed[p.n] : true;
+  if (k === "is") return v === "closed" ? !!p.closed : v === "open" ? !p.closed && !p.merged : v === "draft" ? p.d : v === "ready" ? a === "ready" : v === "conflict" ? a === "conflict" : v === "failing" ? !!p.fail : v === "stacked" ? !!stackOf(p) : v === "snoozed" ? !!S.snoozed[p.n] : true;
   if (k === "ci") return v === "failing" ? !!p.fail : v === "passing" ? !p.fail && !p.pend && p.ok > 0 : v === "running" ? !!p.pend : v === "none" ? !(p.ok + p.fail + p.pend) : true;
   if (k === "author") return v === "me" ? p.a === DATA.viewer : p.a.toLowerCase() === v;
   if (k === "agent") return v === "none" ? !ag : v === "any" ? !!ag : ag === v;
@@ -846,7 +878,7 @@ const grouped = () => {
   if (S.groupBy === "author") return [...new Set(items.map((p) => p.a))].map((a) => ({ g: { id: "a:" + a, label: a, avatar: a }, rows: items.filter((p) => p.a === a) }));
   return GROUPS.map((g) => ({ g, rows: items.filter((p) => bucket(p) === g.id) })).filter((x) => x.rows.length);
 };
-const CLOSED_BY_DEFAULT = { inbox: ["snoozed"], mine: ["draft", "snoozed"], all: ["draft", "snoozed"], merged: [], issues: ["issues-closed"] };
+const CLOSED_BY_DEFAULT = { inbox: ["snoozed"], mine: ["draft", "snoozed", "closed"], all: ["draft", "snoozed", "closed"], merged: [], issues: ["issues-closed"] };
 const isClosed = (gid) => S.collapsed[`${S.view}:${gid}`] ?? (CLOSED_BY_DEFAULT[S.view].includes(gid) && !(gid === "draft" && params.get("drafts") === "open"));
 const flat = () => grouped().flatMap(({ g, rows }) => (isClosed(g.id) ? [] : rows));
 const inboxCount = () => OPEN.filter((p) => ["you", "ready", "fixing"].includes(bucket(p))).length;
@@ -858,7 +890,7 @@ function propsHtml(p) {
   if (pr.stack) { const c = stackOf(p); if (c) out.push(`<span class="prop">${ic("stack", "i12")}${c.findIndex((q) => q.n === p.n) + 1}/${c.length}</span>`); }
   if (pr.linear && p.k) out.push(`<span class="prop">${ic("linear", "i12")}${esc(p.k)}</span>`);
   if (pr.checks && !p.merged && p.ok + p.fail + p.pend) out.push(`<span class="prop">${p.fail ? ic("x", "i12") + nFail(p) : ic("ok", "i12") + p.ok}</span>`);
-  if (pr.diff) out.push(`<span class="prop">+${fmtN(p.add)} −${fmtN(p.del)}</span>`);
+  if (pr.diff) out.push(`<span class="prop">${diffTally(p.add, p.del, " ")}</span>`);
   return out.join("");
 }
 function qaHtml(p) {
@@ -880,7 +912,7 @@ function rowHtml(p, i) {
   const body = S.density === "compact"
     ? `<span class="numc">#${p.n}</span><span class="l1">${titleHtml(p.t)}</span><span class="stc${live ? " shine" : ""}">${st}</span>`
     : `<div class="rb"><div class="l1" title="${esc(p.t)}">${titleHtml(p.t)}</div><div class="l2">#${p.n}${SEP}${live ? `<span class="shine">${st.replaceAll(" · ", SEP)}</span>` : st.replaceAll(" · ", SEP)}</div></div>`;
-  const fl = anim("flash", S.flash[p.n], 1800), mo = S.menu === p.n || S.snoozeMenu === p.n;
+  const fl = anim("flash", S.flash[p.n], 1800), mo = S.menu === p.n || S.snoozeMenu === p.n || (S.stMenu === p.n && S.stAt === "row");
   return `<div class="row${cur ? " cur" : ""}${sel ? " sel" : ""}${picked ? " picked" : ""}${mo ? " menuopen" : ""}${fl.c}"${fl.s} data-act="open" data-n="${p.n}" data-i="${i}" role="option" aria-selected="${cur}"${merging ? ' aria-busy="true"' : ""} tabindex="-1">
     <span class="lead">${merging ? `<span class="gl" title="Merging">${ic("dash", "g-spin spin")}</span>` : glyph(p)}<span class="pick" data-act="pick" data-n="${p.n}" title="Select  X">${ic(picked ? "checked" : "square")}</span></span>${body}${right}${p.merged || merging ? "" : qaHtml(p)}</div>`;
 }
@@ -937,12 +969,64 @@ function mdLite(src) {
   }
   close(); return out.join("");
 }
-const stateOf = (p) => (p.merged ? ["merge", "g-purple", "Merged"] : p.d ? ["prdraft", "g-mfg", "Draft"] : ["pr", "g-green", "Open"]);
+// bb's PULL_REQUEST_STATE_DISPLAY: icon and tone per state (pull-request-display.ts:16-45)
+const ST = { draft: ["prdraft", "g-mfg", "Draft"], open: ["pr", "g-green", "Open"], merged: ["merge", "g-purple", "Merged"], closed: ["prclosed", "g-red", "Closed"] };
+const prState = (p) => (p.merged ? "merged" : p.closed ? "closed" : p.d ? "draft" : "open");
+const stateOf = (p) => ST[prState(p)];
+const midTrunc = (s, n) => (s.length <= n ? s : `${s.slice(0, Math.ceil((n - 1) / 2))}…${s.slice(s.length - Math.floor((n - 1) / 2))}`);
+const diffTally = (a, d, sep = "") => `<span class="add">+${fmtN(a)}</span>${sep}<span class="rem">-${fmtN(d)}</span>`;
+const diffBar = (a, d) => {
+  const t = a + d;
+  if (!t) return "";
+  const f = Math.min(5, Math.max(1, Math.ceil(Math.log10(t + 1) * 2))), ad = Math.round((a / t) * f);
+  return `<span class="dsb" aria-hidden="true">${[0, 1, 2, 3, 4].map((i) => `<i${i < ad ? ' class="a"' : i < f ? ' class="r"' : ""}></i>`).join("")}</span>`;
+};
+function stOptions(p) {
+  const cur = prState(p), a = attention(p), base = p.b ?? SC.base;
+  const why = cur === "draft" ? "Mark it ready first" : cur === "closed" ? "Reopen it first" : a === "failing" ? `${plural(nFail(p), "check")} failing` : a === "conflict" ? `Conflicts with ${base}` : a === "running" ? "Checks running" : a === "ready" ? "" : "Waiting for GitHub";
+  return [
+    { to: "draft", hint: cur === "closed" ? (p.d ? "Reopen" : "Reopen as a draft") : "Convert to draft" },
+    { to: "open", hint: cur === "closed" ? (p.d ? "Reopen, ready for review" : "Reopen") : "Ready for review", kbd: cur === "draft" ? "R" : "" },
+    { to: "merged", hint: why || `Merge into ${base}…`, kbd: why ? "" : "M", off: !!why },
+    { to: "closed", hint: "Close without merging" }
+  ];
+}
+function stMsgs(p, from, to) {
+  const n = p.n;
+  if (to === "closed") return [`Closing #${n}`, `Closed #${n} without merging`, "Closing…"];
+  if (from === "closed") return to === "draft" ? [`Reopening #${n}${p.d ? "" : " as a draft"}`, `Reopened #${n} as a draft`, "Reopening…"] : [`Reopening #${n}${p.d ? " for review" : ""}`, `Reopened #${n}${p.d ? ", ready for review" : ""}`, "Reopening…"];
+  return to === "draft" ? [`Converting #${n} to a draft`, `#${n} is a draft now`, "Converting…"] : [`Marking #${n} ready for review`, `#${n} is ready for review`, "Marking ready…"];
+}
+// Waits for GitHub like core's ready/draft actions: loading toast, then the same toast resolves (ThreadDetailView.tsx:1602-1650).
+function setStatus(n, to, undo = true) {
+  const p = byN(n);
+  if (!p || p.merged || S.stBusy[n] || S.merging.has(n)) return;
+  const from = prState(p);
+  if (to === from) { closePops(); render(); return; }
+  if (to === "merged") { closePops(); if (attention(p) === "ready") S.mergePop = n; render(); return; }
+  const [doing, done, short] = stMsgs(p, from, to);
+  S.stBusy[n] = { short };
+  const id = toast(`${doing}…`, "loading");
+  setTimeout(() => {
+    delete S.stBusy[n];
+    if (S.net === "offline") return toast(`Couldn't update #${n}: GitHub is unreachable`, "err", id);
+    const ev = (S.stEv[n] ??= []), at = now();
+    mutate(() => {
+      if (p.closed) { p.closed = false; ev.push({ k: "reopened", at }); }
+      if (to === "closed") { p.closed = true; ev.push({ k: "closed", at }); }
+      else if (p.d !== (to === "draft")) { p.d = to === "draft"; ev.push({ k: p.d ? "draft" : "ready", at: at + 1 }); }
+    }, n);
+    toast(done, "ok", id, undo ? { label: "Undo", n, to: from } : null);
+  }, lat("status"));
+}
+const STEV = { draft: ["prdraft", "g-mfg", "marked this pull request as draft"], ready: ["pr", "g-green", "marked this pull request as ready for review"], closed: ["prclosed", "g-red", "closed this pull request"], reopened: ["pr", "g-green", "reopened this pull request"] };
+const stEvHtml = (x) => { const [icn, cls, txt] = STEV[x.k], a = anim("rv", x.at, 220); return `<div class="ev${a.c}"${a.s}><span class="eg">${ic(icn, `i14 ${cls}`)}</span><span><b>You</b> ${txt}<span class="tm"> · just now</span></span></div>`; };
 const followRow = (p) => `<div class="follow">${ic("bell", "g-mfg")}<span style="flex:1">Send CI results, reviews and comments to the agent's thread</span><button class="switch${S.follow[p.n] ? " on" : ""}" role="switch" aria-checked="${!!S.follow[p.n]}" data-act="follow" data-n="${p.n}" title="Follow this pull request"></button></div>`;
 function nextCard(p, ds) {
   const a = attention(p), ag = AGENTS[p.n];
   const head = (g, title, sub) => `<div class="nh"><span class="lead">${g}</span><div style="flex:1;min-width:0"><div class="nt">${title}</div>${sub ? `<div class="ns">${sub}</div>` : ""}</div></div>`;
   const rvf = anim("rv", ds.t, FADE);
+  if (p.closed) return `<div class="next">${head(ic("prclosed", "g-red"), "Closed without merging", `Closed just now · the branch <span class="mono">${esc(p.h)}</span> is kept`)}<div class="nact ind"><button class="btn" data-act="setst" data-n="${p.n}" data-to="open">${ic("pr", "i14")}Reopen</button></div></div>`;
   const fails = ds.st === "loading"
     ? `<div class="nlist ind skin" style="${skinStyle(ds.t0)}" aria-hidden="true">${Array.from({ length: Math.min(nFail(p) || 1, 4) }, (_, i) => `<div class="it">${sk("14px", 14, "50%")}<span class="skl">${sk(`${W(i, 34, 62)}%`, 10)}</span></div>`).join("")}</div>`
     : ds.st === "error"
@@ -994,16 +1078,17 @@ function activityTab(p, ds) {
     : ds.st === "error"
       ? `<div class="tl"><div class="ev"><span class="eg">${ic("alert", "i14")}</span><span class="skl">Couldn't load the activity</span><button class="btn ghost sm" data-act="retry" data-key="detail:${p.n}" style="margin:-4px 0">Try again</button></div></div>`
       : `<div class="tl${rva.c}"${rva.s}>
-    <div class="ev"><span class="eg">${ic(p.d ? "prdraft" : "pr", "i14")}</span><span><b>${esc(p.a)}</b> opened this ${p.d ? "draft " : ""}pull request<span class="tm"> · ${ago(p.c)}</span></span></div>
+    <div class="ev"><span class="eg">${ic(p.d0 ?? p.d ? "prdraft" : "pr", "i14")}</span><span><b>${esc(p.a)}</b> opened this ${p.d0 ?? p.d ? "draft " : ""}pull request<span class="tm"> · ${ago(p.c)}</span></span></div>
     ${p.fail ? `<div class="ev"><span class="eg">${ic("x", "i14 g-red")}</span><span><b>${plural(nFail(p), "check")}</b> failed on the latest commit<span class="tm"> · ${ago(p.u)}</span></span></div>` : ""}
     ${ag ? `<div class="ev"><span class="eg">${ic(ag.provider, "i14")}</span><span><b>${esc(ag.title)}</b> ${ag.status === "running" ? "started" : ag.status === "waiting" ? "asked a question" : "finished"}<span class="tm"> · ${ag.since === "now" ? "just now" : `${esc(ag.since)} ago`}</span></span></div>` : ""}
     ${comments}
   </div>`;
-  const sent = (S.sent[p.n] ?? []).map((m, i) => {
+  const sentItems = (S.sent[p.n] ?? []).map((m, i) => {
     const a = anim("rv", m.at, 220);
     const meta = m.failed ? `<span class="tm"> · couldn't send</span><button class="btn ghost sm" data-act="resend" data-n="${p.n}" data-i="${i}" style="margin:-4px 0 -4px auto">Retry</button>` : `<span class="tm"> · ${m.pending ? "sending…" : "just now"}</span>`;
-    return `<div class="ev${a.c}"${a.s}><span class="eg">${avatar(DATA.viewer)}</span><span><b>You</b> ${m.to === "agent" ? "messaged the agent" : "commented"}${m.failed ? "" : meta}</span>${m.failed ? meta : ""}</div><div class="cmt md${m.pending || m.failed ? " pend" : ""}${a.c}"${a.s}>${esc(m.text)}</div>`;
-  }).join("");
+    return { at: m.at, html: `<div class="ev${a.c}"${a.s}><span class="eg">${avatar(DATA.viewer)}</span><span><b>You</b> ${m.to === "agent" ? "messaged the agent" : "commented"}${m.failed ? "" : meta}</span>${m.failed ? meta : ""}</div><div class="cmt md${m.pending || m.failed ? " pend" : ""}${a.c}"${a.s}>${esc(m.text)}</div>` };
+  });
+  const sent = [...sentItems, ...(S.stEv[p.n] ?? []).map((x) => ({ at: x.at, html: stEvHtml(x) }))].sort((x, y) => x.at - y.at).map((x) => x.html).join("");
   const draft = S.drafts[`reply:${p.n}`] ?? "";
   return `${tl}${sent ? `<div class="tl" style="padding-top:0">${sent}</div>` : ""}
   ${ag?.status === "waiting" ? "" : `<div class="reply"><textarea rows="2" data-keep="reply:${p.n}" placeholder="${S.to === "agent" ? (ag ? "Message the agent working on this pull request" : "Ask an agent, it starts a thread on this branch") : "Leave a comment on GitHub"}">${esc(draft)}</textarea><div class="bar"><button class="cf" data-act="tomenu" aria-haspopup="menu" aria-expanded="${S.toMenu}" style="margin-left:-8px">${ic(S.to === "agent" ? "spark" : "gh", "i14")}${toLabel}${ic("down", "i12")}</button><span class="sp"></span><button class="send${draft.trim() ? "" : " idle"}" data-act="send" data-n="${p.n}" title="Send  ⌘↵">${ic("enter", "i14")}</button></div></div>`}`;
@@ -1024,13 +1109,13 @@ function filesTab(p) {
   if (fs.st === "loading") return filesSkel(p, fs.t0);
   if (fs.st === "error") return `<div class="fhint">${ic("alert", "i14 g-mfg")}<span>Couldn't load the changed files</span><button class="btn ghost sm" data-act="retry" data-key="files:${p.n}">Try again</button></div>`;
   const a = anim("rv", fs.t, FADE);
-  if (p.n !== d.n) return `<div class="${a.c.trim()}"${a.s}><div class="fhint">${plural(p.f, "file")} changed<span class="sep">·</span><span class="add">+${p.add}</span> <span class="rem">−${p.del}</span></div><p class="anno"><code>experimental_Diff</code> renders each file when the tab opens.</p></div>`;
+  if (p.n !== d.n) return `<div class="${a.c.trim()}"${a.s}><div class="fhint">${plural(p.f, "file")} changed<span class="sep">·</span><span class="add">+${p.add}</span> <span class="rem">-${p.del}</span></div><p class="anno"><code>experimental_Diff</code> renders each file when the tab opens.</p></div>`;
   const isTest = (path) => /(_test\.|\.test\.|\.spec\.|__tests__|fixtures?\/|generated|\.snap$)/.test(path);
   const files = [...d.files].sort((x, y) => isTest(x.p) - isTest(y.p));
   let ln = 0;
   const diff = DATA.diff.split("\n").filter((l) => !/^(diff --git|index |--- |\+\+\+ )/.test(l)).slice(0, 36).map((l) => { const h = l.startsWith("@@"); if (h) ln = Number((l.match(/\+(\d+)/) || [0, 1])[1]) - 1; else if (!l.startsWith("-")) ln++; return `<div class="dl ${h ? "h" : l.startsWith("+") ? "a" : l.startsWith("-") ? "r" : ""}"><span class="ln">${h || l.startsWith("-") ? "" : ln}</span><span>${esc(l) || " "}</span></div>`; }).join("");
   const name = (path) => { const i = path.lastIndexOf("/"); return `<span class="dir">${esc(path.slice(0, i + 1))}</span>${esc(path.slice(i + 1))}`; };
-  return `<div class="${a.c.trim()}"${a.s}><div class="fhint">Ordered for reading: the change first, tests last</div><div class="box">${files.map((f, i) => `<div class="frow${isTest(f.p) ? " test" : ""}">${ic(i === 0 ? "down" : "chev", "i12 g-t3")}<span class="fp">${name(f.p)}</span><span class="ds"><span class="add">+${f.add}</span><span class="rem">−${f.del}</span></span></div>${i === 0 ? `<div class="diff">${diff}</div>` : ""}`).join("")}</div></div>`;
+  return `<div class="${a.c.trim()}"${a.s}><div class="fhint">Ordered for reading: the change first, tests last</div><div class="box">${files.map((f, i) => `<div class="frow${isTest(f.p) ? " test" : ""}">${ic(i === 0 ? "down" : "chev", "i12 g-t3")}<span class="fp">${name(f.p)}</span><span class="ds"><span class="add">+${f.add}</span><span class="rem">-${f.del}</span></span></div>${i === 0 ? `<div class="diff">${diff}</div>` : ""}`).join("")}</div></div>`;
 }
 function checksTab(p, ds) {
   const total = p.ok + p.fail + p.pend;
@@ -1050,6 +1135,12 @@ function detailSkel(p, ds) {
     <div class="tl">${[58, 42, 66].map((w) => `<div class="ev"><span class="eg">${sk("16px", 16, "50%")}</span><span class="skl">${sk(`${w}%`, 10)}</span></div>`).join("")}</div>
   </div></div></div>`;
 }
+function statusPill(p, si, sc, sl) {
+  if (p.merged) return `<span class="pill" title="Merged into ${esc(p.b ?? SC.base)}">${ic(si, `i14 ${sc}`)}${sl}</span>`;
+  const busy = S.stBusy[p.n];
+  if (busy || S.merging.has(p.n)) return `<button class="pill st" disabled aria-busy="true">${ic("dash", "i14 spin g-spin")}${busy ? busy.short : "Merging…"}</button>`;
+  return `<button class="pill st" data-act="stmenu" data-n="${p.n}" data-keep="st:pill" aria-haspopup="menu" aria-expanded="${S.stMenu === p.n}" title="Change the status  S">${ic(si, `i14 ${sc}`)}${sl}${ic("down", "i12 pchev")}</button>`;
+}
 function detailHtml() {
   const p = byN(S.open);
   if (!p) return "";
@@ -1061,10 +1152,11 @@ function detailHtml() {
   return `<div class="dbar"><button class="ibtn back" data-act="close" title="Back  Esc">${ic("left")}</button><span class="crumb"><span class="pre">Pull request</span><span class="pre t3">/</span><b>#${p.n}</b></span><span class="sp"></span>${p.k ? `<button class="btn ghost sm lin" data-act="toast" data-msg="Opening ${esc(p.k)} in Linear" title="Open in Linear" style="margin-right:2px">${ic("linear", "i14")}${esc(p.k)}</button>` : ""}<button class="ibtn" data-act="toast" data-msg="Copied ${esc(p.h)}" title="Copy branch name  C">${ic("copy")}</button><button class="ibtn" data-act="toast" data-msg="Opening #${p.n} on GitHub" title="Open on GitHub  O">${ic("ext")}</button><button class="ibtn x-close" data-act="close" title="Close  Esc">${ic("close")}</button></div>
   <div class="dscroll"><div class="dwrap"><div class="dmain">
     <div class="dhead"><h1 class="dtitle">${titleHtml(p.t)} <span class="n">#${p.n}</span></h1>
-      <div class="dmeta"><span class="pill">${ic(si, `i14 ${sc}`)}${sl}</span>${SEP}<span>${avatar(p.a)}${esc(p.a)}</span><span class="bsep">${SEP}</span><span class="branch" title="${esc(p.h)} → ${esc(p.b ?? SC.base)}"><span class="hd">${esc(p.h)}</span><span class="bs"> → ${esc(p.b ?? SC.base)}</span></span>${SEP}<span class="num">+${fmtN(p.add)} −${fmtN(p.del)}</span></div></div>
+      <div class="dmeta">${statusPill(p, si, sc, sl)}${SEP}<span>${avatar(p.a)}${esc(p.a)}</span><span class="bsep">${SEP}</span><span class="branch"><button class="mchip bchip${S.copied?.n === p.n ? " done" : ""}" data-act="copybranch" data-n="${p.n}" title="${S.copied?.n === p.n ? "Copied" : `Copy ${esc(p.h)}`}" aria-label="Copy the branch name ${esc(p.h)}"><span class="hd">${esc(midTrunc(p.h, 44))}</span>${ic(S.copied?.n === p.n ? "check" : "copy", "i12 cpi")}</button><span class="bs">→ ${esc(p.b ?? SC.base)}</span></span>${SEP}<button class="mchip dstat" data-act="dtab" data-tab="files" data-scroll="1" title="${plural(p.f, "file")} changed · show them" aria-label="${p.add} lines added and ${p.del} removed in ${plural(p.f, "file")}, show the files">${diffTally(p.add, p.del)}${diffBar(p.add, p.del)}</button>${S.copied?.n === p.n ? '<span class="vh" role="status">Branch name copied</span>' : ""}</div></div>
+    <p class="anno">${p.merged ? "Merged pull requests have no status to change." : "The status is a menu: <code>pull_request_ready</code> and <code>pull_request_draft</code> are core environment actions already; close and reopen are <code>closePullRequest</code> / <code>reopenPullRequest</code>. Shown only when GitHub reports <code>viewerCanUpdate</code>."}</p>
     ${p.merged ? "" : nextCard(p, ds)}
-    ${p.merged ? "" : agentSec(p)}
-    ${p.merged ? "" : stackSec(p)}
+    ${p.merged || p.closed ? "" : agentSec(p)}
+    ${p.merged || p.closed ? "" : stackSec(p)}
     ${descSec(p)}
     <div><div class="dtabs" role="tablist">${tabs.map(([id, l, c]) => `<button class="tab" role="tab" data-act="dtab" data-tab="${id}" aria-selected="${S.dtab === id}">${l}${c !== "" ? `<span class="c">${c}</span>` : ""}</button>`).join("")}</div>${body}</div>
   </div></div></div>`;
@@ -1108,15 +1200,27 @@ function snoozeHtml() {
 }
 function menuHtml() {
   const p = byN(S.menu); if (!p) return "";
-  const k = (x) => `<span class="hint"><kbd>${x}</kbd></span>`;
+  const k = (x) => `<span class="hint"><kbd>${x}</kbd></span>`, live = !p.merged && !p.closed;
   return `<div class="pop" role="menu" ${popAttrs(`menu:${p.n}`, rowAnchor(p.n), 232)}>
-    <button class="mi" data-act="sheet" data-n="${p.n}" data-preset="${presetFor(p)}">${ic("spark", "ic")}Start an agent…${k("A")}</button>
-    ${p.d ? `<button class="mi" data-act="toast" data-msg="#${p.n} marked ready for review">${ic("check", "ic")}Mark ready${k("R")}</button>` : `<button class="mi" data-act="toast" data-msg="#${p.n} converted to a draft">${ic("prdraft", "ic")}Convert to draft</button>`}
-    <button class="mi" data-act="snoozemenu" data-n="${p.n}">${ic("snooze", "ic")}Snooze…${k("Z")}</button>
+    ${live ? `<button class="mi" data-act="sheet" data-n="${p.n}" data-preset="${presetFor(p)}">${ic("spark", "ic")}Start an agent…${k("A")}</button>` : ""}
+    ${live && p.d ? `<button class="mi" data-act="ready" data-n="${p.n}">${ic("check", "ic")}Mark ready${k("R")}</button>` : ""}
+    ${p.merged ? "" : `<button class="mi" data-act="stmenu" data-n="${p.n}">${ic(stateOf(p)[0], "ic")}Change status…${k("S")}</button>`}
+    ${live ? `<button class="mi" data-act="snoozemenu" data-n="${p.n}">${ic("snooze", "ic")}Snooze…${k("Z")}</button>` : ""}
     <div class="msep"></div>
     <button class="mi" data-act="toast" data-msg="Copied ${esc(p.h)}">${ic("copy", "ic")}Copy branch name${k("C")}</button>
     <button class="mi" data-act="toast" data-msg="Opening #${p.n} on GitHub">${ic("ext", "ic")}Open on GitHub${k("O")}</button>
     <button class="mi" data-act="toast" data-msg="Checked out in a new worktree">${ic("branch", "ic")}Check out in a worktree</button></div>`;
+}
+function stMenuHtml() {
+  const p = byN(S.stMenu); if (!p || p.merged) return "";
+  const cur = prState(p), pill = S.stAt === "pill" && S.open === p.n;
+  const items = stOptions(p).map((o) => {
+    const [icn, cls, label] = ST[o.to];
+    if (o.to === cur) return `<button class="mi cur" role="menuitemradio" aria-checked="true" data-act="stmenu" data-n="${p.n}" data-keep="st:mi:${o.to}">${ic(icn, `i14 ${cls}`)}<span class="stl">${label}</span><span class="std"></span><span class="hint">${ic("check", "i14")}</span></button>`;
+    if (o.to === "closed" && S.stConfirm === p.n) return `<button class="mi danger" role="menuitemradio" aria-checked="false" data-act="setst" data-n="${p.n}" data-to="closed" data-keep="st:mi:closed">${ic(icn, "i14")}<span class="std">Close without merging?</span><span class="hint">Click again</span></button>`;
+    return `<button class="mi" role="menuitemradio" aria-checked="false" data-act="setst" data-n="${p.n}" data-to="${o.to}" data-keep="st:mi:${o.to}"${o.off ? ' aria-disabled="true"' : ""}>${ic(icn, `i14 ${cls}`)}<span class="stl">${label}</span><span class="std">${esc(o.hint)}</span>${o.kbd ? `<span class="hint"><kbd>${o.kbd}</kbd></span>` : ""}</button>`;
+  }).join("");
+  return `<div class="pop stpop" role="menu" aria-label="Status of #${p.n}" ${popAttrs(`st:${p.n}`, pill ? `.detail [data-act=stmenu]||${rowAnchor(p.n)}` : rowAnchor(p.n), 296, "bottom", pill ? "start" : "end")}><div class="mlabel">Status of #${p.n}</div>${items}</div>`;
 }
 function dispHtml() {
   const opt = (act, key, id, l, cur) => `<button class="mi" data-act="${act}" data-${key}="${id}">${l}${cur === id ? `<span class="hint">${ic("check")}</span>` : ""}</button>`;
@@ -1124,7 +1228,7 @@ function dispHtml() {
   return `<div class="pop" role="menu" ${popAttrs("disp", "[data-act=disp]||.viewbar", 248)}><div class="mlabel">Group by</div>${opt("groupby", "group", "attention", "Whose move", S.groupBy)}${opt("groupby", "group", "author", "Author", S.groupBy)}${opt("groupby", "group", "none", "No grouping", S.groupBy)}<div class="msep"></div><div class="mlabel">Rows</div>${opt("density", "d", "comfortable", "Two lines", S.density)}${opt("density", "d", "compact", "One line", S.density)}<div class="msep"></div><div class="mlabel">Show on rows</div>${props.map(([id, l]) => `<button class="mi" data-act="prop" data-p="${id}" aria-pressed="${!!S.props[id]}">${l}${S.props[id] ? `<span class="hint">${ic("check")}</span>` : ""}</button>`).join("")}<div class="msep"></div><button class="mi" data-act="help">${ic("kbd", "ic")}Keyboard shortcuts<span class="hint"><kbd>?</kbd></span></button></div>`;
 }
 function helpHtml() {
-  const rows = [["Move", ["J", "K"]], ["Peek", ["Space"]], ["Open, back", ["↵", "Esc"]], ["Select", ["X"]], ["Start an agent", ["A"]], ["Open the agent's thread", ["T"]], ["Merge", ["M"]], ["Mark ready", ["R"]], ["Snooze", ["Z"]], ["Copy branch name", ["C"]], ["Open on GitHub", ["O"]], ["Filter", ["/"]], ["Display", ["⇧", "V"]], ["Next view", ["Tab"]]];
+  const rows = [["Move", ["J", "K"]], ["Peek", ["Space"]], ["Open, back", ["↵", "Esc"]], ["Select", ["X"]], ["Start an agent", ["A"]], ["Open the agent's thread", ["T"]], ["Merge", ["M"]], ["Mark ready", ["R"]], ["Change status", ["S"]], ["Snooze", ["Z"]], ["Copy branch name", ["C"]], ["Open on GitHub", ["O"]], ["Filter", ["/"]], ["Display", ["⇧", "V"]], ["Next view", ["Tab"]]];
   return `<div class="pop" ${popAttrs("help", "[data-act=disp]||.viewbar", 256)}><div class="mlabel">Keyboard shortcuts</div>${rows.map(([l, ks]) => `<div class="mi" style="cursor:default">${l}<span class="hint">${ks.map((x) => `<kbd>${x}</kbd>`).join("")}</span></div>`).join("")}</div>`;
 }
 function suggestHtml() {
@@ -1172,13 +1276,13 @@ function toastHtml() {
   const t = S.toast;
   if (!t) return "";
   const [icn, cls] = t.kind === "loading" ? ["dash", "spin g-spin"] : t.kind === "err" ? ["alert", "g-red"] : ["ok", "g-green"];
-  return `<div class="toast" role="status" data-ak="toast:${t.id}">${ic(icn, `i14 ${cls}`)}${esc(t.msg)}</div>`;
+  return `<div class="toast" role="status" data-ak="toast:${t.id}">${ic(icn, `i14 ${cls}`)}${esc(t.msg)}${t.action ? `<button class="tact" data-act="setst" data-n="${t.action.n}" data-to="${t.action.to}" data-undo="1">${t.action.label}</button>` : ""}</div>`;
 }
 function panelHtml() {
   const ls = listLoad(), de = anim("enter", S.openedAt, 220);
   return `<div class="gh panel" data-density="${S.density}">${hostbar()}
     <div class="layout${S.open ? " has-detail" : ""}"><div class="lcol">${viewbar()}${filterChips()}${syncBanner()}${listBox(ls)}<span class="vh" role="status">${ls.st === "loading" ? "Loading pull requests" : ls.st === "error" ? "Couldn't load the pull requests" : ""}</span><p class="anno" style="margin:8px">${LOAD_NOTE}</p></div><div class="detail${de.c}"${de.s}>${S.open ? detailHtml() : ""}</div></div>
-    ${S.menu ? menuHtml() : ""}${S.snoozeMenu ? snoozeHtml() : ""}${S.disp ? dispHtml() : ""}${S.help ? helpHtml() : ""}${S.search && !S.q.trim() && !S.open ? suggestHtml() : ""}${S.toMenu && S.open ? toMenuHtml() : ""}${S.picked.size ? bulkHtml() : ""}
+    ${S.menu ? menuHtml() : ""}${S.snoozeMenu ? snoozeHtml() : ""}${S.disp ? dispHtml() : ""}${S.help ? helpHtml() : ""}${S.search && !S.q.trim() && !S.open ? suggestHtml() : ""}${S.toMenu && S.open ? toMenuHtml() : ""}${S.stMenu ? stMenuHtml() : ""}${S.picked.size ? bulkHtml() : ""}
     ${toastHtml()}</div>`;
 }
 
@@ -1196,7 +1300,7 @@ function homeHtml() {
 }
 function threadHtml() {
   const p = byN(SC.run), ts = listLoad();
-  const chip = p.merged ? [ic("merge", "i14 g-purple"), "Merged"] : p.fail ? [ic("x", "i14 g-red"), `${plural(nFail(p), "check")} failing`] : attention(p) === "ready" ? [ic("ok", "i14 g-green"), "Ready to merge"] : attention(p) === "running" ? [ic("clock", "i14 g-mfg"), "Checks running"] : [ic("pr", "i14 g-mfg"), "Open"];
+  const chip = p.merged ? [ic("merge", "i14 g-purple"), "Merged"] : p.closed ? [ic("prclosed", "i14 g-red"), "Closed"] : p.fail ? [ic("x", "i14 g-red"), `${plural(nFail(p), "check")} failing`] : attention(p) === "ready" ? [ic("ok", "i14 g-green"), "Ready to merge"] : attention(p) === "running" ? [ic("clock", "i14 g-mfg"), "Checks running"] : [ic("pr", "i14 g-mfg"), "Open"];
   const g = (n) => { const [gi, gc] = glyphOf(byN(n)); return ic(gi, gc); };
   const rows = [[AGENTS[SC.run].title, g(SC.run), true], [AGENTS[SC.wait].title, g(SC.wait)], [AGENTS[SC.done].title, g(SC.done)], ...SC.threadExtras.map((t) => [t, ic("dotc", "i12 g-t3")])];
   return `<div class="gh"><div class="shell">
@@ -1207,7 +1311,7 @@ function threadHtml() {
       <div class="tbody"><div class="bub">Checks on #${SC.run} are red. Fix them without changing behaviour.</div>
         <div class="tcard"><div class="th">${ic("gh", "i14")}<b>Checks failed</b> on #${SC.run}<span class="sp"></span><span class="t2">2m ago</span></div><div class="tr">${ic("x", "i14 g-red")}<span class="mono t1" style="flex:1">${esc(p.failing[0] ?? "ci")}</span><button class="btn ghost sm" data-act="toast" data-msg="Opening the log">View log${ic("ext", "i12")}</button></div></div>
         <div>Reading the failing job… <span class="mono t2">gh run view --log-failed</span></div>
-        <div class="tcard"><div class="th">${ic("claude", "i14")}<span>Pushed <span class="mono t1">${esc(SC.push.sha)}</span> to #${SC.run}</span><span class="sep" style="margin:0">·</span><span class="num">+${SC.push.add} −${SC.push.del}</span><span class="sp"></span>${ic("clock", "i14 g-mfg")}<span>Checks running</span></div></div>
+        <div class="tcard"><div class="th">${ic("claude", "i14")}<span>Pushed <span class="mono t1">${esc(SC.push.sha)}</span> to #${SC.run}</span><span class="sep" style="margin:0">·</span><span class="num">${diffTally(SC.push.add, SC.push.del, " ")}</span><span class="sp"></span>${ic("clock", "i14 g-mfg")}<span>Checks running</span></div></div>
         <p class="anno">Cards drawn with <code>experimental_timelineRenderer</code>; events arrive through <code>bb.sdk.threads.send</code> while the thread follows the pull request. The header control (<code>experimental_threadHeaderAction</code>) shows only when bb's own PR banner can't see the branch.</p></div>
       <div class="tfoot"><div class="composer"><textarea rows="2" placeholder="Ask for a follow-up" style="min-height:76px"></textarea><div class="cbar2"><button class="ibtn">${ic("plus")}</button><button class="model">${ic("claude", "i14")}Opus 5.5 · Extra high${ic("down", "i12 g-t3")}</button><span class="sp"></span><button class="send idle">${ic("enter", "i14")}</button></div></div><div class="tstatus"><span class="cf">${ic("folder", "i14")}${esc(SC.project)}</span><span class="cf">${ic("zap", "i14")}berth</span><span class="cf">${ic("branch", "i14")}${esc(p.h.slice(0, 28))}…</span></div></div>
     </div></div></div>`;
@@ -1263,39 +1367,51 @@ function render() {
     if (S.focusSearch) { S.focusSearch = false; q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   }
   placePops();
+  if (S.menuFocus) { S.menuFocus = false; const m = root.querySelector(".pop[role=menu]"); (m?.querySelector(".mi[aria-checked=true]") ?? m?.querySelector(".mi:not([aria-disabled=true])"))?.focus({ preventScroll: true }); }
+  if (S.refocus) { root.querySelector(S.refocus)?.focus({ preventScroll: true }); S.refocus = null; }
+  if (S.scrollTabs) { S.scrollTabs = false; root.querySelector(".detail .dtabs")?.scrollIntoView({ block: "nearest", behavior: calm() ? "auto" : "smooth" }); }
   settleAnims();
   tween();
   root.querySelectorAll(".skov").forEach((el) => el.addEventListener("animationend", (e) => { if (e.target === el) el.remove(); }));
   if (before) playFlip(before);
 }
 
-let toastTimer, toastSeq = 0;
-function toast(msg, kind = "ok", id) {
-  S.toast = { msg, kind, id: id ?? ++toastSeq };
+let toastTimer, toastSeq = 0, stConfirmTimer, copyTimer;
+function toast(msg, kind = "ok", id, action = null) {
+  S.toast = { msg, kind, id: id ?? ++toastSeq, action };
   closePops();
   render();
   clearTimeout(toastTimer);
-  if (kind !== "loading") toastTimer = setTimeout(() => { S.toast = null; render(); }, kind === "err" ? 4000 : 2400);
+  if (kind !== "loading") toastTimer = setTimeout(() => { S.toast = null; render(); }, kind === "err" ? 4000 : action ? 5000 : 2400);
   return S.toast.id;
 }
-const closePops = () => { S.menu = null; S.snoozeMenu = null; S.disp = false; S.help = false; S.pop = false; S.toMenu = false; };
+const closePops = () => { S.menu = null; S.snoozeMenu = null; S.disp = false; S.help = false; S.pop = false; S.toMenu = false; S.stMenu = null; S.stConfirm = null; };
 const openPr = (n) => { if (S.open == null) S.openedAt = now(); S.open = n; S.dtab = "activity"; S.descOpen = false; S.peek = null; S.toMenu = false; S.resetDetail = true; };
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-act]");
-  if (!t) { if (S.menu || S.snoozeMenu || S.disp || S.help || S.pop || S.toMenu) { closePops(); render(); } return; }
+  if (!t) { if (S.menu || S.snoozeMenu || S.disp || S.help || S.pop || S.toMenu || S.stMenu) { closePops(); render(); } return; }
   const a = t.dataset.act, n = Number(t.dataset.n);
   if ((a === "closesheet" || a === "closemerge") && e.target.closest("[data-stop]") && !e.target.closest(".ibtn,.btn")) return;
   if (a === "pick") { e.stopPropagation(); S.picked.has(n) ? S.picked.delete(n) : S.picked.add(n); render(); return; }
   if (a === "open") { closePops(); if (S.surface !== "panel") S.surface = "panel"; openPr(n); const i = flat().findIndex((p) => p.n === n); if (i >= 0) S.sel = i; render(); return; }
   e.stopPropagation();
-  const keep = ["snooze", "unsnooze", "groupby", "density", "prop", "snoozemenu", "menu", "help", "disp", "to", "tomenu", "pop"].includes(a);
+  const keep = ["snooze", "unsnooze", "groupby", "density", "prop", "snoozemenu", "menu", "help", "disp", "to", "tomenu", "pop", "stmenu", "setst"].includes(a);
   if (!keep) closePops();
   switch (a) {
     case "close": S.open = null; break;
     case "toggle": if (e.target.closest(".gact")) return; S.collapsed[`${S.view}:${t.dataset.g}`] = !isClosed(t.dataset.g); break;
     case "view": S.view = t.dataset.view; S.surface = "panel"; S.sel = -1; S.open = null; S.peek = null; break;
-    case "dtab": S.dtab = t.dataset.tab; break;
+    case "dtab": S.dtab = t.dataset.tab; if (t.dataset.scroll) S.scrollTabs = true; break;
+    case "stmenu": { const was = S.stMenu === n; closePops(); if (!was) { S.stMenu = n; S.stAt = t.closest(".detail") ? "pill" : "row"; S.menuFocus = e.detail === 0; } else if (S.stAt === "pill") S.refocus = ".detail [data-act=stmenu]"; break; }
+    case "setst": {
+      if (t.getAttribute("aria-disabled") === "true") return;
+      const to = t.dataset.to;
+      if (t.dataset.undo) { setStatus(n, to, false); return; }
+      if (to === "closed" && S.stConfirm !== n) { S.stConfirm = n; clearTimeout(stConfirmTimer); stConfirmTimer = setTimeout(() => { if (S.stConfirm === n) { S.stConfirm = null; render(); } }, 3000); break; }
+      setStatus(n, to); return;
+    }
+    case "copybranch": { const p = byN(n); if (p) navigator.clipboard?.writeText(p.h).catch(() => {}); S.copied = { n }; clearTimeout(copyTimer); copyTimer = setTimeout(() => { S.copied = null; render(); }, 1600); break; }
     case "desc": S.descOpen = !S.descOpen; break;
     case "sheet": closePops(); S.sheet = { n, preset: t.dataset.preset || "fix" }; break;
     case "preset": if (S.busy.launch) return; S.sheet.preset = t.dataset.preset; break;
@@ -1372,7 +1488,7 @@ document.addEventListener("click", (e) => {
     case "device": S.device = t.dataset.device; break;
     case "notes": S.notes = !S.notes; break;
     case "pop": { const was = S.pop; closePops(); S.pop = !was; break; }
-    case "ready": { const p = byN(n); if (!p?.d) return; mutate(() => { p.d = false; }, n); return toast(`#${n} marked ready for review`); }
+    case "ready": setStatus(n, "open"); return;
     case "rerun": {
       const k = `rerun:${n}`;
       if (S.busy[k]) return;
@@ -1419,6 +1535,14 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (S.surface !== "panel") return;
+  const om = document.querySelector(".pop[role=menu]");
+  if (om && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+    const it = [...om.querySelectorAll(".mi:not([aria-disabled=true])")], i = it.indexOf(document.activeElement);
+    if (it.length) it[e.key === "Home" ? 0 : e.key === "End" ? it.length - 1 : i < 0 ? (e.key === "ArrowUp" ? it.length - 1 : 0) : (i + (e.key === "ArrowUp" ? -1 : 1) + it.length) % it.length].focus();
+    e.preventDefault(); return;
+  }
+  if (om && e.key === "Tab") { closePops(); render(); e.preventDefault(); return; }
+  if ((e.key === "Enter" || e.key === " ") && e.target.closest?.("button")) return;
   const tag = (e.target.tagName || "").toLowerCase();
   if ((tag === "input" || tag === "textarea") && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { const b = e.target.closest(".reply, .ask, .composer")?.querySelector(".send[data-act]"); if (b) { b.click(); e.preventDefault(); } return; }
   if (tag === "input" || tag === "textarea") { if (e.key === "Escape") { if (e.target.id === "q") { S.search = !!S.q.trim(); render(); } else e.target.blur(); } return; }
@@ -1430,13 +1554,14 @@ document.addEventListener("keydown", (e) => {
   if (k === "j" || e.key === "ArrowDown") { go(1); e.preventDefault(); }
   else if (k === "k" || e.key === "ArrowUp") { go(-1); e.preventDefault(); }
   else if (e.key === "Enter") { if (f[S.sel]) { openPr(f[S.sel].n); render(); } }
-  else if (e.key === "Escape") { if (S.sheet) { if (!S.busy.launch) S.sheet = null; } else if (S.mergePop) S.mergePop = null; else if (S.menu || S.snoozeMenu || S.disp || S.help || S.toMenu) closePops(); else if (S.peek) S.peek = null; else if (S.picked.size) S.picked.clear(); else if (S.open) S.open = null; else if (S.search) { S.search = false; S.q = ""; } render(); }
+  else if (e.key === "Escape") { if (S.sheet) { if (!S.busy.launch) S.sheet = null; } else if (S.mergePop) S.mergePop = null; else if (S.menu || S.snoozeMenu || S.disp || S.help || S.toMenu || S.stMenu) { if (S.stMenu && S.stAt === "pill") S.refocus = ".detail [data-act=stmenu]"; closePops(); } else if (S.peek) S.peek = null; else if (S.picked.size) S.picked.clear(); else if (S.open) S.open = null; else if (S.search) { S.search = false; S.q = ""; } render(); }
   else if (e.key === " ") { const p = f[S.sel]; if (p && !S.open) { S.peek = S.peek === p.n ? null : p.n; render(); } e.preventDefault(); }
   else if (k === "x") { const p = f[S.sel]; if (p) { S.picked.has(p.n) ? S.picked.delete(p.n) : S.picked.add(p.n); render(); } }
-  else if (k === "a") { const p = cur(); if (p && !p.merged) { S.sheet = { n: p.n, preset: presetFor(p) }; render(); } }
+  else if (k === "a") { const p = cur(); if (p && !p.merged && !p.closed) { S.sheet = { n: p.n, preset: presetFor(p) }; render(); } }
   else if (k === "m") { const p = cur(); if (p) { if (attention(p) === "ready" && !p.merged && !S.merging.has(p.n)) { S.mergePop = p.n; render(); } else toast(`#${p.n} isn't ready to merge yet`); } }
-  else if (k === "r") { const p = cur(); if (p?.d && !p.merged) { mutate(() => { p.d = false; }, p.n); toast(`#${p.n} marked ready for review`); } }
-  else if (k === "z") { const p = cur(); if (p && !p.merged) { closePops(); S.snoozeMenu = p.n; render(); } }
+  else if (k === "r") { const p = cur(); if (p?.d && !p.merged && !p.closed) setStatus(p.n, "open"); }
+  else if (k === "s") { const p = cur(); if (p && !p.merged) { closePops(); S.stMenu = p.n; S.stAt = S.open === p.n ? "pill" : "row"; S.menuFocus = true; render(); } }
+  else if (k === "z") { const p = cur(); if (p && !p.merged && !p.closed) { closePops(); S.snoozeMenu = p.n; render(); } }
   else if (k === "t") { const p = cur(); if (p && AGENTS[p.n]) toast(`Opening “${AGENTS[p.n].title}”`); }
   else if (k === "c") { const p = cur(); if (p) toast(`Copied ${p.h}`); }
   else if (k === "o") { const p = cur(); if (p) toast(`Opening #${p.n} on GitHub`); }
