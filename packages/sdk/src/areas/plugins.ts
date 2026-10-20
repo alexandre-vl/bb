@@ -64,6 +64,7 @@ import {
   type PluginUpdateCheckEntry,
 } from "@bb/server-contract";
 import { z } from "zod";
+import { BbHttpError } from "../response.js";
 import type { CreateSdkAreaArgs } from "./common.js";
 
 /**
@@ -344,6 +345,16 @@ function pluginSourceSelection(
   return undefined;
 }
 
+function rejectedUpdateRequestFields(error: unknown): boolean {
+  return (
+    error instanceof BbHttpError &&
+    error.status === 400 &&
+    z
+      .object({ error: z.literal("expected an empty JSON object") })
+      .safeParse(error.body).success
+  );
+}
+
 function pluginPath(pluginId: string, suffix = ""): string {
   const id = z.string().min(1).parse(pluginId);
   return `/api/v1/plugins/${encodeURIComponent(id)}${suffix}`;
@@ -397,24 +408,36 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     },
   };
 
-  function requestUpdate(input: PluginApplyUpdateArgs) {
+  async function requestUpdate(input: PluginApplyUpdateArgs) {
     const body = pluginApplyUpdateRequestSchema.parse(
       input.expectedVersion === undefined
         ? {}
         : { expectedVersion: input.expectedVersion },
     );
-    return requestParsed(
-      pluginPath(input.pluginId, "/update"),
-      z.union([pluginUpdateJobResponseSchema, pluginApplyUpdateResultSchema]),
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          prefer: "respond-async",
+    try {
+      return await requestParsed(
+        pluginPath(input.pluginId, "/update"),
+        z.union([pluginUpdateJobResponseSchema, pluginApplyUpdateResultSchema]),
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            prefer: "respond-async",
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      },
-    );
+      );
+    } catch (error) {
+      if (
+        input.expectedVersion !== undefined &&
+        rejectedUpdateRequestFields(error)
+      ) {
+        throw new Error(
+          `Update not started; this BB server predates reviewed-release updates and cannot honor expectedVersion "${input.expectedVersion}". Upgrade the BB server, or retry without expectedVersion`,
+        );
+      }
+      throw error;
+    }
   }
 
   const installJobs: PluginInstallJobsArea = {
