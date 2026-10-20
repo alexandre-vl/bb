@@ -3090,7 +3090,11 @@ terminal update, rollback, or failure. Jobs survive client disconnects, stay
 ten minutes after finishing, and live in memory only. `applyUpdate` keeps its
 result contract by polling the job; raw callers without
 `Prefer: respond-async` keep the synchronous response. Running updates cannot
-be cancelled during activation or rollback.
+be cancelled during activation or rollback. Both calls accept
+`expectedVersion`, the `candidate.version` a check returned; the server
+refuses without touching the installation unless the release it resolves at
+apply time has that version, and a request only joins an active job for the
+same plugin and expected version. The CLI and app always send it.
 
 Stabilization requires exercising reconnect/reload, concurrent deduplication,
 rollback delivery, missing jobs after restart, and CLI/SDK parity.
