@@ -154,4 +154,5 @@ users on 0.6.x, and >=0.6.1 <1.0.0 also brings them minor releases that can
 break compatibility.
 
 BB records the range in each install. A later range change in the marketplace
-entry reaches new installs only. An existing install keeps its range.
+entry reaches new installs only. An existing install keeps its range until
+its user changes it with bb plugin track.

@@ -87,4 +87,5 @@ range changes.
 
 A release outside the entry range, such as 0.7.0 for ^0.6.1, needs a range
 change. That change reaches new installs only. An existing install keeps the
-range it was installed with. State this in the result.
+range it was installed with until its user changes it with bb plugin track.
+State this in the result.
