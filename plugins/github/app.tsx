@@ -15,10 +15,16 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import {
   buildSuggestions,
+  CHANGE_KINDS,
+  changeBreakdown,
+  diffSizeBlocks,
   matchesQuery,
+  unlistedChange,
   parseQuery,
   parseSubPath,
+  pullStateOptions,
   routeToSubPath,
+  type ChangeTotals,
   type Item,
   type Route,
   type Suggestion,
@@ -31,6 +37,7 @@ import {
   pullNextStep,
   stackNotes,
   type PullGroup,
+  type PullStateTarget,
   type PullTone,
 } from "./pull-status.js";
 import type { githubRpcContract } from "./server.js";
@@ -1575,21 +1582,478 @@ function IssueDetailView({
   );
 }
 
-function pullStateBadgeParts(state: string): { dot: string; label: string } {
-  if (state === "DRAFT")
-    return { dot: "bg-muted-foreground/60", label: "draft" };
-  if (state === "OPEN") return { dot: "bg-green-500", label: "open" };
-  if (state === "MERGED") return { dot: "bg-purple-500", label: "merged" };
-  return { dot: "bg-red-500", label: "closed" };
+const PULL_STATE_DISPLAY: Record<
+  string,
+  { icon: string; tone: string; label: string }
+> = {
+  OPEN: { icon: "GitPullRequestArrow", tone: "text-success", label: "Open" },
+  DRAFT: {
+    icon: "GitPullRequestDraft",
+    tone: "text-muted-foreground",
+    label: "Draft",
+  },
+  MERGED: { icon: "GitMerge", tone: "text-pr-merged", label: "Merged" },
+  CLOSED: {
+    icon: "GitPullRequestClosed",
+    tone: "text-destructive",
+    label: "Closed",
+  },
+};
+
+const PULL_STATE_ORDER: PullStateTarget[] = ["draft", "open", "closed"];
+
+const TARGET_DETAIL_STATE: Record<PullStateTarget, string> = {
+  open: "OPEN",
+  draft: "DRAFT",
+  closed: "CLOSED",
+};
+
+function pullStateDisplay(state: string) {
+  return PULL_STATE_DISPLAY[state] ?? PULL_STATE_DISPLAY.CLOSED!;
+}
+
+const DIFF_COUNT_FORMAT = new Intl.NumberFormat("en-US");
+
+function formatDiffCount(value: number): string {
+  return DIFF_COUNT_FORMAT.format(value);
 }
 
 function PullStateBadge({ state }: { state: string }) {
-  const { dot, label } = pullStateBadgeParts(state);
+  const display = pullStateDisplay(state);
   return (
-    <Badge variant="outline" className="gap-1.5 font-normal">
-      <span className={`size-2 shrink-0 rounded-full ${dot}`} />
-      {label}
+    <Badge variant="outline" className="h-6 gap-1.5 rounded-full font-normal">
+      <Icon
+        name={display.icon}
+        className={`size-3.5 shrink-0 ${display.tone}`}
+      />
+      {display.label}
     </Badge>
+  );
+}
+
+function pullStateMessages(
+  number: number,
+  from: string,
+  to: PullStateTarget,
+): { pending: string; loading: string; done: string } {
+  if (to === "closed") {
+    return {
+      pending: "Closing…",
+      loading: `Closing #${number}…`,
+      done: `Closed #${number} without merging`,
+    };
+  }
+  if (from === "CLOSED") {
+    return to === "draft"
+      ? {
+          pending: "Reopening…",
+          loading: `Reopening #${number} as a draft…`,
+          done: `Reopened #${number} as a draft`,
+        }
+      : {
+          pending: "Reopening…",
+          loading: `Reopening #${number}…`,
+          done: `Reopened #${number}`,
+        };
+  }
+  return to === "draft"
+    ? {
+        pending: "Converting…",
+        loading: `Converting #${number} to a draft…`,
+        done: `#${number} is a draft now`,
+      }
+    : {
+        pending: "Marking ready…",
+        loading: `Marking #${number} ready for review…`,
+        done: `#${number} is ready for review`,
+      };
+}
+
+const DETAIL_STATE_TARGET: Record<string, PullStateTarget> = {
+  OPEN: "open",
+  DRAFT: "draft",
+  CLOSED: "closed",
+};
+
+function PullStateMenu({
+  pull,
+  onChanged,
+}: {
+  pull: PullDetail;
+  onChanged: () => Promise<void>;
+}) {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
+  const [settling, setSettling] = useState(false);
+  const [shownState, setShownState] = useState<string | null>(null);
+  const [seenState, setSeenState] = useState(pull.state);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const inFlight = useRef(0);
+  if (seenState !== pull.state) {
+    setSeenState(pull.state);
+    setShownState(null);
+  }
+  useEffect(() => {
+    if (!confirmClose) return;
+    const timer = window.setTimeout(() => setConfirmClose(false), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [confirmClose]);
+
+  const state = shownState ?? pull.state;
+  const options = pullStateOptions({ ...pull, state });
+  const change = useCallback(
+    function requestChange(
+      from: string,
+      to: PullStateTarget,
+      undo: boolean,
+    ): void {
+      const messages = pullStateMessages(pull.number, from, to);
+      const back = DETAIL_STATE_TARGET[from];
+      const reversible =
+        from !== "CLOSED" ||
+        TARGET_DETAIL_STATE[to] === (pull.isDraft ? "DRAFT" : "OPEN");
+      const id = toast.loading(messages.loading);
+      inFlight.current += 1;
+      setSettling(true);
+      queue.current = queue.current
+        .then(() => {
+          setPendingLabel(messages.pending);
+          return rpc.call("setPullState", {
+            repo: pull.repo,
+            number: pull.number,
+            state: to,
+          });
+        })
+        .then(
+          () => {
+            setShownState(TARGET_DETAIL_STATE[to]);
+            toast.success(messages.done, {
+              id,
+              ...(undo && reversible && back !== undefined
+                ? {
+                    action: {
+                      label: "Undo",
+                      onClick: () =>
+                        requestChange(TARGET_DETAIL_STATE[to], back, false),
+                    },
+                  }
+                : {}),
+            });
+          },
+          (error: unknown) => {
+            toast.error(`Couldn't update #${pull.number}`, {
+              id,
+              description: errorText(error),
+            });
+          },
+        )
+        .then(() => {
+          setPendingLabel(null);
+          return onChanged();
+        })
+        .finally(() => {
+          inFlight.current -= 1;
+          if (inFlight.current === 0) setSettling(false);
+        });
+    },
+    [onChanged, pull.isDraft, pull.number, pull.repo, rpc],
+  );
+
+  const display = pullStateDisplay(state);
+  if (!settling && options.length === 0) {
+    return <PullStateBadge state={state} />;
+  }
+  const rows = PULL_STATE_ORDER.flatMap(
+    (target): Array<{ target: PullStateTarget; hint: string | null }> => {
+      if (TARGET_DETAIL_STATE[target] === state)
+        return [{ target, hint: null }];
+      const option = options.find((entry) => entry.target === target);
+      return option === undefined ? [] : [{ target, hint: option.hint }];
+    },
+  );
+  return (
+    <DropdownMenu
+      open={menuOpen}
+      onOpenChange={(open) => {
+        if (open && settling) return;
+        setMenuOpen(open);
+        if (!open) setConfirmClose(false);
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 gap-1.5 rounded-full px-2 text-xs font-normal aria-disabled:cursor-default data-[state=open]:bg-state-active"
+          aria-label={
+            pendingLabel ??
+            (settling
+              ? `Status: ${display.label}`
+              : `Status: ${display.label}. Change the status`)
+          }
+          aria-busy={settling}
+          aria-disabled={settling}
+        >
+          {pendingLabel !== null ? (
+            <>
+              <Icon name="Loading" className="size-3.5 shrink-0 animate-spin" />
+              {pendingLabel}
+            </>
+          ) : (
+            <>
+              <Icon
+                name={display.icon}
+                className={`size-3.5 shrink-0 ${display.tone}`}
+              />
+              {display.label}
+              {settling ? null : (
+                <Icon
+                  name="ChevronDown"
+                  className="size-3 shrink-0 text-muted-foreground"
+                />
+              )}
+            </>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-72"
+        mobileTitle={`Status of #${pull.number}`}
+      >
+        <DropdownMenuLabel>Status of #{pull.number}</DropdownMenuLabel>
+        <span className="sr-only" aria-live="polite">
+          {confirmClose
+            ? `Press Closed again to close #${pull.number} without merging`
+            : ""}
+        </span>
+        {rows.map(({ target, hint }) => {
+          const rowDisplay = pullStateDisplay(TARGET_DETAIL_STATE[target]);
+          const current = hint === null;
+          const confirming = target === "closed" && confirmClose && !current;
+          return (
+            <DropdownMenuItem
+              key={target}
+              role="menuitemradio"
+              aria-checked={current}
+              variant={confirming ? "destructive" : "default"}
+              onSelect={(event) => {
+                if (current) return;
+                if (target === "closed" && !confirmClose) {
+                  event.preventDefault();
+                  setConfirmClose(true);
+                  return;
+                }
+                change(state, target, true);
+              }}
+            >
+              <Icon
+                name={rowDisplay.icon}
+                className={`size-3.5 shrink-0 ${confirming ? "" : rowDisplay.tone}`}
+              />
+              {confirming ? (
+                <span className="min-w-0 flex-1 truncate">
+                  Close without merging?
+                </span>
+              ) : (
+                <>
+                  <span className="w-14 shrink-0">{rowDisplay.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {hint}
+                  </span>
+                </>
+              )}
+              {current ? (
+                <Icon
+                  name="Check"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                />
+              ) : confirming ? (
+                <span className="shrink-0 text-xs">Press again</span>
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DiffSizeBar({
+  additions,
+  deletions,
+}: {
+  additions: number;
+  deletions: number;
+}) {
+  return (
+    <span className="flex shrink-0 gap-px" aria-hidden>
+      {diffSizeBlocks(additions, deletions).map((block, index) => (
+        <span
+          key={index}
+          className={`size-1.5 rounded-[1px] ${
+            block === "added"
+              ? "bg-diff-added"
+              : block === "removed"
+                ? "bg-diff-removed"
+                : "bg-muted"
+          }`}
+        />
+      ))}
+    </span>
+  );
+}
+
+function PullDiffStat({
+  pull,
+  onShowFiles,
+}: {
+  pull: PullDetail;
+  onShowFiles: (() => void) | null;
+}) {
+  const breakdown = changeBreakdown(pull.files);
+  const unlisted = unlistedChange(pull, breakdown);
+  const fileCount = `${pull.changedFiles} file${pull.changedFiles === 1 ? "" : "s"}`;
+  return (
+    <TooltipProvider delayDuration={250}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="-mx-1 inline-flex items-center gap-1.5 rounded px-1 tabular-nums transition-colors enabled:hover:bg-state-hover enabled:hover:text-foreground"
+            aria-label={`${pull.additions} lines added and ${pull.deletions} removed in ${fileCount}${onShowFiles === null ? "" : ". Show the files"}`}
+            disabled={onShowFiles === null}
+            onClick={onShowFiles ?? undefined}
+          >
+            <span className="text-diff-added">
+              +{formatDiffCount(pull.additions)}
+            </span>
+            <span className="text-diff-removed">
+              -{formatDiffCount(pull.deletions)}
+            </span>
+            <DiffSizeBar
+              additions={pull.additions}
+              deletions={pull.deletions}
+            />
+            <span>· {fileCount}</span>
+          </button>
+        </TooltipTrigger>
+        {breakdown.length > 0 ? (
+          <TooltipContent
+            side="bottom"
+            align="start"
+            className="border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md"
+          >
+            <div className="grid grid-cols-[auto_auto_auto_auto] gap-x-4 gap-y-1 tabular-nums">
+              {breakdown.map((entry) => (
+                <ChangeRow
+                  key={entry.kind}
+                  label={CHANGE_KINDS[entry.kind]}
+                  additions={entry.additions}
+                  deletions={entry.deletions}
+                  files={entry.files}
+                />
+              ))}
+              {unlisted === null ? null : (
+                <ChangeRow
+                  label="Not listed"
+                  additions={unlisted.additions}
+                  deletions={unlisted.deletions}
+                  files={unlisted.files}
+                />
+              )}
+              <span className="col-span-4 border-t border-border" />
+              <ChangeRow
+                label="Total"
+                additions={pull.additions}
+                deletions={pull.deletions}
+                files={pull.changedFiles}
+              />
+            </div>
+          </TooltipContent>
+        ) : null}
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function ChangeKinds({ rows }: { rows: ChangeTotals[] }) {
+  if (rows.length < 2) return null;
+  return (
+    <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
+      {rows.map((row) => (
+        <span key={row.kind}>
+          {CHANGE_KINDS[row.kind]}{" "}
+          <span className="text-diff-added">
+            +{formatDiffCount(row.additions)}
+          </span>{" "}
+          <span className="text-diff-removed">
+            -{formatDiffCount(row.deletions)}
+          </span>
+        </span>
+      ))}
+    </p>
+  );
+}
+
+function ChangeRow({
+  label,
+  additions,
+  deletions,
+  files,
+}: {
+  label: string;
+  additions: number;
+  deletions: number;
+  files: number;
+}) {
+  return (
+    <>
+      <span>{label}</span>
+      <span className="text-right text-diff-added">
+        +{formatDiffCount(additions)}
+      </span>
+      <span className="text-right text-diff-removed">
+        -{formatDiffCount(deletions)}
+      </span>
+      <span className="text-right text-muted-foreground">
+        {files} file{files === 1 ? "" : "s"}
+      </span>
+    </>
+  );
+}
+
+function BranchCopyChip({ name }: { name: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1_600);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      className="-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 font-mono transition-colors hover:bg-state-hover hover:text-foreground"
+      title={copied ? "Copied" : `Copy ${name}`}
+      aria-label={`Copy the branch name ${name}`}
+      onClick={() => {
+        void experimental_copyToClipboard({ text: name }).then((ok) => {
+          if (ok) setCopied(true);
+          else toast.error("Could not copy the branch name");
+        });
+      }}
+    >
+      <span className="min-w-0 truncate">{name}</span>
+      <Icon
+        name={copied ? "Check" : "Copy"}
+        className={`size-3 shrink-0 ${copied ? "text-success" : "text-muted-foreground"}`}
+      />
+      <span className="sr-only" aria-live="polite">
+        {copied ? "Branch name copied" : ""}
+      </span>
+    </button>
   );
 }
 
@@ -1736,11 +2200,11 @@ function FileDiffCard({
             {file.status}
           </Badge>
         ) : null}
-        <span className="shrink-0 text-xs text-green-600 dark:text-green-400">
-          +{file.additions}
+        <span className="shrink-0 text-xs tabular-nums text-diff-added">
+          +{formatDiffCount(file.additions)}
         </span>
-        <span className="shrink-0 text-xs text-red-600 dark:text-red-400">
-          −{file.deletions}
+        <span className="shrink-0 text-xs tabular-nums text-diff-removed">
+          -{formatDiffCount(file.deletions)}
         </span>
       </div>
       {open ? (
@@ -1954,19 +2418,27 @@ function PullDetailView({
   const { spawn, spawningKey } = useSpawn();
   const [pull, setPull] = useState<PullDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const filesRef = useRef<HTMLDivElement | null>(null);
+  const loadSeq = useRef(0);
 
   const load = useCallback(() => {
-    rpc.call("getPull", { repo, number }).then(
+    loadSeq.current += 1;
+    const seq = loadSeq.current;
+    return rpc.call("getPull", { repo, number }).then(
       (result) => {
+        if (seq !== loadSeq.current) return;
         setPull(result.pull);
         setError(null);
       },
-      (err: unknown) => setError(errorText(err)),
+      (err: unknown) => {
+        if (seq !== loadSeq.current) return;
+        setError(errorText(err));
+      },
     );
   }, [rpc, repo, number]);
   useEffect(() => {
     setPull(null);
-    load();
+    void load();
   }, [load]);
 
   if (error !== null) return <EmptyState message={error} />;
@@ -1997,18 +2469,21 @@ function PullDetailView({
       <PullTimeline pull={pull} />
 
       {pull.files.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Files changed · {pull.files.length}
-            <span className="ml-2 font-normal">
-              <span className="text-green-600 dark:text-green-400">
-                +{pull.additions}
-              </span>{" "}
-              <span className="text-red-600 dark:text-red-400">
-                −{pull.deletions}
+        <div className="flex scroll-mt-4 flex-col gap-2" ref={filesRef}>
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <h3 className="text-xs font-semibold text-muted-foreground">
+              Files changed · {pull.files.length}
+              <span className="ml-2 font-normal tabular-nums">
+                <span className="text-diff-added">
+                  +{formatDiffCount(pull.additions)}
+                </span>{" "}
+                <span className="text-diff-removed">
+                  -{formatDiffCount(pull.deletions)}
+                </span>
               </span>
-            </span>
-          </h3>
+            </h3>
+            <ChangeKinds rows={changeBreakdown(pull.files)} />
+          </div>
           {pull.files.map((file) => (
             <FileDiffCard
               key={file.path}
@@ -2068,20 +2543,25 @@ function PullDetailView({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <PullStateBadge state={pull.state} />
+        <PullStateMenu pull={pull} onChanged={load} />
         <ReviewDecisionBadge decision={pull.reviewDecision} />
-        <span className="font-mono">
-          {pull.baseRefName} ← {pull.headRefName}
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="font-mono">{pull.baseRefName}</span>
+          <span aria-hidden>←</span>
+          <BranchCopyChip name={pull.headRefName} />
         </span>
-        <span>
-          <span className="text-green-600 dark:text-green-400">
-            +{pull.additions}
-          </span>{" "}
-          <span className="text-red-600 dark:text-red-400">
-            −{pull.deletions}
-          </span>{" "}
-          · {pull.changedFiles} file{pull.changedFiles === 1 ? "" : "s"}
-        </span>
+        <PullDiffStat
+          pull={pull}
+          onShowFiles={
+            pull.files.length === 0
+              ? null
+              : () =>
+                  filesRef.current?.scrollIntoView({
+                    block: "start",
+                    behavior: "smooth",
+                  })
+          }
+        />
         <LabelChips labels={pull.labels} className="flex flex-wrap" />
         <ThreadPills links={pullLinks} />
       </div>

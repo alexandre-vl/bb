@@ -16,6 +16,8 @@ import {
   assemblePullStatus,
   pullGroup,
   pullNextStep,
+  pullStateCommands,
+  type PullStateTarget,
   type PullStatus,
 } from "./pull-status.js";
 
@@ -145,6 +147,10 @@ const pullSchema = z
     reviewDecision: z.string(),
     mergeStateStatus: z.string(),
     reviewRequests: z.array(z.string()),
+    isDraft: z.boolean(),
+    viewerCanUpdate: z.boolean(),
+    viewerCanClose: z.boolean(),
+    viewerCanReopen: z.boolean(),
     checks: z.array(
       z
         .object({
@@ -188,6 +194,12 @@ const pullSchema = z
     ),
   })
   .strict();
+
+const pullStateTargetSchema = z.enum([
+  "open",
+  "draft",
+  "closed",
+]) satisfies z.ZodType<PullStateTarget>;
 
 export const githubRpcContract = defineRpcContract({
   status: {
@@ -272,6 +284,12 @@ export const githubRpcContract = defineRpcContract({
   getPull: {
     input: itemInputSchema,
     output: z.object({ pull: pullSchema }).strict(),
+  },
+  setPullState: {
+    input: itemInputSchema.extend({ state: pullStateTargetSchema }).strict(),
+    output: z
+      .object({ ok: z.literal(true), state: pullStateTargetSchema })
+      .strict(),
   },
   commentPull: {
     input: itemInputSchema.extend({ body: nonBlankStringSchema }).strict(),
@@ -586,6 +604,49 @@ const repositoryListsQuery = `query RepositoryLists($owner: String!, $name: Stri
     }
   }
 }`;
+
+const pullPermissionsQuery = `query PullPermissions($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { viewerCanUpdate viewerCanClose viewerCanReopen }
+  }
+}`;
+const pullPermissionsSchema = z.object({
+  data: z.object({
+    repository: z.object({
+      pullRequest: z.object({
+        viewerCanUpdate: z.boolean(),
+        viewerCanClose: z.boolean(),
+        viewerCanReopen: z.boolean(),
+      }),
+    }),
+  }),
+});
+const NO_PULL_PERMISSIONS = {
+  viewerCanUpdate: false,
+  viewerCanClose: false,
+  viewerCanReopen: false,
+};
+const pullStateViewSchema = z.object({
+  state: z.enum(["OPEN", "CLOSED", "MERGED"]),
+  isDraft: z.boolean(),
+});
+const PULL_STATE_PHRASES: Record<PullStateTarget, string> = {
+  open: "open and ready for review",
+  draft: "a draft",
+  closed: "closed",
+};
+
+function parsePullPermissions(raw: string | null): typeof NO_PULL_PERMISSIONS {
+  if (raw === null) return NO_PULL_PERMISSIONS;
+  try {
+    const parsed = pullPermissionsSchema.safeParse(JSON.parse(raw));
+    return parsed.success
+      ? parsed.data.data.repository.pullRequest
+      : NO_PULL_PERMISSIONS;
+  } catch {
+    return NO_PULL_PERMISSIONS;
+  }
+}
 
 async function fetchRepoItems(
   gh: GhRunner,
@@ -1047,6 +1108,51 @@ export default async function plugin(bb: BbPluginApi) {
     return { repos: repos.length, items: total };
   }
 
+  async function refreshTrackedRepo(repo: string): Promise<void> {
+    const repos = await discoverRepos();
+    if (!repos.some((info) => info.repo === repo)) return;
+    const items = await fetchRepoItems(
+      (args) => gh(args, undefined, "background"),
+      repo,
+    );
+    replaceRepoRows(repo, items);
+    bb.realtime.publish("data-changed", { items: items.length });
+  }
+
+  async function changePullState(
+    repo: string,
+    number: number,
+    target: PullStateTarget,
+  ): Promise<void> {
+    try {
+      const current = pullStateViewSchema.parse(
+        JSON.parse(
+          await gh(
+            [
+              "pr",
+              "view",
+              String(number),
+              "-R",
+              repo,
+              "--json",
+              "state,isDraft",
+            ],
+            15_000,
+          ),
+        ),
+      );
+      for (const [verb, ...flags] of pullStateCommands(current, target)) {
+        await gh(["pr", verb, String(number), "-R", repo, ...flags]);
+      }
+    } finally {
+      refreshTrackedRepo(repo).catch((error: unknown) => {
+        bb.log.warn(
+          `refresh after a state change failed for ${repo}: ${errorMessage(error)}`,
+        );
+      });
+    }
+  }
+
   bb.background.service("sync", {
     async start(signal) {
       let failures = 0;
@@ -1401,30 +1507,54 @@ export default async function plugin(bb: BbPluginApi) {
         "assignees,url,baseRefName,headRefName,additions,deletions," +
         "changedFiles,reviewDecision,mergeStateStatus,statusCheckRollup," +
         "comments,reviews,reviewRequests";
-      const [viewRaw, reviewCommentsRaw, filesRaw] = await Promise.all([
-        gh(
-          ["pr", "view", String(number), "-R", repo, "--json", prFields],
-          30_000,
-        ),
-        gh(
-          [
-            "api",
-            "--paginate",
-            "--slurp",
-            `repos/${repo}/pulls/${number}/comments?per_page=100`,
-          ],
-          30_000,
-        ),
-        gh(
-          [
-            "api",
-            "--paginate",
-            "--slurp",
-            `repos/${repo}/pulls/${number}/files?per_page=100`,
-          ],
-          30_000,
-        ),
-      ]);
+      const [repoOwner, repoName] = repo.split("/");
+      const [viewRaw, reviewCommentsRaw, filesRaw, permissionsRaw] =
+        await Promise.all([
+          gh(
+            ["pr", "view", String(number), "-R", repo, "--json", prFields],
+            30_000,
+          ),
+          gh(
+            [
+              "api",
+              "--paginate",
+              "--slurp",
+              `repos/${repo}/pulls/${number}/comments?per_page=100`,
+            ],
+            30_000,
+          ),
+          gh(
+            [
+              "api",
+              "--paginate",
+              "--slurp",
+              `repos/${repo}/pulls/${number}/files?per_page=100`,
+            ],
+            30_000,
+          ),
+          gh(
+            [
+              "api",
+              "graphql",
+              "--hostname",
+              GH_HOST,
+              "-f",
+              `query=${pullPermissionsQuery}`,
+              "-f",
+              `owner=${repoOwner}`,
+              "-f",
+              `name=${repoName}`,
+              "-F",
+              `number=${number}`,
+            ],
+            30_000,
+          ).catch((error: unknown) => {
+            bb.log.warn(
+              `could not read permissions for ${repo}#${number}: ${errorMessage(error)}`,
+            );
+            return null;
+          }),
+        ]);
 
       interface GhPullView extends GhListEntry {
         isDraft?: unknown;
@@ -1590,6 +1720,8 @@ export default async function plugin(bb: BbPluginApi) {
               String(entry.login ?? entry.name ?? entry.slug ?? ""),
             )
             .filter((name) => name.length > 0),
+          isDraft: view.isDraft === true,
+          ...parsePullPermissions(permissionsRaw),
           checks,
           comments: (view.comments ?? []).map((comment) => ({
             author: String(comment.author?.login ?? ""),
@@ -1606,6 +1738,15 @@ export default async function plugin(bb: BbPluginApi) {
           files,
         },
       };
+    },
+
+    async setPullState({
+      repo,
+      number,
+      state,
+    }): Promise<{ ok: true; state: PullStateTarget }> {
+      await changePullState(repo, number, state);
+      return { ok: true, state };
     },
 
     async commentPull({ repo, number, body }): Promise<{ ok: true }> {
@@ -1956,6 +2097,61 @@ export default async function plugin(bb: BbPluginApi) {
         }),
         issues: listCachedItemsCommand("issue"),
         prs: listCachedItemsCommand("pr"),
+        "pr-state": cliCommand({
+          summary:
+            "Mark a pull request ready, turn it into a draft, close it, or reopen it",
+          description:
+            "Runs gh pr ready, gh pr ready --undo, gh pr close, or gh pr reopen as needed; a closed pull request is reopened first. A tracked repository's cache then refreshes in the background, also after a change that failed partway.",
+          positionals: [
+            {
+              name: "repo",
+              description: "The pull request's owner/repo",
+              required: true,
+            },
+            {
+              name: "number",
+              description: "The pull request number",
+              required: true,
+            },
+          ],
+          options: {
+            state: {
+              type: "enum",
+              values: ["open", "draft", "closed"],
+              required: true,
+              description:
+                "open (ready for review), draft, or closed (without merging)",
+            },
+            json: {
+              type: "boolean",
+              description: "Emit the repository, number, and new state as JSON",
+            },
+          },
+          run(input) {
+            return guarded(async () => {
+              const repo = input.positionals.repo;
+              requireRepoName(repo);
+              const number = Number(input.positionals.number);
+              if (
+                !/^[1-9]\d*$/.test(input.positionals.number) ||
+                !itemNumberSchema.safeParse(number).success
+              ) {
+                throw new PluginCliError(
+                  `Invalid pull request number "${input.positionals.number}".`,
+                  { code: "invalid_number" },
+                );
+              }
+              const state = input.options.state;
+              await changePullState(repo, number, state);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify({ ok: true, repo, number, state })
+                  : `${repo}#${number} is ${PULL_STATE_PHRASES[state]}.`,
+              };
+            });
+          },
+        }),
         sync: cliCommand({
           summary: "Refresh the cache from GitHub now",
           options: {

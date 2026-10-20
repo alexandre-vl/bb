@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server";
 import { installFakeGh } from "./testing/fake-gh";
@@ -196,12 +196,27 @@ beforeEach(() => {
       },
     ],
   ]);
+  const pullPermissions = JSON.stringify({
+    data: {
+      repository: {
+        pullRequest: {
+          viewerCanUpdate: true,
+          viewerCanClose: true,
+          viewerCanReopen: false,
+        },
+      },
+    },
+  });
 
   restoreEnv = installFakeGh(
     binDir,
     `const callLog = ${JSON.stringify(callLog)};
 const joined = args.join(" ");
 fs.appendFileSync(callLog, joined + "\\n");
+if (process.env.FAKE_GH_FAIL && joined.includes(process.env.FAKE_GH_FAIL)) {
+  err("HTTP 502: Bad Gateway\\n");
+  process.exit(1);
+}
 const exact = {
   "--version": "gh version 2.96.0 (fake)",
   "auth status --hostname github.com --active": "authenticated",
@@ -213,7 +228,11 @@ const exact = {
   "api --paginate --slurp repos/acme/widgets/pulls/42/files?per_page=100": ${JSON.stringify(pullFiles)},
 };
 const prefixed = [
+  ["api graphql --hostname github.com -f query=query PullPermissions", ${JSON.stringify(pullPermissions)}],
   ["api graphql ", ${JSON.stringify(lists)}],
+  ["pr view 43 -R acme/widgets --json state,isDraft", '{"state":"MERGED","isDraft":false}'],
+  ["pr view 44 -R acme/widgets --json state,isDraft", '{"state":"CLOSED","isDraft":false}'],
+  ["pr view 7 -R other/repo --json state,isDraft", '{"state":"OPEN","isDraft":false}'],
   ["issue view 7 -R acme/widgets --json", ${JSON.stringify(issueDetail)}],
   ["pr view 42 -R acme/widgets --json", ${JSON.stringify(pullDetail)}],
   ["issue edit ", "[]"],
@@ -224,6 +243,7 @@ out((exact[joined] ?? prefixMatch?.[1] ?? "[]") + "\\n");`,
 });
 
 afterEach(() => {
+  delete process.env.FAKE_GH_FAIL;
   restoreEnv();
   rmSync(binDir, { recursive: true, force: true });
 });
@@ -519,5 +539,198 @@ describe("github plugin RPC behavior", () => {
         ],
       },
     });
+  });
+
+  it("reads what the viewer may change on a pull request", async () => {
+    const { harness } = await loadPlugin();
+
+    await expect(
+      harness.callRpc("getPull", { repo: "acme/widgets", number: 42 }),
+    ).resolves.toMatchObject({
+      pull: {
+        viewerCanUpdate: true,
+        viewerCanClose: true,
+        viewerCanReopen: false,
+      },
+    });
+    expect(ghCalls()).toContain("} -f owner=acme -f name=widgets -F number=42");
+  });
+
+  it("still opens a pull request when GitHub will not say what the viewer may change", async () => {
+    process.env.FAKE_GH_FAIL = "PullPermissions";
+    const { harness } = await loadPlugin();
+
+    await expect(
+      harness.callRpc("getPull", { repo: "acme/widgets", number: 42 }),
+    ).resolves.toMatchObject({
+      pull: {
+        number: 42,
+        viewerCanUpdate: false,
+        viewerCanClose: false,
+        viewerCanReopen: false,
+      },
+    });
+    expect(harness.logEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: "warn",
+          message: expect.stringContaining(
+            "could not read permissions for acme/widgets#42",
+          ),
+        }),
+      ]),
+    );
+  });
+
+  it("changes a pull request's state from the RPC and the CLI, then refreshes the list", async () => {
+    const { harness } = await loadPlugin();
+
+    await expect(
+      harness.callRpc("setPullState", {
+        repo: "acme/widgets",
+        number: 42,
+        state: "open",
+      }),
+    ).resolves.toEqual({ ok: true, state: "open" });
+    await expect(
+      harness.runCli(["pr-state", "acme/widgets", "42", "--state", "closed"]),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stdout: "acme/widgets#42 is closed.",
+      stderr: "",
+    });
+    const json = await harness.runCli([
+      "pr-state",
+      "acme/widgets",
+      "42",
+      "--state",
+      "draft",
+      "--json",
+    ]);
+    expect(json.exitCode).toBe(0);
+    expect(JSON.parse(json.stdout)).toEqual({
+      ok: true,
+      repo: "acme/widgets",
+      number: 42,
+      state: "draft",
+    });
+
+    expect(ghCalls().filter((call) => call.startsWith("pr "))).toEqual([
+      "pr view 42 -R acme/widgets --json state,isDraft",
+      "pr ready 42 -R acme/widgets",
+      "pr view 42 -R acme/widgets --json state,isDraft",
+      "pr close 42 -R acme/widgets",
+      "pr view 42 -R acme/widgets --json state,isDraft",
+    ]);
+    await vi.waitFor(
+      () =>
+        expect(
+          harness.realtimeSignals.filter(
+            (signal) => signal.channel === "data-changed",
+          ),
+        ).toHaveLength(3),
+      { timeout: 10_000 },
+    );
+  });
+
+  it("reports why a pull request's state did not change", async () => {
+    const { harness } = await loadPlugin();
+
+    await expect(
+      harness.runCli(["pr-state", "acme/widgets", "43", "--state", "open"]),
+    ).resolves.toMatchObject({
+      exitCode: 1,
+      stderr: "A merged pull request keeps its state.\n",
+    });
+    for (const number of ["4x2", "1e1", "0x2A", "42.0", "0"]) {
+      const badNumber = await harness.runCli([
+        "pr-state",
+        "acme/widgets",
+        number,
+        "--state",
+        "open",
+        "--json",
+      ]);
+      expect(badNumber.exitCode).toBe(1);
+      expect(JSON.parse(badNumber.stdout)).toEqual({
+        ok: false,
+        error: {
+          code: "invalid_number",
+          message: `Invalid pull request number "${number}".`,
+        },
+      });
+    }
+
+    process.env.FAKE_GH_FAIL = "pr ready 42";
+    await expect(
+      harness.callRpc("setPullState", {
+        repo: "acme/widgets",
+        number: 42,
+        state: "open",
+      }),
+    ).rejects.toThrow("gh pr ready 42 failed: HTTP 502: Bad Gateway");
+    expect(ghCalls().filter((call) => call.startsWith("pr "))).toEqual([
+      "pr view 43 -R acme/widgets --json state,isDraft",
+      "pr view 42 -R acme/widgets --json state,isDraft",
+      "pr ready 42 -R acme/widgets",
+    ]);
+    await vi.waitFor(
+      () =>
+        expect(
+          harness.realtimeSignals.filter(
+            (signal) => signal.channel === "data-changed",
+          ),
+        ).toHaveLength(2),
+      { timeout: 10_000 },
+    );
+  });
+
+  it("refreshes the list when a two-step change fails after its first step", async () => {
+    const { harness } = await loadPlugin();
+    process.env.FAKE_GH_FAIL = "pr ready 44";
+
+    await expect(
+      harness.callRpc("setPullState", {
+        repo: "acme/widgets",
+        number: 44,
+        state: "draft",
+      }),
+    ).rejects.toThrow("gh pr ready 44 failed: HTTP 502: Bad Gateway");
+    expect(ghCalls().filter((call) => call.startsWith("pr "))).toEqual([
+      "pr view 44 -R acme/widgets --json state,isDraft",
+      "pr reopen 44 -R acme/widgets",
+      "pr ready 44 -R acme/widgets --undo",
+    ]);
+    await vi.waitFor(
+      () =>
+        expect(
+          harness.realtimeSignals.filter(
+            (signal) => signal.channel === "data-changed",
+          ),
+        ).toHaveLength(1),
+      { timeout: 10_000 },
+    );
+  });
+
+  it("changes a pull request in an untracked repository without caching that repository", async () => {
+    const { harness } = await loadPlugin();
+
+    await expect(
+      harness.runCli(["pr-state", "other/repo", "7", "--state", "closed"]),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stdout: "other/repo#7 is closed.",
+      stderr: "",
+    });
+    expect(ghCalls()).toContain("pr close 7 -R other/repo");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(
+      harness.realtimeSignals.filter(
+        (signal) => signal.channel === "data-changed",
+      ),
+    ).toEqual([]);
+    await expect(
+      harness.callRpc("listItems", { repo: "other/repo" }),
+    ).resolves.toEqual({ items: [] });
   });
 });

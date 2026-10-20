@@ -1,4 +1,5 @@
 import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
+import type { PullStateTarget } from "./pull-status.js";
 import type { githubRpcContract } from "./server.js";
 
 export type Item = PluginRpcResult<
@@ -242,4 +243,147 @@ export function buildSuggestions(
     }));
   }
   return [];
+}
+
+export type ChangeKind = "code" | "tests" | "docs" | "generated";
+
+export const CHANGE_KINDS: Record<ChangeKind, string> = {
+  code: "Code",
+  tests: "Tests",
+  docs: "Docs",
+  generated: "Generated",
+};
+
+const GENERATED_FILES =
+  /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb?|cargo\.lock|go\.sum|poetry\.lock|uv\.lock|gemfile\.lock)$/;
+const GENERATED_PATHS = /(^|\/)(generated|__generated__|dist|vendor)\//;
+const TEST_PATHS =
+  /(^|\/)(__tests__|__mocks__|tests?|testing|spec|fixtures?|e2e)\//;
+const TEST_FILES = /([._-](test|spec)\.[^/]+|_test\.go|^test_[^/]*\.py)$/;
+const DOC_FILES =
+  /(\.(md|mdx|rst|adoc)|^(readme|changelog|contributing|license)(\.[a-z0-9]+)?)$/;
+const DOC_PATHS = /(^|\/)docs?\//;
+
+export function changeKind(path: string): ChangeKind {
+  const lower = path.toLowerCase();
+  const name = lower.slice(lower.lastIndexOf("/") + 1);
+  if (
+    GENERATED_FILES.test(lower) ||
+    GENERATED_PATHS.test(lower) ||
+    /\.(snap|min\.js|min\.css)$/.test(name) ||
+    name.includes(".generated.")
+  ) {
+    return "generated";
+  }
+  if (TEST_PATHS.test(lower) || TEST_FILES.test(name)) return "tests";
+  if (DOC_FILES.test(name) || DOC_PATHS.test(lower)) return "docs";
+  return "code";
+}
+
+export interface ChangeTotals {
+  kind: ChangeKind;
+  additions: number;
+  deletions: number;
+  files: number;
+}
+
+export function changeBreakdown(
+  files: ReadonlyArray<{ path: string; additions: number; deletions: number }>,
+): ChangeTotals[] {
+  const totals = new Map<ChangeKind, ChangeTotals>();
+  for (const file of files) {
+    const kind = changeKind(file.path);
+    const entry = totals.get(kind) ?? {
+      kind,
+      additions: 0,
+      deletions: 0,
+      files: 0,
+    };
+    entry.additions += file.additions;
+    entry.deletions += file.deletions;
+    entry.files += 1;
+    totals.set(kind, entry);
+  }
+  return (Object.keys(CHANGE_KINDS) as ChangeKind[]).flatMap((kind) => {
+    const entry = totals.get(kind);
+    return entry === undefined ? [] : [entry];
+  });
+}
+
+export function unlistedChange(
+  total: { additions: number; deletions: number; changedFiles: number },
+  rows: ReadonlyArray<ChangeTotals>,
+): { additions: number; deletions: number; files: number } | null {
+  const files =
+    total.changedFiles - rows.reduce((sum, row) => sum + row.files, 0);
+  if (files <= 0) return null;
+  const additions = rows.reduce((sum, row) => sum + row.additions, 0);
+  const deletions = rows.reduce((sum, row) => sum + row.deletions, 0);
+  return {
+    additions: Math.max(0, total.additions - additions),
+    deletions: Math.max(0, total.deletions - deletions),
+    files,
+  };
+}
+
+export type DiffBlock = "added" | "removed" | "empty";
+
+export function diffSizeBlocks(
+  additions: number,
+  deletions: number,
+): DiffBlock[] {
+  const total = additions + deletions;
+  const filled =
+    total === 0
+      ? 0
+      : Math.min(5, Math.max(1, Math.ceil(Math.log10(total + 1) * 2)));
+  const added = total === 0 ? 0 : Math.round((additions / total) * filled);
+  return Array.from({ length: 5 }, (_, index) =>
+    index < added ? "added" : index < filled ? "removed" : "empty",
+  );
+}
+
+export interface PullStateOption {
+  target: PullStateTarget;
+  hint: string;
+}
+
+export function pullStateOptions(pull: {
+  state: string;
+  isDraft: boolean;
+  viewerCanUpdate: boolean;
+  viewerCanClose: boolean;
+  viewerCanReopen: boolean;
+}): PullStateOption[] {
+  const close: PullStateOption[] = pull.viewerCanClose
+    ? [{ target: "closed", hint: "Close without merging" }]
+    : [];
+  switch (pull.state) {
+    case "OPEN":
+      return [
+        ...(pull.viewerCanUpdate
+          ? [{ target: "draft" as const, hint: "Convert to draft" }]
+          : []),
+        ...close,
+      ];
+    case "DRAFT":
+      return [
+        ...(pull.viewerCanUpdate
+          ? [{ target: "open" as const, hint: "Ready for review" }]
+          : []),
+        ...close,
+      ];
+    case "CLOSED": {
+      if (!pull.viewerCanReopen) return [];
+      const reopen: PullStateOption = pull.isDraft
+        ? { target: "draft", hint: "Reopen as a draft" }
+        : { target: "open", hint: "Reopen" };
+      const reopenChanged: PullStateOption = pull.isDraft
+        ? { target: "open", hint: "Reopen and mark ready" }
+        : { target: "draft", hint: "Reopen as a draft" };
+      return pull.viewerCanUpdate ? [reopen, reopenChanged] : [reopen];
+    }
+    default:
+      return [];
+  }
 }

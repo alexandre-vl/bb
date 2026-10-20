@@ -4,6 +4,7 @@ import {
   pullGlyph,
   pullGroup,
   pullNextStep,
+  pullStateCommands,
   stackNotes,
   type RawPullStatus,
 } from "./pull-status.js";
@@ -127,5 +128,37 @@ describe("stack notes", () => {
       "acme/one#2": "stacked on #1",
       "acme/one#3": "stacked on #2",
     });
+  });
+});
+
+describe("pull request state changes", () => {
+  it("runs the gh commands that reach each state", () => {
+    const open = { state: "OPEN", isDraft: false } as const;
+    const draft = { state: "OPEN", isDraft: true } as const;
+    const closed = { state: "CLOSED", isDraft: false } as const;
+    const closedDraft = { state: "CLOSED", isDraft: true } as const;
+
+    expect(pullStateCommands(open, "draft")).toEqual([["ready", "--undo"]]);
+    expect(pullStateCommands(open, "closed")).toEqual([["close"]]);
+    expect(pullStateCommands(open, "open")).toEqual([]);
+    expect(pullStateCommands(draft, "open")).toEqual([["ready"]]);
+    expect(pullStateCommands(draft, "closed")).toEqual([["close"]]);
+    expect(pullStateCommands(closed, "open")).toEqual([["reopen"]]);
+    expect(pullStateCommands(closed, "draft")).toEqual([
+      ["reopen"],
+      ["ready", "--undo"],
+    ]);
+    expect(pullStateCommands(closedDraft, "open")).toEqual([
+      ["reopen"],
+      ["ready"],
+    ]);
+    expect(pullStateCommands(closedDraft, "draft")).toEqual([["reopen"]]);
+    expect(pullStateCommands(closed, "closed")).toEqual([]);
+  });
+
+  it("refuses to change a merged pull request", () => {
+    expect(() =>
+      pullStateCommands({ state: "MERGED", isDraft: false }, "open"),
+    ).toThrow("A merged pull request keeps its state.");
   });
 });

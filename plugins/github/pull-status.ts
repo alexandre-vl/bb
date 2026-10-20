@@ -390,3 +390,29 @@ export function stackNotes(pulls: readonly StackPull[]): Map<string, string> {
   }
   return notes;
 }
+
+export type PullStateTarget = "open" | "draft" | "closed";
+
+export interface PullStateView {
+  state: "OPEN" | "CLOSED" | "MERGED";
+  isDraft: boolean;
+}
+
+export function pullStateCommands(
+  current: PullStateView,
+  target: PullStateTarget,
+): Array<[verb: string, ...flags: string[]]> {
+  if (current.state === "MERGED") {
+    throw new Error("A merged pull request keeps its state.");
+  }
+  if (target === "closed") {
+    return current.state === "CLOSED" ? [] : [["close"]];
+  }
+  const commands: Array<[verb: string, ...flags: string[]]> =
+    current.state === "CLOSED" ? [["reopen"]] : [];
+  if (target === "open" && current.isDraft) commands.push(["ready"]);
+  if (target === "draft" && !current.isDraft) {
+    commands.push(["ready", "--undo"]);
+  }
+  return commands;
+}

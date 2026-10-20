@@ -4,6 +4,7 @@ See the open issues and pull requests of your repositories inside bb. Hand one t
 
 - A GitHub panel with Issues and Pull requests tabs across every tracked repository. It has a repository filter and a New issue form.
 - A pull request inbox. Each pull request sits in a group by what it needs next — your review, ready to merge, failing checks or conflicts, checks running, a draft — with the reason on a second line.
+- Pull request details with a status menu: mark a pull request ready for review, turn it into a draft, close it, or reopen it, wherever GitHub lets you. The diff stat says how much of the change is code, tests, docs, or generated files.
 - Issue details: body, comments, a comment box, and editing of status, assignee, and labels.
 - Send agent on an issue, or Review with agent on a pull request. bb starts a thread in the repository's project and links it from the item.
 - Mentions. Type `@` or `#` in any composer to attach an issue or pull request. Its title, body, and state go to the agent at send time.
@@ -14,7 +15,7 @@ The plugin tracks every bb project whose checkout has a GitHub `origin` remote. 
 
 ## For agents
 
-The `bb github` command lists cached data. Use `bb github repos`, `bb github issues [owner/repo]`, `bb github prs [owner/repo]`, or `bb github sync`. `bb github prs` also says what each pull request needs next. Every command accepts `--json`, and `bb github --help` or `bb github <command> --help` prints the arguments and options and exits 0.
+The `bb github` command lists cached data. Use `bb github repos`, `bb github issues [owner/repo]`, `bb github prs [owner/repo]`, or `bb github sync`. `bb github prs` also says what each pull request needs next. `bb github pr-state <owner/repo> <number> --state open|draft|closed` marks a pull request ready, turns it into a draft, closes it, or reopens it. Every command accepts `--json`, and `bb github --help` or `bb github <command> --help` prints the arguments and options and exits 0.
 
 ## Requirements
 
