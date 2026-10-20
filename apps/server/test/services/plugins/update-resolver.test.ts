@@ -625,3 +625,325 @@ describe("git semver tag resolution", () => {
     });
   });
 });
+
+describe("releases outside the installed range", () => {
+  async function releaseRepo(tags: readonly string[]): Promise<{
+    repo: string;
+    commitOf: Map<string, string>;
+  }> {
+    const repo = await mkdtemp(join(tmpdir(), "bb-git-releases-"));
+    cleanup.push(repo);
+    await run("git", ["init", "-q", "-b", "main"], { cwd: repo });
+    await run("git", ["config", "user.email", "test@example.com"], {
+      cwd: repo,
+    });
+    await run("git", ["config", "user.name", "Test"], { cwd: repo });
+    const commitOf = new Map<string, string>();
+    for (const tag of tags) {
+      await writeFile(join(repo, "file.txt"), tag);
+      await run("git", ["add", "."], { cwd: repo });
+      await run("git", ["commit", "-qm", tag], { cwd: repo });
+      await run("git", ["tag", tag], { cwd: repo });
+      commitOf.set(
+        tag,
+        (await run("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim(),
+      );
+    }
+    return { repo, commitOf };
+  }
+
+  function recordingProbe(): { probe: GitCandidateProbe; probed: string[] } {
+    const probed: string[] = [];
+    return {
+      probed,
+      probe: async (candidate) => {
+        probed.push(candidate.tag);
+        return compatibleProbe(candidate);
+      },
+    };
+  }
+
+  it("keeps a ^0.y install current and names the next 0.x minor as a breaking release outside its range", async () => {
+    const { repo, commitOf } = await releaseRepo(["v0.1.0", "v0.2.0"]);
+    const { probe, probed } = recordingProbe();
+
+    const resolution = await resolveGitUpdate({
+      url: repo,
+      intent: {
+        kind: "range",
+        range: "^0.1.0",
+        tagPrefix: "",
+        resolvedTag: "v0.1.0",
+      },
+      currentCommit: commitOf.get("v0.1.0") ?? "",
+      probeCandidate: probe,
+    });
+
+    expect(resolution).toEqual({
+      outcome: "current",
+      current: expect.objectContaining({
+        version: commitOf.get("v0.1.0"),
+      }),
+      outsideRange: {
+        version: "0.2.0",
+        display: `${repo}@v0.2.0 (${commitOf.get("v0.2.0")?.slice(0, 12)})`,
+        breaking: true,
+        range: "^0.1.0",
+      },
+    });
+    expect(probed).toEqual([]);
+  });
+
+  it("offers the in-range minor of a ^1 install and reports the next major outside it, ignoring prereleases", async () => {
+    const { repo, commitOf } = await releaseRepo([
+      "v1.0.0",
+      "v1.1.0",
+      "v2.0.0",
+      "v2.1.0-beta.1",
+    ]);
+
+    const resolution = await resolveGitUpdate({
+      url: repo,
+      intent: {
+        kind: "range",
+        range: "^1.0.0",
+        tagPrefix: "",
+        resolvedTag: "v1.0.0",
+      },
+      currentCommit: commitOf.get("v1.0.0") ?? "",
+      probeCandidate: compatibleProbe,
+    });
+
+    expect(resolution).toMatchObject({
+      outcome: "update-available",
+      candidate: { version: commitOf.get("v1.1.0") },
+      candidateRelease: "1.1.0",
+      outsideRange: { version: "2.0.0", breaking: true, range: "^1.0.0" },
+    });
+    expect(resolution).not.toHaveProperty("candidateBreaking");
+  });
+
+  it("reports nothing outside the range when only a prerelease is newer", async () => {
+    const { repo, commitOf } = await releaseRepo(["v1.0.0", "v2.0.0-rc.1"]);
+
+    expect(
+      await resolveGitUpdate({
+        url: repo,
+        intent: {
+          kind: "range",
+          range: "^1.0.0",
+          tagPrefix: "",
+          resolvedTag: "v1.0.0",
+        },
+        currentCommit: commitOf.get("v1.0.0") ?? "",
+        probeCandidate: compatibleProbe,
+      }),
+    ).toEqual({
+      outcome: "current",
+      current: expect.objectContaining({ version: commitOf.get("v1.0.0") }),
+    });
+  });
+
+  it("looks only at the plugin's own prefixed tags in a monorepo", async () => {
+    const { repo, commitOf } = await releaseRepo([
+      "notes/v1.0.0",
+      "notes/v1.2.0",
+      "notes/v2.0.0",
+      "v9.0.0",
+      "tasks/v3.0.0",
+    ]);
+
+    expect(
+      await resolveGitUpdate({
+        url: repo,
+        intent: {
+          kind: "range",
+          range: "^1.0.0",
+          tagPrefix: "notes/",
+          resolvedTag: "notes/v1.0.0",
+        },
+        currentCommit: commitOf.get("notes/v1.0.0") ?? "",
+        probeCandidate: compatibleProbe,
+      }),
+    ).toMatchObject({
+      outcome: "update-available",
+      candidateGitTag: "notes/v1.2.0",
+      outsideRange: {
+        version: "2.0.0",
+        display: expect.stringContaining("@notes/v2.0.0 ("),
+      },
+    });
+  });
+
+  it("marks an in-range candidate that crosses a 0.x minor as breaking", async () => {
+    const { repo, commitOf } = await releaseRepo([
+      "v0.1.0",
+      "v0.1.5",
+      "v0.2.0",
+    ]);
+
+    expect(
+      await resolveGitUpdate({
+        url: repo,
+        intent: {
+          kind: "range",
+          range: ">=0.1.0 <1.0.0",
+          tagPrefix: "",
+          resolvedTag: "v0.1.0",
+        },
+        currentCommit: commitOf.get("v0.1.0") ?? "",
+        probeCandidate: compatibleProbe,
+      }),
+    ).toMatchObject({
+      outcome: "update-available",
+      candidateGitTag: "v0.2.0",
+      candidateBreaking: true,
+    });
+  });
+
+  it("never offers an older release when the range only admits releases below the installed one", async () => {
+    const { repo, commitOf } = await releaseRepo([
+      "v1.0.0",
+      "v1.1.0",
+      "v1.2.0",
+    ]);
+    const { probe, probed } = recordingProbe();
+
+    expect(
+      await resolveGitUpdate({
+        url: repo,
+        intent: {
+          kind: "range",
+          range: "~1.1.0",
+          tagPrefix: "",
+          resolvedTag: "v1.2.0",
+        },
+        currentCommit: commitOf.get("v1.2.0") ?? "",
+        probeCandidate: probe,
+      }),
+    ).toEqual({
+      outcome: "current",
+      current: expect.objectContaining({ version: commitOf.get("v1.2.0") }),
+    });
+    expect(probed).toEqual([]);
+  });
+
+  it("reports the newest npm release a ^0.y range excludes and keeps updating within it", async () => {
+    const resolution = await resolveNpmUpdate({
+      intent: npmIntent("^0.1.0", "range"),
+      current: { version: "0.1.0", display: "bb-plugin-matrix@0.1.0" },
+      appVersion: "1.0.0",
+      run: createNpmResolverRun({
+        fetch: packumentFetch({
+          "0.3.0-beta.1": {},
+          "0.2.0": {},
+          "0.1.1": {},
+          "0.1.0": {},
+        }),
+      }),
+    });
+
+    expect(resolution).toMatchObject({
+      outcome: "update-available",
+      candidate: { version: "0.1.1" },
+      outsideRange: {
+        version: "0.2.0",
+        display: "bb-plugin-matrix@0.2.0",
+        breaking: true,
+        range: "^0.1.0",
+      },
+    });
+    expect(resolution).not.toHaveProperty("candidateBreaking");
+  });
+
+  it("never offers an older npm release in range and keeps only newer blocked releases", async () => {
+    const fetch = packumentFetch({
+      "1.6.0": { bb: ">=99" },
+      "1.4.0": {},
+      "1.0.0": {},
+    });
+    const run = createNpmResolverRun({ fetch });
+    const installed = { version: "1.5.0", display: "bb-plugin-matrix@1.5.0" };
+
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent("^1.0.0", "range"),
+        current: installed,
+        appVersion: "1.0.0",
+        run,
+      }),
+    ).toMatchObject({
+      outcome: "current",
+      blocked: { version: { version: "1.6.0" } },
+    });
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent("~1.4.0", "range"),
+        current: installed,
+        appVersion: "1.0.0",
+        run,
+      }),
+    ).toEqual({
+      outcome: "current",
+      current: installed,
+      outsideRange: {
+        version: "1.6.0",
+        display: "bb-plugin-matrix@1.6.0",
+        breaking: false,
+        range: "~1.4.0",
+      },
+    });
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent("~1.6.0", "range"),
+        current: { version: "1.6.0", display: "bb-plugin-matrix@1.6.0" },
+        appVersion: "1.0.0",
+        run,
+      }),
+    ).toEqual({
+      outcome: "current",
+      current: { version: "1.6.0", display: "bb-plugin-matrix@1.6.0" },
+    });
+  });
+
+  it("refuses to follow a dist-tag that moved below the installed version", async () => {
+    const run = createNpmResolverRun({
+      fetch: packumentFetch(
+        { "2.0.0": {}, "1.0.0": { bb: ">=99" } },
+        { next: "1.0.0" },
+      ),
+    });
+
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent("next", "tag"),
+        current: { version: "2.0.0", display: "bb-plugin-matrix@2.0.0" },
+        appVersion: "1.0.0",
+        run,
+      }),
+    ).toEqual({
+      outcome: "current",
+      current: { version: "2.0.0", display: "bb-plugin-matrix@2.0.0" },
+      detail:
+        'npm dist-tag "next" points to 1.0.0, older than the installed 2.0.0; bb does not downgrade',
+    });
+  });
+
+  it("flags a default-spec npm update that crosses a major without a range to report against", async () => {
+    const resolution = await resolveNpmUpdate({
+      intent: npmIntent("", "default"),
+      current: { version: "1.4.0", display: "bb-plugin-matrix@1.4.0" },
+      appVersion: "1.0.0",
+      run: createNpmResolverRun({
+        fetch: packumentFetch({ "2.0.0": {}, "1.4.0": {} }),
+      }),
+    });
+
+    expect(resolution).toMatchObject({
+      outcome: "update-available",
+      candidate: { version: "2.0.0" },
+      candidateBreaking: true,
+    });
+    expect(resolution).not.toHaveProperty("outsideRange");
+  });
+});

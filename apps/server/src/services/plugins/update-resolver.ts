@@ -1,6 +1,7 @@
 import semver from "semver";
 import { z } from "zod";
 import { PLUGIN_SDK_VERSION } from "@bb/domain";
+import type { PluginOutsideRangeRelease } from "@bb/server-contract";
 import {
   DEFAULT_GIT_REF,
   gitSemverTagName,
@@ -35,18 +36,22 @@ interface ResolutionFlags {
     reasons: CompatibilityProblem[];
   };
   packagedBuildProblems?: CompatibilityProblem[];
+  outsideRange?: PluginOutsideRangeRelease;
 }
 
 export type PluginUpdateResolution =
   | ({
       outcome: "current";
       current: PluginResolvedUpdateVersion;
+      detail?: string;
     } & ResolutionFlags)
   | ({
       outcome: "update-available";
       current: PluginResolvedUpdateVersion;
       candidate: PluginResolvedUpdateVersion;
       candidateGitTag?: string;
+      candidateRelease?: string;
+      candidateBreaking?: true;
     } & ResolutionFlags)
   | ({
       outcome: "pinned";
@@ -165,6 +170,67 @@ function requestedRangeIncludesPrerelease(spec: string): boolean {
   );
 }
 
+function isBreakingRelease(installed: string, candidate: string): boolean {
+  const from = semver.parse(installed);
+  const to = semver.parse(candidate);
+  if (from === null || to === null) return false;
+  return (
+    to.major !== from.major || (from.major === 0 && to.minor !== from.minor)
+  );
+}
+
+function isNewerRelease(candidate: string, installed: string): boolean {
+  if (semver.valid(candidate) === null || semver.valid(installed) === null) {
+    return candidate !== installed;
+  }
+  return semver.gt(candidate, installed);
+}
+
+function newestStableRelease<T extends { version: string }>(
+  releases: readonly T[],
+): T | undefined {
+  let newest: T | undefined;
+  for (const release of releases) {
+    if (semver.valid(release.version) === null) continue;
+    if (semver.prerelease(release.version) !== null) continue;
+    if (newest === undefined || semver.gt(release.version, newest.version)) {
+      newest = release;
+    }
+  }
+  return newest;
+}
+
+function outsideRangeRelease(args: {
+  newest: PluginResolvedUpdateVersion | undefined;
+  installed: string;
+  range: string;
+}): PluginOutsideRangeRelease | undefined {
+  if (args.newest === undefined || semver.valid(args.installed) === null) {
+    return undefined;
+  }
+  if (!semver.gt(args.newest.version, args.installed)) return undefined;
+  if (semver.satisfies(args.newest.version, args.range)) return undefined;
+  return {
+    version: args.newest.version,
+    display: args.newest.display,
+    breaking: isBreakingRelease(args.installed, args.newest.version),
+    range: args.range,
+  };
+}
+
+export function carriedOutsideRangeRelease(
+  outsideRange: PluginOutsideRangeRelease | undefined,
+  installed: string | undefined,
+): PluginOutsideRangeRelease | undefined {
+  if (outsideRange === undefined || installed === undefined) return undefined;
+  if (semver.valid(installed) === null) return undefined;
+  if (!semver.gt(outsideRange.version, installed)) return undefined;
+  return {
+    ...outsideRange,
+    breaking: isBreakingRelease(installed, outsideRange.version),
+  };
+}
+
 function allowedNpmVersions(
   packument: Packument,
   intent: NpmSourceIntentForResolution,
@@ -264,11 +330,7 @@ function npmDisplay(packageName: string, version: string): string {
   return `${packageName}@${version}`;
 }
 
-export async function selectNpmCandidate(args: {
-  intent: NpmSourceIntentForResolution;
-  appVersion: string;
-  run: NpmResolverRun;
-}): Promise<
+type NpmCandidateSelection =
   | {
       outcome: "selected";
       candidate: NpmResolvedCandidate;
@@ -285,21 +347,34 @@ export async function selectNpmCandidate(args: {
       reasons: CompatibilityProblem[];
       devMode: boolean;
     }
-  | { outcome: "unavailable"; detail: string; devMode: boolean }
+  | { outcome: "unavailable"; detail: string; devMode: boolean };
+
+async function loadNpmPackument(args: {
+  intent: NpmSourceIntentForResolution;
+  run: NpmResolverRun;
+}): Promise<
+  | { outcome: "loaded"; packument: Packument }
+  | { outcome: "unavailable"; detail: string }
 > {
-  let packument: Packument;
   try {
-    packument = await args.run.getPackument(args.intent);
+    return {
+      outcome: "loaded",
+      packument: await args.run.getPackument(args.intent),
+    };
   } catch (error) {
     if (error instanceof NpmPackageUnavailableError) {
-      return {
-        outcome: "unavailable",
-        detail: error.message,
-        devMode: semver.coerce(args.appVersion)?.version === "0.0.0",
-      };
+      return { outcome: "unavailable", detail: error.message };
     }
     throw error;
   }
+}
+
+function selectNpmCandidateFromPackument(args: {
+  packument: Packument;
+  intent: NpmSourceIntentForResolution;
+  appVersion: string;
+}): NpmCandidateSelection {
+  const { packument } = args;
   const allowed = allowedNpmVersions(packument, args.intent);
   const devMode = semver.coerce(args.appVersion)?.version === "0.0.0";
   if (!Array.isArray(allowed)) {
@@ -364,6 +439,61 @@ export async function selectNpmCandidate(args: {
   };
 }
 
+export async function selectNpmCandidate(args: {
+  intent: NpmSourceIntentForResolution;
+  appVersion: string;
+  run: NpmResolverRun;
+}): Promise<NpmCandidateSelection> {
+  const loaded = await loadNpmPackument(args);
+  if (loaded.outcome === "unavailable") {
+    return {
+      outcome: "unavailable",
+      detail: loaded.detail,
+      devMode: semver.coerce(args.appVersion)?.version === "0.0.0",
+    };
+  }
+  return selectNpmCandidateFromPackument({
+    packument: loaded.packument,
+    intent: args.intent,
+    appVersion: args.appVersion,
+  });
+}
+
+function npmOutsideRangeRelease(args: {
+  packument: Packument;
+  intent: NpmSourceIntentForResolution;
+  installed: string;
+}): PluginOutsideRangeRelease | undefined {
+  if (args.intent.specKind !== "range") return undefined;
+  const newest = newestStableRelease(
+    Object.keys(args.packument.versions).map((version) => ({ version })),
+  );
+  return outsideRangeRelease({
+    newest:
+      newest === undefined
+        ? undefined
+        : {
+            version: newest.version,
+            display: npmDisplay(args.intent.packageName, newest.version),
+          },
+    installed: args.installed,
+    range: args.intent.requestedSpec,
+  });
+}
+
+function npmDowngradeDetail(args: {
+  intent: NpmSourceIntentForResolution;
+  version: string;
+  installed: string;
+}): { detail: string } | Record<string, never> {
+  if (args.intent.specKind !== "tag" || args.version === args.installed) {
+    return {};
+  }
+  return {
+    detail: `npm dist-tag "${args.intent.requestedSpec}" points to ${args.version}, older than the installed ${args.installed}; bb does not downgrade`,
+  };
+}
+
 export async function resolveNpmUpdate(args: {
   intent: NpmSourceIntentForResolution;
   current: PluginResolvedUpdateVersion;
@@ -371,32 +501,56 @@ export async function resolveNpmUpdate(args: {
   run: NpmResolverRun;
 }): Promise<PluginUpdateResolution> {
   const devMode = semver.coerce(args.appVersion)?.version === "0.0.0";
+  const flags = devMode ? { devMode: true as const } : {};
   if (args.intent.specKind === "exact") {
-    return {
-      outcome: "pinned",
-      current: args.current,
-      ...(devMode ? { devMode: true } : {}),
-    };
+    return { outcome: "pinned", current: args.current, ...flags };
   }
-  const selected = await selectNpmCandidate(args);
-  const flags = {
-    ...(selected.devMode ? { devMode: true as const } : {}),
+  const loaded = await loadNpmPackument(args);
+  if (loaded.outcome === "unavailable") {
+    return { outcome: "unavailable", detail: loaded.detail, ...flags };
+  }
+  const selected = selectNpmCandidateFromPackument({
+    packument: loaded.packument,
+    intent: args.intent,
+    appVersion: args.appVersion,
+  });
+  const outsideRange = npmOutsideRangeRelease({
+    packument: loaded.packument,
+    intent: args.intent,
+    installed: args.current.version,
+  });
+  const common = {
+    ...flags,
+    ...(outsideRange === undefined ? {} : { outsideRange }),
   };
   if (selected.outcome === "unavailable") {
-    return { outcome: "unavailable", detail: selected.detail, ...flags };
+    return { outcome: "unavailable", detail: selected.detail, ...common };
   }
   if (selected.outcome === "incompatible") {
+    if (!isNewerRelease(selected.newest.version, args.current.version)) {
+      return {
+        outcome: "current",
+        current: args.current,
+        ...npmDowngradeDetail({
+          intent: args.intent,
+          version: selected.newest.version,
+          installed: args.current.version,
+        }),
+        ...common,
+      };
+    }
     return {
       outcome: "incompatible",
       current: args.current,
       newest: selected.newest,
       reasons: selected.reasons,
-      ...flags,
+      ...common,
     };
   }
   const extra = {
-    ...flags,
-    ...(selected.blocked
+    ...common,
+    ...(selected.blocked !== undefined &&
+    isNewerRelease(selected.blocked.candidate.version, args.current.version)
       ? {
           blocked: {
             version: selected.blocked.candidate,
@@ -408,13 +562,26 @@ export async function resolveNpmUpdate(args: {
       ? { packagedBuildProblems: selected.packagedBuildProblems }
       : {}),
   };
-  if (selected.candidate.version === args.current.version) {
-    return { outcome: "current", current: args.current, ...extra };
+  if (!isNewerRelease(selected.candidate.version, args.current.version)) {
+    return {
+      outcome: "current",
+      current: args.current,
+      ...npmDowngradeDetail({
+        intent: args.intent,
+        version: selected.candidate.version,
+        installed: args.current.version,
+      }),
+      ...extra,
+    };
   }
   return {
     outcome: "update-available",
     current: args.current,
     candidate: selected.candidate,
+    candidateRelease: selected.candidate.version,
+    ...(isBreakingRelease(args.current.version, selected.candidate.version)
+      ? { candidateBreaking: true as const }
+      : {}),
     ...extra,
   };
 }
@@ -637,6 +804,23 @@ async function resolveGitRangeUpdate(args: {
     currentCommit: recorded.commit,
   });
   if (moved !== null) return { outcome: "unavailable", detail: moved };
+  const newest = newestStableRelease(tags);
+  const outsideRange = outsideRangeRelease({
+    newest:
+      newest === undefined
+        ? undefined
+        : {
+            version: newest.version,
+            display: gitResolvedVersion({
+              url: args.url,
+              ref: newest.tag,
+              commit: newest.commit,
+            }).display,
+          },
+    installed: recorded.version,
+    range: args.intent.range,
+  });
+  const flags = outsideRange === undefined ? {} : { outsideRange };
   const candidates = satisfyingGitSemverTags({
     tags,
     range: args.intent.range,
@@ -645,6 +829,7 @@ async function resolveGitRangeUpdate(args: {
     return {
       outcome: "unavailable",
       detail: `no tag of ${args.url} matches ${args.intent.range} (looking for tags named "${gitSemverTagName(args.intent.tagPrefix, "X.Y.Z")}")`,
+      ...flags,
     };
   }
   let blocked: ResolutionFlags["blocked"] | undefined;
@@ -656,17 +841,22 @@ async function resolveGitRangeUpdate(args: {
       ref: candidate.tag,
       commit: candidate.commit,
     });
-    if (candidate.commit === args.currentCommit) {
+    if (
+      candidate.commit === args.currentCommit ||
+      !semver.gt(candidate.version, recorded.version)
+    ) {
       return {
         outcome: "current",
         current: args.current,
         ...(blocked ? { blocked } : {}),
+        ...flags,
       };
     }
     if (probes >= MAX_GIT_CANDIDATE_PROBES) {
       return {
         outcome: "unavailable",
         detail: `no release of ${args.url} matching ${args.intent.range} runs on this bb within the newest ${MAX_GIT_CANDIDATE_PROBES} releases`,
+        ...flags,
       };
     }
     probes += 1;
@@ -684,11 +874,16 @@ async function resolveGitRangeUpdate(args: {
       current: args.current,
       candidate: version,
       candidateGitTag: candidate.tag,
+      candidateRelease: candidate.version,
+      ...(isBreakingRelease(recorded.version, candidate.version)
+        ? { candidateBreaking: true }
+        : {}),
       ...(blocked ? { blocked } : {}),
       ...(probed.devMode ? { devMode: true } : {}),
       ...(probed.packagedBuildProblems.length > 0
         ? { packagedBuildProblems: probed.packagedBuildProblems }
         : {}),
+      ...flags,
     };
   }
   if (blocked !== undefined) {
@@ -697,6 +892,7 @@ async function resolveGitRangeUpdate(args: {
       current: args.current,
       newest: blocked.version,
       reasons: blocked.reasons,
+      ...flags,
     };
   }
   return {
@@ -704,6 +900,7 @@ async function resolveGitRangeUpdate(args: {
     detail:
       invalidDetail ??
       `no tag of ${args.url} matches ${args.intent.range} (looking for tags named "${gitSemverTagName(args.intent.tagPrefix, "X.Y.Z")}")`,
+    ...flags,
   };
 }
 
