@@ -84,3 +84,7 @@ A compatible release within an existing tracking range usually needs no new
 marketplace pull request. Open another pull request when source, branding,
 description, long-form description, category, screenshots, ownership, tag, or
 range changes.
+
+A release outside the entry range, such as 0.7.0 for ^0.6.1, needs a range
+change. That change reaches new installs only. An existing install keeps the
+range it was installed with. State this in the result.
