@@ -1,0 +1,429 @@
+{
+ "mode": "after",
+ "widths": {
+  "220": {
+   "thr_ratelimit": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   },
+   "thr_flaky": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   },
+   "thr_triage": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 118,
+    "order": "toggle, Archive"
+   },
+   "thr_react": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 118,
+    "order": "toggle, Archive"
+   },
+   "thr_billing": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 118,
+    "order": "toggle, Archive"
+   },
+   "thr_a11y": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 118,
+    "order": "toggle, Archive"
+   },
+   "thr_roadmap": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 118,
+    "order": "toggle, Archive"
+   },
+   "thr_roadmap_a": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   }
+  },
+  "288": {
+   "thr_ratelimit": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   },
+   "thr_flaky": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   },
+   "thr_triage": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 186,
+    "order": "toggle, Archive"
+   },
+   "thr_react": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 186,
+    "order": "toggle, Archive"
+   },
+   "thr_billing": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 186,
+    "order": "toggle, Archive"
+   },
+   "thr_a11y": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 186,
+    "order": "toggle, Archive"
+   },
+   "thr_roadmap": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 186,
+    "order": "toggle, Archive"
+   },
+   "thr_roadmap_a": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   }
+  },
+  "360": {
+   "thr_ratelimit": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   },
+   "thr_flaky": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   },
+   "thr_triage": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 258,
+    "order": "toggle, Archive"
+   },
+   "thr_react": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 258,
+    "order": "toggle, Archive"
+   },
+   "thr_billing": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 258,
+    "order": "toggle, Archive"
+   },
+   "thr_a11y": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 258,
+    "order": "toggle, Archive"
+   },
+   "thr_roadmap": {
+    "archiveFromRight": 30,
+    "toggleX": 6,
+    "gap": 258,
+    "order": "toggle, Archive"
+   },
+   "thr_roadmap_a": {
+    "archiveFromRight": 30,
+    "toggleX": null,
+    "gap": null,
+    "order": null
+   }
+  }
+ },
+ "icons": {
+  "rows": [
+   {
+    "label": "Leaf",
+    "id": "thr_ratelimit",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": null,
+    "toggleLabel": null,
+    "gapToggleArchive": null,
+    "order": null
+   },
+   {
+    "label": "Leaf, failed",
+    "id": "thr_flaky",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": null,
+    "toggleLabel": null,
+    "gapToggleArchive": null,
+    "order": null
+   },
+   {
+    "label": "Parent, short title",
+    "id": "thr_triage",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": 6,
+     "w": 20,
+     "fromRight": 244
+    },
+    "toggleLabel": "Expand Triage open bug reports threads",
+    "gapToggleArchive": 186,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, 4 sub-threads",
+    "id": "thr_react",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": 6,
+     "w": 20,
+     "fromRight": 244
+    },
+    "toggleLabel": "Expand Upgrade the editor to React 19 threads",
+    "gapToggleArchive": 186,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, long title",
+    "id": "thr_billing",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": 6,
+     "w": 20,
+     "fromRight": 244
+    },
+    "toggleLabel": "Expand Migrate billing to Stripe webhooks threads",
+    "gapToggleArchive": 186,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, 13 sub-threads",
+    "id": "thr_a11y",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": 6,
+     "w": 20,
+     "fromRight": 244
+    },
+    "toggleLabel": "Expand Accessibility audit across the app threads",
+    "gapToggleArchive": 186,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, expanded",
+    "id": "thr_roadmap",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": 6,
+     "w": 20,
+     "fromRight": 244
+    },
+    "toggleLabel": "Collapse Plan the Q4 roadmap threads",
+    "gapToggleArchive": 186,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Sub-thread",
+    "id": "thr_roadmap_a",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": null,
+    "toggleLabel": null,
+    "gapToggleArchive": null,
+    "order": null
+   }
+  ],
+  "errors": []
+ },
+ "noIcons": {
+  "rows": [
+   {
+    "label": "Leaf",
+    "id": "thr_ratelimit",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": null,
+    "toggleLabel": null,
+    "gapToggleArchive": null,
+    "order": null
+   },
+   {
+    "label": "Leaf, failed",
+    "id": "thr_flaky",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": null,
+    "toggleLabel": null,
+    "gapToggleArchive": null,
+    "order": null
+   },
+   {
+    "label": "Parent, short title",
+    "id": "thr_triage",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": -8,
+     "w": 14,
+     "fromRight": 264
+    },
+    "toggleLabel": "Expand Triage open bug reports threads",
+    "gapToggleArchive": 206,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, 4 sub-threads",
+    "id": "thr_react",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": -8,
+     "w": 14,
+     "fromRight": 264
+    },
+    "toggleLabel": "Expand Upgrade the editor to React 19 threads",
+    "gapToggleArchive": 206,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, long title",
+    "id": "thr_billing",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": -8,
+     "w": 14,
+     "fromRight": 264
+    },
+    "toggleLabel": "Expand Migrate billing to Stripe webhooks threads",
+    "gapToggleArchive": 206,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, 13 sub-threads",
+    "id": "thr_a11y",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": -8,
+     "w": 14,
+     "fromRight": 264
+    },
+    "toggleLabel": "Expand Accessibility audit across the app threads",
+    "gapToggleArchive": 206,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Parent, expanded",
+    "id": "thr_roadmap",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": {
+     "x": -8,
+     "w": 14,
+     "fromRight": 264
+    },
+    "toggleLabel": "Collapse Plan the Q4 roadmap threads",
+    "gapToggleArchive": 206,
+    "order": "toggle, Archive"
+   },
+   {
+    "label": "Sub-thread",
+    "id": "thr_roadmap_a",
+    "rowWidth": 270,
+    "archive": {
+     "x": 212,
+     "w": 28,
+     "fromRight": 30
+    },
+    "toggle": null,
+    "toggleLabel": null,
+    "gapToggleArchive": null,
+    "order": null
+   }
+  ],
+  "errors": []
+ }
+}
