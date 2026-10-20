@@ -729,6 +729,35 @@ describe("plugin tracking range service and route", () => {
     expect(broadcasts).toEqual([]);
   }, 60_000);
 
+  it("previews what a new range offers and the newer release it still excludes", async () => {
+    await service.install(`git:${repo}@semver:^0.1.0`, { kind: "root" });
+    const minor = await release(repo, "0.2.0");
+    await release(repo, "1.0.0");
+
+    await expect(
+      service.setTrackingRange("tracked", {
+        range: ">=0.1.0 <1.0.0",
+        dryRun: true,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        applied: false,
+        openEnded: false,
+        check: {
+          outcome: "update-available",
+          candidate: { version: minor },
+          candidateBreaking: true,
+          outsideRange: {
+            version: "1.0.0",
+            breaking: true,
+            range: ">=0.1.0 <1.0.0",
+          },
+        },
+      },
+    });
+  }, 60_000);
+
   it("refuses unsupported sources and ranges over HTTP and leaves the row unchanged", async () => {
     await service.install(`git:${repo}@semver:^0.1.0`, { kind: "root" });
     const before = getInstalledPluginRegistration(db, "tracked");
