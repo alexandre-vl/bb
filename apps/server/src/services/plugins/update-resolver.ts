@@ -174,9 +174,10 @@ function isBreakingRelease(installed: string, candidate: string): boolean {
   const from = semver.parse(installed);
   const to = semver.parse(candidate);
   if (from === null || to === null) return false;
-  return (
-    to.major !== from.major || (from.major === 0 && to.minor !== from.minor)
-  );
+  if (to.major !== from.major) return true;
+  if (from.major !== 0) return false;
+  if (to.minor !== from.minor) return true;
+  return from.minor === 0 && to.patch !== from.patch;
 }
 
 function isNewerRelease(candidate: string, installed: string): boolean {
@@ -186,34 +187,28 @@ function isNewerRelease(candidate: string, installed: string): boolean {
   return semver.gt(candidate, installed);
 }
 
-function newestStableRelease<T extends { version: string }>(
-  releases: readonly T[],
-): T | undefined {
+function outsideRangeRelease<T extends { version: string }>(args: {
+  releases: readonly T[];
+  installed: string;
+  range: string;
+  display: (release: T) => string;
+}): PluginOutsideRangeRelease | undefined {
+  if (semver.valid(args.installed) === null) return undefined;
   let newest: T | undefined;
-  for (const release of releases) {
+  for (const release of args.releases) {
     if (semver.valid(release.version) === null) continue;
     if (semver.prerelease(release.version) !== null) continue;
+    if (!semver.gt(release.version, args.installed)) continue;
+    if (semver.satisfies(release.version, args.range)) continue;
     if (newest === undefined || semver.gt(release.version, newest.version)) {
       newest = release;
     }
   }
-  return newest;
-}
-
-function outsideRangeRelease(args: {
-  newest: PluginResolvedUpdateVersion | undefined;
-  installed: string;
-  range: string;
-}): PluginOutsideRangeRelease | undefined {
-  if (args.newest === undefined || semver.valid(args.installed) === null) {
-    return undefined;
-  }
-  if (!semver.gt(args.newest.version, args.installed)) return undefined;
-  if (semver.satisfies(args.newest.version, args.range)) return undefined;
+  if (newest === undefined) return undefined;
   return {
-    version: args.newest.version,
-    display: args.newest.display,
-    breaking: isBreakingRelease(args.installed, args.newest.version),
+    version: newest.version,
+    display: args.display(newest),
+    breaking: isBreakingRelease(args.installed, newest.version),
     range: args.range,
   };
 }
@@ -465,19 +460,14 @@ function npmOutsideRangeRelease(args: {
   installed: string;
 }): PluginOutsideRangeRelease | undefined {
   if (args.intent.specKind !== "range") return undefined;
-  const newest = newestStableRelease(
-    Object.keys(args.packument.versions).map((version) => ({ version })),
-  );
+  const { packageName } = args.intent;
   return outsideRangeRelease({
-    newest:
-      newest === undefined
-        ? undefined
-        : {
-            version: newest.version,
-            display: npmDisplay(args.intent.packageName, newest.version),
-          },
+    releases: Object.keys(args.packument.versions).map((version) => ({
+      version,
+    })),
     installed: args.installed,
     range: args.intent.requestedSpec,
+    display: (release) => npmDisplay(packageName, release.version),
   });
 }
 
@@ -804,21 +794,13 @@ async function resolveGitRangeUpdate(args: {
     currentCommit: recorded.commit,
   });
   if (moved !== null) return { outcome: "unavailable", detail: moved };
-  const newest = newestStableRelease(tags);
   const outsideRange = outsideRangeRelease({
-    newest:
-      newest === undefined
-        ? undefined
-        : {
-            version: newest.version,
-            display: gitResolvedVersion({
-              url: args.url,
-              ref: newest.tag,
-              commit: newest.commit,
-            }).display,
-          },
+    releases: tags,
     installed: recorded.version,
     range: args.intent.range,
+    display: (tag) =>
+      gitResolvedVersion({ url: args.url, ref: tag.tag, commit: tag.commit })
+        .display,
   });
   const flags = outsideRange === undefined ? {} : { outsideRange };
   const candidates = satisfyingGitSemverTags({

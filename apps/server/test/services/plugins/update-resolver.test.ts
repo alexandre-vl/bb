@@ -906,6 +906,86 @@ describe("releases outside the installed range", () => {
     });
   });
 
+  it("reports nothing blocked when the only incompatible release is older than the installed one", async () => {
+    const installed = { version: "1.5.0", display: "bb-plugin-matrix@1.5.0" };
+
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent("^1.0.0", "range"),
+        current: installed,
+        appVersion: "1.0.0",
+        run: createNpmResolverRun({
+          fetch: packumentFetch({ "1.4.0": { bb: ">=99" }, "1.3.0": {} }),
+        }),
+      }),
+    ).toEqual({ outcome: "current", current: installed });
+  });
+
+  it("names the newest release a disjoint range skips, not only the newest release overall", async () => {
+    const installed = { version: "1.0.0", display: "bb-plugin-matrix@1.0.0" };
+
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent("^1.0.0 || ^3.0.0", "range"),
+        current: installed,
+        appVersion: "1.0.0",
+        run: createNpmResolverRun({
+          fetch: packumentFetch({
+            "3.0.0": { bb: ">=99" },
+            "2.0.0": {},
+            "1.0.0": {},
+          }),
+        }),
+      }),
+    ).toMatchObject({
+      outcome: "current",
+      blocked: { version: { version: "3.0.0" } },
+      outsideRange: {
+        version: "2.0.0",
+        display: "bb-plugin-matrix@2.0.0",
+        breaking: true,
+        range: "^1.0.0 || ^3.0.0",
+      },
+    });
+  });
+
+  it("treats a 0.0.x patch as breaking, as a caret range does", async () => {
+    const run = createNpmResolverRun({
+      fetch: packumentFetch({ "0.0.2": {}, "0.0.1": {} }),
+    });
+    const installed = { version: "0.0.1", display: "bb-plugin-matrix@0.0.1" };
+
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent("^0.0.1", "range"),
+        current: installed,
+        appVersion: "1.0.0",
+        run,
+      }),
+    ).toEqual({
+      outcome: "current",
+      current: installed,
+      outsideRange: {
+        version: "0.0.2",
+        display: "bb-plugin-matrix@0.0.2",
+        breaking: true,
+        range: "^0.0.1",
+      },
+    });
+    expect(
+      await resolveNpmUpdate({
+        intent: npmIntent(">=0.0.1 <0.1.0", "range"),
+        current: installed,
+        appVersion: "1.0.0",
+        run,
+      }),
+    ).toMatchObject({
+      outcome: "update-available",
+      candidate: { version: "0.0.2" },
+      candidateBreaking: true,
+    });
+  });
+
   it("refuses to follow a dist-tag that moved below the installed version", async () => {
     const run = createNpmResolverRun({
       fetch: packumentFetch(

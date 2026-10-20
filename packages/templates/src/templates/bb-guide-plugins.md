@@ -54,7 +54,8 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  install (--yes skips; non-TTY refuses
                                  without --yes). Applies only the release
                                  the check showed and warns first when it
-                                 may break (a new major, or a new 0.x minor)
+                                 may break (a new major, a new 0.x minor, or
+                                 a new 0.0.x patch)
   bb plugin list                 Status, services, schedules, handler timings,
                                  and contributed CLI commands. `bb status`
                                  also names enabled plugins that are
@@ -282,9 +283,10 @@ the previous version and leaves the failure visible.
 Updates stay inside the range recorded at install and never move to a release
 older than the installed one. When a newer stable release falls outside that
 range, `bb plugin outdated`, `bb plugin update`, and the plugin's page name it
-and say whether it may break (a new major, or a new minor before 1.0); bb does
-not check its compatibility and never installs it as an update. `^0.y.z`
-admits only 0.y patches.
+and say whether it may break (a new major, a new minor before 1.0, or a new
+patch before 0.1); bb does not check its compatibility and never installs it
+as an update. `^0.y.z` with y above 0 admits only 0.y patches, and `^0.0.z`
+admits only 0.0.z itself.
 
 Exact npm versions, Git tags and commits, path sources, and bundled official
 plugins are pinned. npm ranges, dist-tags, and omitted specs, omitted Git refs

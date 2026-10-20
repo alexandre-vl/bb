@@ -179,9 +179,9 @@ function UpdatePluginDialogContent({
               />
               <span>
                 {candidateLabel} may include breaking changes: it moves to a new
-                major version, or to a new minor version before 1.0. bb
-                doesn&rsquo;t check that this plugin&rsquo;s settings and data
-                carry over.
+                major version, a new minor version before 1.0, or a new patch
+                version before 0.1. bb doesn&rsquo;t check that this
+                plugin&rsquo;s settings and data carry over.
               </span>
             </div>
           ) : null}

@@ -1431,7 +1431,7 @@ export function registerPluginCommands(
             );
             if (result.candidateBreaking) {
               console.log(
-                `${result.id}: ${target} may include breaking changes — it moves to a new major version, or to a new minor version before 1.0. bb does not check that this plugin's settings and data carry over.`,
+                `${result.id}: ${target} may include breaking changes — it moves to a new major version, a new minor version before 1.0, or a new patch version before 0.1. bb does not check that this plugin's settings and data carry over.`,
               );
             }
             if (result.outsideRange) {
