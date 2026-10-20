@@ -514,6 +514,21 @@ describe("PluginDetail official catalog lifecycle", () => {
       expected: "Update blocked",
       actionName: null,
     },
+    {
+      state: "outside-range",
+      updateState: {
+        ...EMPTY_PLUGIN_UPDATE_STATE,
+        outcome: "current" as const,
+        outsideRange: {
+          version: "2.0.0",
+          display: "@example/github@2.0.0",
+          breaking: true,
+          range: "^1.0.0",
+        },
+      },
+      expected: "Newer release outside range",
+      actionName: null,
+    },
   ])(
     "places $state information below metadata and keeps its action in the section header",
     ({ updateState, expected, actionName }) => {
