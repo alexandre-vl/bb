@@ -7,6 +7,7 @@ const result = {
   applied: false,
   previousRange: "^0.1.0",
   range: ">=0.1.0 <1.0.0",
+  openEnded: false,
   check: {
     id: "notes",
     outcome: "update-available",

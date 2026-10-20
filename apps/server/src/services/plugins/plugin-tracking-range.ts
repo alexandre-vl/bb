@@ -28,6 +28,7 @@ export type PluginTrackingRangeOutcome =
 export interface PluginTrackingRangePlan {
   previousRange: string | null;
   range: string;
+  openEnded: boolean;
   unchanged: boolean;
   change: InstalledPluginTrackingRangeChange;
   proposed: InstalledPluginRow;
@@ -50,6 +51,22 @@ function namesSingleVersion(range: string): boolean {
     semver.valid(range) !== null ||
     BARE_VERSION_SPEC_PATTERN.test(range) ||
     (normalized !== null && semver.valid(normalized) !== null)
+  );
+}
+
+function boundsAbove(comparator: semver.Comparator): boolean {
+  return (
+    comparator.operator === "<" ||
+    comparator.operator === "<=" ||
+    ((comparator.operator === "" || comparator.operator === "=") &&
+      comparator.value !== "")
+  );
+}
+
+function rangeIsOpenEnded(range: string): boolean {
+  if (semver.validRange(range) === null) return false;
+  return new semver.Range(range, { includePrerelease: true }).set.some(
+    (comparators) => !comparators.some(boundsAbove),
   );
 }
 
@@ -208,6 +225,7 @@ export function planTrackingRangeChange(
     plan: {
       previousRange,
       range,
+      openEnded: rangeIsOpenEnded(range),
       unchanged,
       change: {
         sourceKind: row.sourceKind,
@@ -298,7 +316,11 @@ export function createPluginTrackingRange(context: PluginTrackingRangeContext) {
           return { ok: false, reason: "refused", error: planned.error };
         }
         const { plan } = planned;
-        const ranges = { previousRange: plan.previousRange, range: plan.range };
+        const ranges = {
+          previousRange: plan.previousRange,
+          range: plan.range,
+          openEnded: plan.openEnded,
+        };
         if (request.dryRun === true || plan.unchanged) {
           return {
             ok: true,

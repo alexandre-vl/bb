@@ -153,24 +153,26 @@ left by crashes should be collected too.
 `bb.sdk.plugins.experimental_setTrackingRange({ pluginId, range, dryRun? })`
 (`POST /plugins/:id/tracking-range`) changes the semver range an installed
 plugin follows for updates and returns `{ applied, previousRange, range,
-check }`, where `check` is the update check entry for the new range. It
-accepts git semver-range installs, whose `source` and range change while the
-URL, subdirectory, tag prefix, resolved tag, and commit stay, and npm installs
-with a managed artifact, whose spec becomes the range. It refuses path,
-builtin, and git ref installs, older npm installs whose directory is named
-after their spec, an invalid range, a bare version, and a range that would
-only offer releases older than the installed one (404 for an unknown plugin,
-422 for a refusal). It keeps provenance, the catalog link, the enabled flag,
-settings, secrets, schedules, KV, and data.db, clears the persisted update
-check and last failure, and runs under the plugin registration and lifecycle
-locks; it then checks the plugin again and persists that check. `dryRun` and
-the current range check without persisting anything (`applied: false`). It
-installs nothing; `applyUpdate` applies what the range offers. Core callers,
-both through this method: `bb plugin track` and the plugin detail page's
-Change range dialog (`ChangeTrackingRangeDialog`).
+openEnded, check }`, where `check` is the update check entry for the new range
+and `openEnded` says the range has no upper bound, so every future major
+release will be offered; `bb plugin track` and the dialog accept such a range
+but warn before it applies. It accepts git semver-range installs, whose
+`source` and range change while the URL, subdirectory, tag prefix, resolved
+tag, and commit stay, and npm installs with a managed artifact, whose spec
+becomes the range. It refuses path, builtin, and git ref installs, older npm
+installs whose directory is named after their spec, an invalid range, a bare
+version, and a range that would only offer releases older than the installed
+one (404 for an unknown plugin, 422 for a refusal). It keeps provenance, the
+catalog link, the enabled flag, settings, secrets, schedules, KV, and data.db,
+clears the persisted update check and last failure, and runs under the plugin
+registration and lifecycle locks; it then checks the plugin again and persists
+that check. `dryRun` and the current range check without persisting anything
+(`applied: false`). It installs nothing; `applyUpdate` applies what the range
+offers. Core callers, both through this method: `bb plugin track` and the
+plugin detail page's Change range dialog (`ChangeTrackingRangeDialog`).
 
 Before stabilization, audit whether a no-op should still run a check, whether
-unbounded ranges (`*`, `>=x`) need an extra confirmation, whether a range
+a warning is enough for open-ended ranges (`*`, `>=x`), whether a range
 change should be able to set a tag prefix, and whether the dialog should
 suggest the range of the newest release outside the current one.
 

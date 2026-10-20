@@ -309,9 +309,11 @@ break. `bb plugin track <id> <range>` changes the range of a git semver-range
 install or of an npm install (an exact version, dist-tag, or omitted spec
 becomes that range) and keeps its settings, secrets, schedules, and data.
 It refuses a bare version and a range that would only offer releases older
-than the installed one, because bb does not downgrade. To move a Git branch,
-tag, or commit install to a semver range, `bb plugin remove` it (which deletes
-settings, secrets, and schedules) and install it again.
+than the installed one, because bb does not downgrade, and warns before
+applying a range with no upper bound, such as `>=0.2.0`: every future major
+release will be offered as an update. To move a Git branch, tag, or commit
+install to a semver range, `bb plugin remove` it (which deletes settings,
+secrets, and schedules) and install it again.
 
 Managed git:/npm: installs refuse engines.bb and engines.bbPluginSdk
 mismatches, manifest and artifact identity mismatches, and ids reserved by

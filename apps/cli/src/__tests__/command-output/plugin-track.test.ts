@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   collectLogPayloads,
   getHelpOutput,
@@ -18,11 +18,16 @@ const candidate = {
   display: "repo@v0.2.0 (bbbbbbbbbbbb)",
 };
 
-function trackingResult(applied: boolean, range = ">=0.1.0 <1.0.0") {
+function trackingResult(
+  applied: boolean,
+  range = ">=0.1.0 <1.0.0",
+  openEnded = false,
+) {
   return {
     applied,
     previousRange: "^0.1.0",
     range,
+    openEnded,
     check: {
       id: "notes",
       outcome: "update-available",
@@ -41,6 +46,10 @@ function requests(): { path: string; body: unknown }[] {
 
 describe("bb plugin track", () => {
   setupCommandOutputTestEnvironment();
+
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
 
   const register: CommandRegistrar = (program) =>
     registerPluginCommands(program, () => "http://server");
@@ -72,6 +81,62 @@ describe("bb plugin track", () => {
       "notes now tracks >=0.1.0 <1.0.0 (was ^0.1.0).",
       "  update available: repo@v0.1.0 (aaaaaaaaaaaa) → repo@v0.2.0 (bbbbbbbbbbbb); apply it with `bb plugin update notes`.",
     ]);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("warns before asking when the range has no upper bound", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json(trackingResult(false, ">=0.1.0", true)),
+      )
+      .mockResolvedValueOnce(
+        Response.json(trackingResult(true, ">=0.1.0", true)),
+      );
+    readlineMocks.question.mockResolvedValue("y");
+
+    await runCommand(["plugin", "track", "notes", ">=0.1.0"], register);
+
+    expect(vi.mocked(console.warn).mock.calls).toEqual([
+      [
+        "Warning: >=0.1.0 has no upper bound, so every future major release will be offered as an update.",
+      ],
+    ]);
+    expect(vi.mocked(console.warn).mock.invocationCallOrder[0]).toBeLessThan(
+      readlineMocks.question.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(requests()).toHaveLength(2);
+  });
+
+  it("warns in a dry run of a range without an upper bound, but not in its JSON", async () => {
+    const preview = trackingResult(false, ">=0.1.0", true);
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(preview));
+
+    await runCommand(
+      ["plugin", "track", "notes", ">=0.1.0", "--dry-run"],
+      register,
+    );
+
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
+      "notes would track >=0.1.0 instead of ^0.1.0; nothing changed (dry run).",
+      "  update available: repo@v0.1.0 (aaaaaaaaaaaa) → repo@v0.2.0 (bbbbbbbbbbbb).",
+    ]);
+    expect(console.warn).toHaveBeenCalledWith(
+      "Warning: >=0.1.0 has no upper bound, so every future major release will be offered as an update.",
+    );
+
+    vi.mocked(console.warn).mockClear();
+    vi.mocked(console.log).mockClear();
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(preview));
+
+    await runCommand(
+      ["plugin", "track", "notes", ">=0.1.0", "--dry-run", "--json"],
+      register,
+    );
+
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
+      JSON.stringify(preview, null, 2),
+    ]);
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
   it("--dry-run reports what the range offers without asking or changing it", async () => {
@@ -106,24 +171,26 @@ describe("bb plugin track", () => {
     ]);
   });
 
-  it("reports the current range as a no-op without asking", async () => {
+  it("reports the current range as a no-op without asking or warning", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
         applied: false,
-        previousRange: "^0.1.0",
-        range: "^0.1.0",
+        previousRange: ">=0.1.0",
+        range: ">=0.1.0",
+        openEnded: true,
         check: { id: "notes", outcome: "current", installed },
       }),
     );
 
-    await runCommand(["plugin", "track", "notes", "^0.1.0"], register);
+    await runCommand(["plugin", "track", "notes", ">=0.1.0"], register);
 
     expect(readlineMocks.question).not.toHaveBeenCalled();
     expect(requests()).toHaveLength(1);
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      "notes already tracks ^0.1.0; nothing changed.",
+      "notes already tracks >=0.1.0; nothing changed.",
       "  current: repo@v0.1.0 (aaaaaaaaaaaa) is the newest compatible release in range.",
     ]);
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
   it("names the latest release an npm install followed before its first range", async () => {
@@ -133,6 +200,7 @@ describe("bb plugin track", () => {
           applied: false,
           previousRange: null,
           range: "^1.0.0",
+          openEnded: false,
           check: {
             id: "linear",
             outcome: "unavailable",
@@ -146,6 +214,7 @@ describe("bb plugin track", () => {
           applied: true,
           previousRange: null,
           range: "^1.0.0",
+          openEnded: false,
           check: {
             id: "linear",
             outcome: "unavailable",

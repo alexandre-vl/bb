@@ -50,11 +50,13 @@ function trackingResult(args: {
   applied: boolean;
   range: string;
   previousRange?: string;
+  openEnded?: boolean;
 }) {
   return {
     applied: args.applied,
     previousRange: args.previousRange ?? "^0.1.0",
     range: args.range,
+    openEnded: args.openEnded ?? false,
     check: {
       id: "notes",
       outcome: "update-available",
@@ -261,18 +263,55 @@ describe("ChangeTrackingRangeDialog", () => {
     expect(changeButton().disabled).toBe(true);
   });
 
-  it("reports the current range as unchanged", async () => {
-    stubTrackingServer((body) =>
-      Response.json(trackingResult({ applied: false, range: body.range })),
+  it("warns that a range without an upper bound offers every future major release", async () => {
+    const { bodies } = stubTrackingServer((body) =>
+      Response.json(
+        trackingResult({
+          applied: body.dryRun !== true,
+          range: body.range,
+          openEnded: true,
+        }),
+      ),
     );
-    renderDialog();
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.change(rangeInput(), { target: { value: ">=0.1.0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(
+      (await screen.findByRole("status", { name: "Range preview" }))
+        .textContent,
+    ).toBe(
+      "Offers https://github.com/acme/notes@v0.2.0 (bbbbbbbbbbbb).This range has no upper bound, so every future major release will be offered as an update.",
+    );
+    fireEvent.click(changeButton());
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(bodies).toEqual([
+      { range: ">=0.1.0", dryRun: true },
+      { range: ">=0.1.0" },
+    ]);
+  });
+
+  it("reports the current range as unchanged, without a warning", async () => {
+    stubTrackingServer((body) =>
+      Response.json(
+        trackingResult({
+          applied: false,
+          range: body.range,
+          previousRange: ">=0.1.0",
+          openEnded: true,
+        }),
+      ),
+    );
+    renderDialog(GIT_PLUGIN, { kind: "range", range: ">=0.1.0" });
 
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
     expect(
       (await screen.findByRole("status", { name: "Range preview" }))
         .textContent,
-    ).toBe("Notes already tracks ^0.1.0.");
+    ).toBe("Notes already tracks >=0.1.0.");
     expect(changeButton().disabled).toBe(true);
   });
 

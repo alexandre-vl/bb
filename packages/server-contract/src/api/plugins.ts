@@ -141,6 +141,7 @@ export const pluginTrackingRangeResultSchema = z.object({
    */
   previousRange: z.string().nullable(),
   range: z.string(),
+  openEnded: z.boolean(),
   check: pluginUpdateCheckEntrySchema,
 });
 export type PluginTrackingRangeResult = z.infer<

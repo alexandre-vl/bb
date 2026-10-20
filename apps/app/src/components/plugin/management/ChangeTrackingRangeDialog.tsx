@@ -252,6 +252,19 @@ function ChangeTrackingRangeDialogContent({
                 ? `${name} already tracks ${previewed.range}.`
                 : trackingRangeCheckSummary(previewed.check)}
             </p>
+            {previewed.openEnded && !unchanged ? (
+              <p className="mt-1.5 flex items-start gap-1.5 text-xs text-warning-text">
+                <Icon
+                  name="AlertTriangle"
+                  className="mt-px size-3.5 shrink-0"
+                  aria-hidden
+                />
+                <span className="min-w-0 break-words">
+                  This range has no upper bound, so every future major release
+                  will be offered as an update.
+                </span>
+              </p>
+            ) : null}
           </div>
         ) : null}
         {previewError !== null || change.isError ? (

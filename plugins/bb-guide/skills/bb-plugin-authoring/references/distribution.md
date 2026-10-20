@@ -82,10 +82,11 @@ range of an existing git semver-range or npm install with
 `bb plugin track <id> <range>`, or Change range in the plugin's details, which
 keep its settings, secrets, schedules, and data. bb previews what the range
 offers, refuses a bare version or a range that would only offer releases older
-than the installed one, and installs nothing until `bb plugin update`. When a
-release falls outside the ranges your users installed with, such as a 0.x
-minor under `^0.y.z`, tell them the range to track in its release notes, for
-example `bb plugin track <id> '>=0.2.0 <1.0.0'`.
+than the installed one, warns when the range has no upper bound so that every
+future major release would be offered, and installs nothing until
+`bb plugin update`. When a release falls outside the ranges your users
+installed with, such as a 0.x minor under `^0.y.z`, tell them the range to
+track in its release notes, for example `bb plugin track <id> '>=0.2.0 <1.0.0'`.
 
 ### Releasing a git plugin with semver tags
 

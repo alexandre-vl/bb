@@ -498,6 +498,13 @@ function trackingPreviousRange(previousRange: string | null): string {
   return previousRange ?? "its latest release";
 }
 
+function warnOpenEndedRange(result: PluginTrackingRangeResult): void {
+  if (!result.openEnded) return;
+  console.warn(
+    `Warning: ${result.range} has no upper bound, so every future major release will be offered as an update.`,
+  );
+}
+
 function trackingCheckSummary(
   id: string,
   check: PluginUpdateResult,
@@ -1137,6 +1144,7 @@ export function registerPluginCommands(
             console.log(
               `  ${trackingCheckSummary(id, preview.check, unchanged)}`,
             );
+            if (!unchanged) warnOpenEndedRange(preview);
             return;
           }
           if (!opts.json) {
@@ -1146,6 +1154,7 @@ export function registerPluginCommands(
             console.log(
               `  With ${preview.range}: ${trackingCheckSummary(id, preview.check, false)}`,
             );
+            warnOpenEndedRange(preview);
           }
           await confirmPluginAction(
             "Change the range?",

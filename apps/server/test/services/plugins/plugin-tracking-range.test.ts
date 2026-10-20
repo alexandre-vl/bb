@@ -296,6 +296,23 @@ describe("planTrackingRangeChange", () => {
     });
   });
 
+  it.each([
+    [">=0.1.0", true],
+    [">0.0.9", true],
+    ["*", true],
+    [">=0.1.0 <1.0.0 || >=2.0.0", true],
+    [">=0.1.0 <1.0.0", false],
+    [">=0.1.0 <=2.0.0", false],
+    ["~0.1.0", false],
+    ["0.x", false],
+    ["0.1.0 || >=0.2.0 <1.0.0", false],
+  ])("reports whether %j lacks an upper bound", (range, openEnded) => {
+    expect(planTrackingRangeChange(stored({}), range)).toMatchObject({
+      ok: true,
+      plan: { range, openEnded },
+    });
+  });
+
   it("keeps the tag prefix and compares a prerelease install inside the range", () => {
     const row = stored({
       source: "git:/repo@semver:notes/:^0.2.0-beta.1",
@@ -569,6 +586,7 @@ describe("plugin tracking range service and route", () => {
       applied: true,
       previousRange: "^0.1.0",
       range: ">=0.1.0 <1.0.0",
+      openEnded: false,
       check: expect.objectContaining({
         id: "tracked",
         outcome: "update-available",
@@ -670,6 +688,7 @@ describe("plugin tracking range service and route", () => {
         applied: false,
         previousRange: "^0.1.0",
         range: ">=0.1.0 <1.0.0",
+        openEnded: false,
         check: expect.objectContaining({
           outcome: "update-available",
           candidate: expect.objectContaining({ version: minor }),
@@ -684,8 +703,24 @@ describe("plugin tracking range service and route", () => {
         applied: false,
         previousRange: "^0.1.0",
         range: "^0.1.0",
+        openEnded: false,
         check: expect.objectContaining({ outcome: "current" }),
       },
+    });
+    const openEnded = await postRange("tracked", {
+      range: ">=0.1.0",
+      dryRun: true,
+    });
+    expect(openEnded.status).toBe(200);
+    expect(await openEnded.json()).toEqual({
+      applied: false,
+      previousRange: "^0.1.0",
+      range: ">=0.1.0",
+      openEnded: true,
+      check: expect.objectContaining({
+        outcome: "update-available",
+        candidate: expect.objectContaining({ version: minor }),
+      }),
     });
 
     expect(getInstalledPluginRegistration(db, "tracked")).toEqual(before);
@@ -909,6 +944,7 @@ describe("plugin tracking range service and route", () => {
         applied: true,
         previousRange: "1.0.0",
         range: "^1.0.0",
+        openEnded: false,
         check: expect.objectContaining({
           outcome: "update-available",
           candidate: expect.objectContaining({
