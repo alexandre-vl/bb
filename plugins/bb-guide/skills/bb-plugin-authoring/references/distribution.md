@@ -76,17 +76,28 @@ to the previous state snapshot and records the failure for the user. Keep the
 `engines` ranges honest and ship load-safe factories so an update never
 strands users.
 
-An install keeps the semver range it was installed with: a range you later
-change in your marketplace entry reaches new installs only. Users change the
-range of an existing git semver-range or npm install with
+Updates stay inside the semver range recorded at install and never move to a
+release older than the installed one. An update applies only the release the
+user reviewed: `bb plugin update` and the app send the candidate the check
+showed, and when the range resolves to another release by the time it
+applies, bb refuses until the user checks again. A candidate that may break,
+a new major or a new minor before 1.0, is flagged before the user confirms.
+
+When your newest stable release falls outside a user's range, such as a 0.x
+minor under `^0.y.z` or a new major under `^x.y.z`, `bb plugin outdated`,
+`bb plugin update`, and the plugin's page name it and say whether it may
+break, but never install it: bb has not checked its compatibility. An install
+keeps the range it was installed with, so a range you later change in your
+marketplace entry reaches new installs only. Users move an existing git
+semver-range or npm install to another range in place with
 `bb plugin track <id> <range>`, or Change range in the plugin's details, which
-keep its settings, secrets, schedules, and data. bb previews what the range
-offers, refuses a bare version or a range that would only offer releases older
-than the installed one, warns when the range has no upper bound so that every
-future major release would be offered, and installs nothing until
-`bb plugin update`. When a release falls outside the ranges your users
-installed with, such as a 0.x minor under `^0.y.z`, tell them the range to
-track in its release notes, for example `bb plugin track <id> '>=0.2.0 <1.0.0'`.
+suggests a range that includes the release outside the current one; both keep
+its settings, secrets, schedules, and data. bb previews what the range offers,
+refuses a bare version or a range that would only offer releases older than
+the installed one, warns when the range has no upper bound so every future
+major release would be offered, and installs nothing until the user updates.
+Name the range to track in your release notes, for example
+`bb plugin track <id> '>=0.2.0 <1.0.0'`.
 
 ### Releasing a git plugin with semver tags
 

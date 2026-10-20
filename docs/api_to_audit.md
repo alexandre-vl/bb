@@ -169,12 +169,14 @@ registration and lifecycle locks; it then checks the plugin again and persists
 that check. `dryRun` and the current range check without persisting anything
 (`applied: false`). It installs nothing; `applyUpdate` applies what the range
 offers. Core callers, both through this method: `bb plugin track` and the
-plugin detail page's Change range dialog (`ChangeTrackingRangeDialog`).
+plugin detail page's Change range dialog (`ChangeTrackingRangeDialog`), which
+opens on `>=<installed> <(major + 1).0.0` for the newest release outside the
+current range when the last check found one.
 
 Before stabilization, audit whether a no-op should still run a check, whether
 a warning is enough for open-ended ranges (`*`, `>=x`), whether a range
-change should be able to set a tag prefix, and whether the dialog should
-suggest the range of the newest release outside the current one.
+change should be able to set a tag prefix, and whether the server should
+return the suggested range so the CLI can print the same suggestion.
 
 ## RPC caller identity (`ExperimentalPluginRpcHandlerContext.experimental_caller`)
 

@@ -303,17 +303,18 @@ updates. Edit a local path plugin in place and `bb plugin reload <id>`, or move
 it with `bb plugin install path:<new dir>`; both keep its configuration.
 
 An install keeps the range it was installed with, including a marketplace
-entry's range when the listing changes later. `^0.2.0` admits only 0.2.x
-patches; `>=0.2.0 <1.0.0` follows every 0.x release, and a 0.x minor may
-break. `bb plugin track <id> <range>` changes the range of a git semver-range
-install or of an npm install (an exact version, dist-tag, or omitted spec
-becomes that range) and keeps its settings, secrets, schedules, and data.
-It refuses a bare version and a range that would only offer releases older
-than the installed one, because bb does not downgrade, and warns before
-applying a range with no upper bound, such as `>=0.2.0`: every future major
-release will be offered as an update. To move a Git branch, tag, or commit
-install to a semver range, `bb plugin remove` it (which deletes settings,
-secrets, and schedules) and install it again.
+entry's range when the listing changes later. `bb plugin track <id> <range>`
+changes the range of a git semver-range install or of an npm install (an exact
+version, dist-tag, or omitted spec becomes that range) and keeps its settings,
+secrets, schedules, and data; `>=0.2.0 <1.0.0` follows every 0.x release, and
+a 0.x minor may break. It refuses a bare version and a range that would only
+offer releases older than the installed one, because bb does not downgrade,
+and warns before applying a range with no upper bound, such as `>=0.2.0`:
+every future major release will be offered as an update. The app's Change
+range suggests a range that includes the newest release outside the current
+one. To move a Git branch, tag, or commit install to a semver range,
+`bb plugin remove` it (which deletes settings, secrets, and schedules) and
+install it again.
 
 Managed git:/npm: installs refuse engines.bb and engines.bbPluginSdk
 mismatches, manifest and artifact identity mismatches, and ids reserved by
