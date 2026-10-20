@@ -60,6 +60,7 @@ import {
   type PluginSafeModeUpdateResponse,
   type PluginSourceDetail,
   type PluginSourceSelection,
+  type PluginTrackingRangeRequest,
   type PluginUpdateCheckEntry,
 } from "@bb/server-contract";
 import {
@@ -175,6 +176,7 @@ import {
   settledWithin,
 } from "./plugin-time-box.js";
 import { createPluginUpdates } from "./plugin-updates.js";
+import type { PluginTrackingRangeOutcome } from "./plugin-tracking-range.js";
 
 import type {
   LoadedPlugin,
@@ -301,6 +303,10 @@ export interface PluginService {
     id: string,
     request?: PluginApplyUpdateRequest,
   ): Promise<PluginApplyUpdateOutcome>;
+  setTrackingRange(
+    id: string,
+    request: PluginTrackingRangeRequest,
+  ): Promise<PluginTrackingRangeOutcome>;
   remove(id: string): Promise<boolean>;
   pruneCache(args: { dryRun: boolean }): Promise<PluginCachePruneResponse>;
   setEnabled(

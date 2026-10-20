@@ -125,6 +125,28 @@ export const pluginUpdateJobListResponseSchema = z.object({
   jobs: z.array(pluginUpdateJobSchema),
 });
 
+export const pluginTrackingRangeRequestSchema = z
+  .object({ range: z.string().min(1), dryRun: z.boolean().optional() })
+  .strict();
+export type PluginTrackingRangeRequest = z.infer<
+  typeof pluginTrackingRangeRequestSchema
+>;
+
+export const pluginTrackingRangeResultSchema = z.object({
+  applied: z.boolean(),
+  /**
+   * What the install followed before the change: its git or npm semver range,
+   * or for an npm install its exact version or dist-tag. `null` for an npm
+   * install that named no version and followed its latest release.
+   */
+  previousRange: z.string().nullable(),
+  range: z.string(),
+  check: pluginUpdateCheckEntrySchema,
+});
+export type PluginTrackingRangeResult = z.infer<
+  typeof pluginTrackingRangeResultSchema
+>;
+
 export const pluginSourceHistoryEntrySchema = z.object({
   version: z.string(),
   activatedAt: z.number(),

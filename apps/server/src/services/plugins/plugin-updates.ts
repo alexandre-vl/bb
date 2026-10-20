@@ -47,12 +47,17 @@ import {
   pluginUpdateCheckEntrySchema,
   type PluginApplyUpdateRequest,
   type PluginSourceDetail,
+  type PluginTrackingRangeRequest,
   type PluginUpdateCheckEntry,
 } from "@bb/server-contract";
 import type {
   PluginApplyUpdateOutcome,
   PluginServiceDeps,
 } from "./plugin-service-internal.js";
+import {
+  createPluginTrackingRange,
+  type PluginTrackingRangeOutcome,
+} from "./plugin-tracking-range.js";
 
 const PLUGIN_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const UPDATE_CHECK_CONCURRENCY = 4;
@@ -80,6 +85,10 @@ export interface PluginUpdates {
     id: string,
     request?: PluginApplyUpdateRequest,
   ): Promise<PluginApplyUpdateOutcome>;
+  setTrackingRange(
+    id: string,
+    request: PluginTrackingRangeRequest,
+  ): Promise<PluginTrackingRangeOutcome>;
 }
 
 interface PluginUpdatesContext {
@@ -519,7 +528,26 @@ export function createPluginUpdates(
     );
   }
 
+  const trackingRange = createPluginTrackingRange({
+    deps,
+    registrationMutationKey: REGISTRATION_MUTATION_KEY,
+    withLifecycleLock,
+    withPluginOperationLock,
+    installedUpdateVersion,
+    previewUpdateCheck: async (row) =>
+      checkEntryFromResolution(
+        row.id,
+        installedUpdateVersion(row),
+        await resolveUpdateForRow({ row, npmRun: npmRunForRow(row) }),
+      ),
+    checkUpdates: (row) => checkRows([row]),
+    persistUpdateEntry,
+    notifyPluginsChanged,
+  });
+
   const updates: PluginUpdates = {
+    setTrackingRange: trackingRange.setTrackingRange,
+
     startPeriodicUpdateChecks() {
       if (!periodicChecksStopped) return;
       periodicChecksStopped = false;
@@ -595,7 +623,12 @@ export function createPluginUpdates(
         ...(row.sourceGitSubdirectory === null
           ? {}
           : { subdirectory: row.sourceGitSubdirectory }),
-        ...(row.sourceGitRange === null ? {} : { range: row.sourceGitRange }),
+        ...(row.sourceGitRange !== null
+          ? { range: row.sourceGitRange }
+          : row.sourceNpmSpecKind === "range" &&
+              row.sourceNpmRequestedSpec !== null
+            ? { range: row.sourceNpmRequestedSpec }
+            : {}),
         ...(row.sourceGitTagPrefix === null ||
         row.sourceGitTagPrefix.length === 0
           ? {}
@@ -663,7 +696,9 @@ export function createPluginUpdates(
             error:
               row.sourceKind === "path"
                 ? `plugin "${id}" is a local path source with no update channel; edit it in place and run \`bb plugin reload ${id}\`, or move it with \`bb plugin install path:<new directory>\` (settings, secrets, and schedules are kept)`
-                : `plugin "${id}" is pinned by its source intent; remove and reinstall it with an npm range, a git branch, or a git semver range to track updates`,
+                : row.sourceKind === "npm" && row.activeArtifactId !== null
+                  ? `plugin "${id}" is pinned to ${from.display}; run \`bb plugin track ${id} <range>\` to follow a semver range such as ^${from.version} (settings, secrets, and schedules are kept)`
+                  : `plugin "${id}" is pinned by its source intent; remove and reinstall it with an npm range, a git branch, or a git semver range to track updates`,
           };
         }
         if (resolution.outcome === "incompatible") {

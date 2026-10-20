@@ -49,6 +49,7 @@ import {
   pluginSafeModeRequestSchema,
   pluginSettingsUpdateRequestSchema,
   pluginTokenRequestSchema,
+  pluginTrackingRangeRequestSchema,
   pluginUpdateCheckRequestSchema,
 } from "@bb/server-contract";
 
@@ -759,6 +760,35 @@ export function registerPluginRoutes(
       return context.json({ error: "unknown plugin" }, 404);
     }
     return context.json(source);
+  });
+
+  app.post("/plugins/:id/tracking-range", async (context) => {
+    const json: unknown = await context.req.json().catch(() => null);
+    const body = pluginTrackingRangeRequestSchema.safeParse(json);
+    if (!body.success) {
+      return context.json(
+        { error: 'expected { "range": string, "dryRun"?: boolean }' },
+        400,
+      );
+    }
+    try {
+      const outcome = await plugins.setTrackingRange(
+        context.req.param("id"),
+        body.data,
+      );
+      if (!outcome.ok) {
+        return context.json(
+          { error: outcome.error },
+          outcome.reason === "unknown-plugin" ? 404 : 422,
+        );
+      }
+      return context.json(outcome.result);
+    } catch (error) {
+      return context.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        422,
+      );
+    }
   });
 
   app.post("/plugins/reload", async (context) => {
