@@ -18,6 +18,7 @@ import type {
   PluginCatalogInstallPlan,
   PluginCatalogResolvedSource,
   PluginCatalogSearchResult,
+  PluginTrackingRangeResult,
   PluginUpdateCheckEntry as PluginUpdateResult,
   PluginUpdateJob,
 } from "@bb/server-contract";
@@ -479,6 +480,40 @@ function updateStatusSummary(result: PluginUpdateResult): string {
 
 function updateDetail(result: PluginUpdateResult): string {
   return result.detail ?? result.blocked?.reasons.join("; ") ?? "";
+}
+
+function pinnedSkipMessage(
+  result: PluginUpdateResult,
+  source: string | undefined,
+): string {
+  const detail = updateDetail(result);
+  const skipped = `${result.id}: skipped — pinned${detail ? ` (${detail})` : ""}`;
+  if (source?.startsWith("npm:")) {
+    return `${skipped}; run \`bb plugin track ${result.id} <range>\` (for example ^${result.installed.version}) to receive updates; settings, secrets, and schedules are kept.`;
+  }
+  return `${skipped}; remove and reinstall with a tracking npm range, git branch, or git semver range to receive updates (remove deletes the plugin's settings, secrets, and schedules). A local path plugin updates with \`bb plugin reload\`; move it with \`bb plugin install path:<new directory>\`.`;
+}
+
+function trackingPreviousRange(previousRange: string | null): string {
+  return previousRange ?? "its latest release";
+}
+
+function trackingCheckSummary(
+  id: string,
+  check: PluginUpdateResult,
+  applied: boolean,
+): string {
+  if (check.outcome === "update-available") {
+    const offer = `update available: ${check.installed.display} → ${check.candidate?.display ?? "a newer release"}`;
+    return applied
+      ? `${offer}; apply it with \`bb plugin update ${id}\`.`
+      : `${offer}.`;
+  }
+  if (check.outcome === "current") {
+    return `current: ${check.installed.display} is the newest compatible release in range.`;
+  }
+  const detail = updateDetail(check);
+  return `${UPDATE_STATUS_LABELS[check.outcome]}${detail ? `: ${detail}` : "."}`;
 }
 
 async function confirmPluginAction(
@@ -1060,6 +1095,84 @@ export function registerPluginCommands(
     );
 
   plugin
+    .command("track <id> <range>")
+    .description(
+      "Change the semver range a git: or npm: plugin follows for updates, in place: its settings, secrets, schedules, and data are kept. Shows what the new range offers and asks for confirmation; it installs nothing, so run `bb plugin update <id>` afterwards",
+    )
+    .option("--dry-run", "Show what the range would offer without changing it")
+    .option("--yes", "Skip the confirmation prompt")
+    .option("--json", "Output JSON")
+    .action(
+      action(
+        async (
+          id: string,
+          range: string,
+          opts: JsonOutputOptions & { dryRun?: boolean; yes?: boolean },
+        ) => {
+          const plugins = createCliBbSdk(getUrl()).plugins;
+          let preview: PluginTrackingRangeResult;
+          try {
+            preview = await plugins.experimental_setTrackingRange({
+              pluginId: id,
+              range,
+              dryRun: true,
+            });
+          } catch (error) {
+            exitWithError({ error: sdkErrorMessage(error) });
+          }
+          const unchanged = preview.previousRange === preview.range;
+          if (opts.dryRun === true || unchanged) {
+            if (opts.json) {
+              outputJson(opts, preview);
+              return;
+            }
+            console.log(
+              unchanged
+                ? `${id} already tracks ${preview.range}; nothing changed.`
+                : `${id} would track ${preview.range} instead of ${trackingPreviousRange(preview.previousRange)}; nothing changed (dry run).`,
+            );
+            console.log(
+              `  ${trackingCheckSummary(id, preview.check, unchanged)}`,
+            );
+            return;
+          }
+          if (!opts.json) {
+            console.log(
+              `${id}: track ${preview.range} instead of ${trackingPreviousRange(preview.previousRange)}. Settings, secrets, schedules, and data are kept; nothing is installed until you update.`,
+            );
+            console.log(
+              `  With ${preview.range}: ${trackingCheckSummary(id, preview.check, false)}`,
+            );
+          }
+          await confirmPluginAction(
+            "Change the range?",
+            "Refusing to change the range without confirmation — re-run with --yes.",
+            opts.yes === true,
+          );
+          let result: PluginTrackingRangeResult;
+          try {
+            result = await plugins.experimental_setTrackingRange({
+              pluginId: id,
+              range,
+            });
+          } catch (error) {
+            exitWithError({ error: sdkErrorMessage(error) });
+          }
+          if (opts.json) {
+            outputJson(opts, result);
+            return;
+          }
+          console.log(
+            result.applied
+              ? `${id} now tracks ${result.range} (was ${trackingPreviousRange(result.previousRange)}).`
+              : `${id} already tracks ${result.range}; nothing changed.`,
+          );
+          console.log(`  ${trackingCheckSummary(id, result.check, true)}`);
+        },
+      ),
+    );
+
+  plugin
     .command("install <source>")
     .description(
       "Install a catalog entry by name or <entry>@<marketplace>, a Git repository URL, a local path, builtin:<name>, git:<url>[@<ref|semver-range>], or npm:<name>@<version>. A catalog entry from a third-party marketplace is not reviewed by BB, so its confirmation names the marketplace, the author, and the exact resolved source (managed sources validate engines ranges and build artifacts; bundled plugin ids are reserved)",
@@ -1405,22 +1518,28 @@ export function registerPluginCommands(
           const results = await sdk.plugins.checkUpdates(
             id === undefined ? {} : { pluginId: id },
           );
-          const sources = new Map<string, string>();
-          if (results.some((result) => result.outcome === "update-available")) {
+          const entries = new Map<string, PluginEntry>();
+          if (
+            results.some(
+              (result) =>
+                result.outcome === "update-available" ||
+                result.outcome === "pinned",
+            )
+          ) {
             const list = await sdk.plugins.list();
-            for (const entry of list.plugins)
-              sources.set(entry.id, entry.sourceDisplay);
+            for (const entry of list.plugins) entries.set(entry.id, entry);
           }
 
           for (const result of results) {
-            const source = sources.get(result.id) ?? "unknown source";
+            const source =
+              entries.get(result.id)?.sourceDisplay ?? "unknown source";
             const detail = updateDetail(result);
             const shouldAttempt = result.outcome === "update-available";
 
             if (!shouldAttempt) {
               if (result.outcome === "pinned") {
                 console.log(
-                  `${result.id}: skipped — pinned${detail ? ` (${detail})` : ""}; remove and reinstall with a tracking npm range, git branch, or git semver range to receive updates (remove deletes the plugin's settings, secrets, and schedules). A local path plugin updates with \`bb plugin reload\`; move it with \`bb plugin install path:<new directory>\`.`,
+                  pinnedSkipMessage(result, entries.get(result.id)?.source),
                 );
               } else if (result.outcome === "incompatible") {
                 console.log(

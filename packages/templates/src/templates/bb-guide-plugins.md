@@ -56,6 +56,14 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  the check showed and warns first when it
                                  may break (a new major, a new 0.x minor, or
                                  a new 0.0.x patch)
+  bb plugin track <id> <range>   Change the semver range a git: or npm:
+                                 plugin follows, in place: settings,
+                                 secrets, schedules, and data are kept. It
+                                 shows what the range offers, then asks
+                                 (--yes skips; non-TTY refuses without
+                                 --yes); --dry-run only previews; --json
+                                 prints the result. Installs nothing: run
+                                 `bb plugin update <id>` next
   bb plugin list                 Status, services, schedules, handler timings,
                                  and contributed CLI commands. `bb status`
                                  also names enabled plugins that are
@@ -291,10 +299,19 @@ admits only 0.0.z itself.
 Exact npm versions, Git tags and commits, path sources, and bundled official
 plugins are pinned. npm ranges, dist-tags, and omitted specs, omitted Git refs
 (the default branch), Git branches, and Git semver ranges track compatible
-updates. Change a pinned git:/npm: source with `bb plugin remove` (which
-deletes settings, secrets, and schedules) and a fresh install. Edit a local
-path plugin in place and `bb plugin reload <id>`, or move it with
-`bb plugin install path:<new dir>`; both keep its configuration.
+updates. Edit a local path plugin in place and `bb plugin reload <id>`, or move
+it with `bb plugin install path:<new dir>`; both keep its configuration.
+
+An install keeps the range it was installed with, including a marketplace
+entry's range when the listing changes later. `^0.2.0` admits only 0.2.x
+patches; `>=0.2.0 <1.0.0` follows every 0.x release, and a 0.x minor may
+break. `bb plugin track <id> <range>` changes the range of a git semver-range
+install or of an npm install (an exact version, dist-tag, or omitted spec
+becomes that range) and keeps its settings, secrets, schedules, and data.
+It refuses a bare version and a range that would only offer releases older
+than the installed one, because bb does not downgrade. To move a Git branch,
+tag, or commit install to a semver range, `bb plugin remove` it (which deletes
+settings, secrets, and schedules) and install it again.
 
 Managed git:/npm: installs refuse engines.bb and engines.bbPluginSdk
 mismatches, manifest and artifact identity mismatches, and ids reserved by

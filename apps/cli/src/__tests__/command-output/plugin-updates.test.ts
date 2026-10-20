@@ -261,25 +261,29 @@ describe("bb plugin update commands", () => {
   });
 
   it("skips pinned plugins with manual reinstall guidance", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({
-        results: [
-          {
-            id: "notes",
-            outcome: "pinned",
-            installed: version("1.0.0"),
-            detail: "source pins 1.0.0",
-          },
-        ],
-      }),
-    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [
+            {
+              id: "notes",
+              outcome: "pinned",
+              installed: version("1.0.0"),
+              detail: "source pins 1.0.0",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json(pluginList("notes", "git:https://example.com/notes@v1")),
+      );
 
     await runCommand(["plugin", "update", "notes"], register);
 
     expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
       "remove and reinstall with a tracking npm range, git branch, or git semver range",
     );
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("starts an update without waiting and lets the user inspect its job", async () => {
