@@ -1198,7 +1198,7 @@ function threadHtml() {
   const p = byN(SC.run), ts = listLoad();
   const chip = p.merged ? [ic("merge", "i14 g-purple"), "Merged"] : p.fail ? [ic("x", "i14 g-red"), `${plural(nFail(p), "check")} failing`] : attention(p) === "ready" ? [ic("ok", "i14 g-green"), "Ready to merge"] : attention(p) === "running" ? [ic("clock", "i14 g-mfg"), "Checks running"] : [ic("pr", "i14 g-mfg"), "Open"];
   const g = (n) => { const [gi, gc] = glyphOf(byN(n)); return ic(gi, gc); };
-  const rows = [[AGENTS[SC.run].title, ic("dash", "g-spin spin"), true], [AGENTS[SC.wait].title, g(SC.wait)], [AGENTS[SC.done].title, g(SC.done)], ...SC.threadExtras.map((t) => [t, ic("dotc", "i12 g-t3")])];
+  const rows = [[AGENTS[SC.run].title, g(SC.run), true], [AGENTS[SC.wait].title, g(SC.wait)], [AGENTS[SC.done].title, g(SC.done)], ...SC.threadExtras.map((t) => [t, ic("dotc", "i12 g-t3")])];
   return `<div class="gh"><div class="shell">
     <div class="sbar"><div class="sl">${esc(SC.project)}</div>${rows.map(([t, gl, on]) => `<div class="srow${on ? " on" : ""}"><span class="tt">${esc(t)}</span><span class="g">${gl}</span></div>`).join("")}<p class="anno" style="margin:12px 4px 0">PR state on bb's own rows: <code>experimental_setThreadRowStatus</code></p></div>
     <div class="tmain">
@@ -1230,7 +1230,7 @@ function frameHtml(inner, modals = "") {
   return `<div class="bbapp"><nav class="rail0"><button class="ibtn">${ic("sideleft")}</button><button class="ibtn">${ic("home")}</button><button class="ibtn">${ic("bot")}</button><button class="ibtn">${ic("zap")}</button><button class="ibtn">${ic("chat")}</button><button class="ibtn on">${ic("gh")}</button><button class="ibtn">${ic("more")}</button><span class="sp"></span><button class="ibtn">${ic("settings")}</button></nav>
     <aside class="side"><div class="nt">${ic("newthread")}<span>New thread</span><span class="sp"></span>${ic("chevl", "i14 g-t3")}<span style="width:12px"></span>${ic("chev", "i14 g-t3")}</div>
       <div class="sl">${esc(SC.otherProject)} ${ic("chev", "i12")}</div><div class="sl">${esc(SC.project)}</div>
-      ${row(AGENTS[SC.run].title, ic("dash", "g-spin spin"))}${row(AGENTS[SC.wait].title, g(SC.wait))}${row(AGENTS[SC.done].title, g(SC.done))}${SC.sideExtras.map(([t, k, chev]) => row(t, k === "spin" ? ic("dash", "g-spin spin") : ic("dotc", "i12 g-t3"), chev)).join("")}
+      ${row(AGENTS[SC.run].title, g(SC.run))}${row(AGENTS[SC.wait].title, g(SC.wait))}${row(AGENTS[SC.done].title, g(SC.done))}${SC.sideExtras.map(([t, k, chev]) => row(t, k === "spin" ? ic("dash", "g-spin spin") : ic("dotc", "i12 g-t3"), chev)).join("")}
       <div class="sl">Threads</div>${SC.threads.map(([t, k, chev]) => row(t, k === "spin" ? ic("dash", "g-spin spin") : ic("dotc", "i12 g-t3"), chev)).join("")}</aside>
     <main class="bbmain">${inner}</main>${modals}</div>`;
 }
