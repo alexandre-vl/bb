@@ -551,16 +551,18 @@ export function createPluginUpdates(
     registrationMutationKey: REGISTRATION_MUTATION_KEY,
     withLifecycleLock,
     withPluginOperationLock,
-    installedUpdateVersion,
-    previewUpdateCheck: async (row) =>
-      checkEntryFromResolution(
-        row.id,
-        installedUpdateVersion(row),
-        await resolveUpdateForRow({ row, npmRun: npmRunForRow(row) }),
-      ),
+    previewUpdateCheck: async (row) => {
+      try {
+        return checkEntryFromResolution(
+          row.id,
+          installedUpdateVersion(row),
+          await resolveUpdateForRow({ row, npmRun: npmRunForRow(row) }),
+        );
+      } catch (error) {
+        return failedCheckEntry(row, error);
+      }
+    },
     checkUpdates: (row) => checkRows([row]),
-    persistUpdateEntry,
-    notifyPluginsChanged,
   });
 
   const updates: PluginUpdates = {

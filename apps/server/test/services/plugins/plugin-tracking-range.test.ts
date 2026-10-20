@@ -842,6 +842,56 @@ describe("plugin tracking range service and route", () => {
     });
   }, 120_000);
 
+  it("previews a range while an in-flight update holds the registration lock", async () => {
+    await service.install(`git:${repo}@semver:^0.1.0`, { kind: "root" });
+    const patch = await release(repo, "0.1.1");
+    const minor = await release(repo, "0.2.0");
+    let reportPromotion!: () => void;
+    const promotionReached = new Promise<void>((resolve) => {
+      reportPromotion = resolve;
+    });
+    let releasePromotion!: () => void;
+    const holdPromotion = new Promise<void>((resolve) => {
+      releasePromotion = resolve;
+    });
+    afterArtifactPromoted = async () => {
+      reportPromotion();
+      await holdPromotion;
+    };
+
+    let updateSettled = false;
+    const update = service.applyUpdate("tracked").finally(() => {
+      updateSettled = true;
+    });
+    await promotionReached;
+
+    await expect(
+      service.setTrackingRange("tracked", {
+        range: ">=0.1.0 <1.0.0",
+        dryRun: true,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        applied: false,
+        range: ">=0.1.0 <1.0.0",
+        check: { outcome: "update-available", candidate: { version: minor } },
+      },
+    });
+    expect(updateSettled).toBe(false);
+
+    afterArtifactPromoted = undefined;
+    releasePromotion();
+    await expect(update).resolves.toMatchObject({
+      ok: true,
+      result: { applied: true, to: { version: patch } },
+    });
+    expect(getInstalledPluginRegistration(db, "tracked")).toMatchObject({
+      sourceGitRange: "^0.1.0",
+      sourceGitResolvedTag: "v0.1.1",
+    });
+  }, 120_000);
+
   it("records an unreachable source after the change as unavailable, and a preview persists nothing", async () => {
     await service.install(`git:${repo}@semver:^0.1.0`, { kind: "root" });
     await rename(repo, `${repo}-moved`);

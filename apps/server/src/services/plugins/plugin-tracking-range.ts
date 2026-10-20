@@ -19,7 +19,6 @@ import {
 } from "./install-sources.js";
 import { npmSourceString } from "./managed-plugin-artifacts.js";
 import type { PluginServiceDeps } from "./plugin-service-internal.js";
-import type { PluginResolvedUpdateVersion } from "./update-resolver.js";
 
 export type PluginTrackingRangeOutcome =
   | { ok: true; result: PluginTrackingRangeResult }
@@ -238,99 +237,49 @@ export function planTrackingRangeChange(
   };
 }
 
+type PlannedChange =
+  | { ok: true; plan: PluginTrackingRangePlan }
+  | Extract<PluginTrackingRangeOutcome, { ok: false }>;
+
 interface PluginTrackingRangeContext {
   deps: Pick<PluginServiceDeps, "db" | "logger">;
   registrationMutationKey: string;
   withLifecycleLock: <T>(id: string, fn: () => Promise<T>) => Promise<T>;
   withPluginOperationLock: <T>(id: string, fn: () => Promise<T>) => Promise<T>;
-  installedUpdateVersion: (
-    row: InstalledPluginRow,
-  ) => PluginResolvedUpdateVersion;
   previewUpdateCheck: (
     row: InstalledPluginRow,
   ) => Promise<PluginUpdateCheckEntry>;
   checkUpdates: (row: InstalledPluginRow) => Promise<PluginUpdateCheckEntry[]>;
-  persistUpdateEntry: (entry: PluginUpdateCheckEntry) => void;
-  notifyPluginsChanged: () => void;
 }
 
 export function createPluginTrackingRange(context: PluginTrackingRangeContext) {
   const { deps } = context;
 
-  function unavailableEntry(
-    row: InstalledPluginRow,
-    error: unknown,
-  ): PluginUpdateCheckEntry {
-    return {
-      id: row.id,
-      outcome: "unavailable",
-      installed: context.installedUpdateVersion(row),
-      detail: error instanceof Error ? error.message : String(error),
-    };
-  }
-
-  async function previewCheck(
-    row: InstalledPluginRow,
-  ): Promise<PluginUpdateCheckEntry> {
-    try {
-      return await context.previewUpdateCheck(row);
-    } catch (error) {
-      return unavailableEntry(row, error);
+  function planFor(id: string, range: string): PlannedChange {
+    const row = getInstalledPlugin(deps.db, id);
+    if (row === undefined) {
+      return {
+        ok: false,
+        reason: "unknown-plugin",
+        error: `unknown plugin "${id}"`,
+      };
     }
+    const planned = planTrackingRangeChange(row, range);
+    return planned.ok
+      ? planned
+      : { ok: false, reason: "refused", error: planned.error };
   }
 
-  async function checkChangedRow(
-    row: InstalledPluginRow,
-  ): Promise<PluginUpdateCheckEntry> {
-    try {
-      const [entry] = await context.checkUpdates(row);
-      if (entry === undefined) {
-        throw new Error(`plugin "${row.id}" was not checked`);
-      }
-      return entry;
-    } catch (error) {
-      const entry = unavailableEntry(row, error);
-      context.persistUpdateEntry(entry);
-      context.notifyPluginsChanged();
-      return entry;
-    }
-  }
-
-  async function setTrackingRange(
+  async function applyChange(
     id: string,
-    request: PluginTrackingRangeRequest,
-  ): Promise<PluginTrackingRangeOutcome> {
+    range: string,
+  ): Promise<PlannedChange> {
     return context.withPluginOperationLock(
       context.registrationMutationKey,
       async () => {
-        const row = getInstalledPlugin(deps.db, id);
-        if (row === undefined) {
-          return {
-            ok: false,
-            reason: "unknown-plugin",
-            error: `unknown plugin "${id}"`,
-          };
-        }
-        const planned = planTrackingRangeChange(row, request.range);
-        if (!planned.ok) {
-          return { ok: false, reason: "refused", error: planned.error };
-        }
+        const planned = planFor(id, range);
+        if (!planned.ok || planned.plan.unchanged) return planned;
         const { plan } = planned;
-        const ranges = {
-          previousRange: plan.previousRange,
-          range: plan.range,
-          openEnded: plan.openEnded,
-        };
-        if (request.dryRun === true || plan.unchanged) {
-          return {
-            ok: true,
-            result: {
-              applied: false,
-              ...ranges,
-              check: await previewCheck(plan.proposed),
-            },
-          };
-        }
         const changed = await context.withLifecycleLock(id, async () =>
           setInstalledPluginTrackingRange(deps.db, id, plan.change),
         );
@@ -342,20 +291,52 @@ export function createPluginTrackingRange(context: PluginTrackingRangeContext) {
         deps.logger.info(
           `plugin ${id} now tracks ${plan.range} instead of ${plan.previousRange ?? "its latest release"}; settings, secrets, and schedules were kept`,
         );
-        const updated = getInstalledPlugin(deps.db, id);
-        if (updated === undefined) {
-          throw new Error(`plugin "${id}" disappeared after its range changed`);
-        }
-        return {
-          ok: true,
-          result: {
-            applied: true,
-            ...ranges,
-            check: await checkChangedRow(updated),
-          },
-        };
+        return planned;
       },
     );
+  }
+
+  async function checkChangedPlugin(
+    id: string,
+  ): Promise<PluginUpdateCheckEntry> {
+    const updated = getInstalledPlugin(deps.db, id);
+    const [check] =
+      updated === undefined ? [] : await context.checkUpdates(updated);
+    if (check === undefined) {
+      throw new Error(`plugin "${id}" disappeared after its range changed`);
+    }
+    return check;
+  }
+
+  async function setTrackingRange(
+    id: string,
+    request: PluginTrackingRangeRequest,
+  ): Promise<PluginTrackingRangeOutcome> {
+    const dryRun = request.dryRun === true;
+    const planned = dryRun
+      ? planFor(id, request.range)
+      : await applyChange(id, request.range);
+    if (!planned.ok) return planned;
+    const { plan } = planned;
+    const ranges = {
+      previousRange: plan.previousRange,
+      range: plan.range,
+      openEnded: plan.openEnded,
+    };
+    if (dryRun || plan.unchanged) {
+      return {
+        ok: true,
+        result: {
+          applied: false,
+          ...ranges,
+          check: await context.previewUpdateCheck(plan.proposed),
+        },
+      };
+    }
+    return {
+      ok: true,
+      result: { applied: true, ...ranges, check: await checkChangedPlugin(id) },
+    };
   }
 
   return { setTrackingRange };
