@@ -251,7 +251,7 @@ body.framed .stage.phone .gh.panel{height:100vh}
 .bchip:hover .cpi{color:var(--t1)}
 .bchip.done .cpi{color:var(--green)}
 .dstat{gap:4px;font-variant-numeric:tabular-nums}
-/* bb's DiffSizeBar: five 6 px blocks (diff-stats-tally.tsx:52-75) */
+/* bb's DiffSizeBar: five 6 px blocks (diff-stats-tally.tsx:32-78) */
 .dsb{display:inline-flex;gap:1px;margin-left:3px}
 .dsb i{width:6px;height:6px;border-radius:1px;background:var(--muted-bg)}
 .dsb i.a{background:var(--add)}.dsb i.r{background:var(--rem)}
@@ -969,7 +969,7 @@ function mdLite(src) {
   }
   close(); return out.join("");
 }
-// bb's PULL_REQUEST_STATE_DISPLAY: icon and tone per state (pull-request-display.ts:16-45)
+// bb's PULL_REQUEST_STATE_DISPLAY: icon and tone per state (pull-request-display.ts:16-44)
 const ST = { draft: ["prdraft", "g-mfg", "Draft"], open: ["pr", "g-green", "Open"], merged: ["merge", "g-purple", "Merged"], closed: ["prclosed", "g-red", "Closed"] };
 const prState = (p) => (p.merged ? "merged" : p.closed ? "closed" : p.d ? "draft" : "open");
 const stateOf = (p) => ST[prState(p)];
@@ -997,7 +997,7 @@ function stMsgs(p, from, to) {
   if (from === "closed") return to === "draft" ? [`Reopening #${n}${p.d ? "" : " as a draft"}`, `Reopened #${n} as a draft`, "Reopening…"] : [`Reopening #${n}${p.d ? " for review" : ""}`, `Reopened #${n}${p.d ? ", ready for review" : ""}`, "Reopening…"];
   return to === "draft" ? [`Converting #${n} to a draft`, `#${n} is a draft now`, "Converting…"] : [`Marking #${n} ready for review`, `#${n} is ready for review`, "Marking ready…"];
 }
-// Waits for GitHub like core's ready/draft actions: loading toast, then the same toast resolves (ThreadDetailView.tsx:1602-1650).
+// Waits for GitHub like core's ready/draft actions: loading toast, then the same toast resolves (ThreadDetailView.tsx:1602-1651).
 function setStatus(n, to, undo = true) {
   const p = byN(n);
   if (!p || p.merged || S.stBusy[n] || S.merging.has(n)) return;
@@ -1153,7 +1153,7 @@ function detailHtml() {
   <div class="dscroll"><div class="dwrap"><div class="dmain">
     <div class="dhead"><h1 class="dtitle">${titleHtml(p.t)} <span class="n">#${p.n}</span></h1>
       <div class="dmeta">${statusPill(p, si, sc, sl)}${SEP}<span>${avatar(p.a)}${esc(p.a)}</span><span class="bsep">${SEP}</span><span class="branch"><button class="mchip bchip${S.copied?.n === p.n ? " done" : ""}" data-act="copybranch" data-n="${p.n}" title="${S.copied?.n === p.n ? "Copied" : `Copy ${esc(p.h)}`}" aria-label="Copy the branch name ${esc(p.h)}"><span class="hd">${esc(midTrunc(p.h, 44))}</span>${ic(S.copied?.n === p.n ? "check" : "copy", "i12 cpi")}</button><span class="bs">→ ${esc(p.b ?? SC.base)}</span></span>${SEP}<button class="mchip dstat" data-act="dtab" data-tab="files" data-scroll="1" title="${plural(p.f, "file")} changed · show them" aria-label="${p.add} lines added and ${p.del} removed in ${plural(p.f, "file")}, show the files">${diffTally(p.add, p.del)}${diffBar(p.add, p.del)}</button>${S.copied?.n === p.n ? '<span class="vh" role="status">Branch name copied</span>' : ""}</div></div>
-    <p class="anno">${p.merged ? "Merged pull requests have no status to change." : "The status is a menu: <code>pull_request_ready</code> and <code>pull_request_draft</code> are core environment actions already; close and reopen are <code>closePullRequest</code> / <code>reopenPullRequest</code>. Shown only when GitHub reports <code>viewerCanUpdate</code>."}</p>
+    <p class="anno">${p.merged ? "Merged pull requests have no status to change." : "The status is a menu. Core already marks a thread's own pull request ready or draft (<code>pull_request_ready</code>, <code>pull_request_draft</code>); for any listed pull request the plugin calls <code>markPullRequestReadyForReview</code>, <code>convertPullRequestToDraft</code>, <code>closePullRequest</code> or <code>reopenPullRequest</code>, each offered only when GitHub reports <code>viewerCanUpdate</code>, <code>viewerCanClose</code> or <code>viewerCanReopen</code>."}</p>
     ${p.merged ? "" : nextCard(p, ds)}
     ${p.merged || p.closed ? "" : agentSec(p)}
     ${p.merged || p.closed ? "" : stackSec(p)}
