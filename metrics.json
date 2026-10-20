@@ -1,0 +1,182 @@
+{
+  "environment": {
+    "browser": "Chrome 151.0.7922.108 headless",
+    "viewport": "1280x800 @2x",
+    "app": "pnpm start:worktree production build",
+    "before": "main bb336d372",
+    "after": "this branch"
+  },
+  "surfaces": {
+    "DropdownMenu (sidebar Threads actions, Organize submenu)": {
+      "before": {
+        "firstFrame": {
+          "opacity": "0",
+          "transform": "matrix3d(0.95, 0, 0, 0, 0, 0.95, 0, 0, 0, 0, 0.95, 0, -8, 0, 0, 1)",
+          "animations": [
+            {
+              "name": "enter",
+              "duration": 150
+            }
+          ]
+        }
+      },
+      "after": {
+        "firstFrame": {
+          "opacity": "1",
+          "transform": "none",
+          "animations": []
+        }
+      }
+    },
+    "ContextMenu (right-click Plugins in the rail)": {
+      "before": {
+        "firstFrame": {
+          "opacity": "0",
+          "transform": "matrix(1, 0, 0, 1, -8, 0)",
+          "animations": [
+            {
+              "name": "enter",
+              "duration": 150
+            }
+          ]
+        }
+      },
+      "after": {
+        "firstFrame": {
+          "opacity": "1",
+          "transform": "none",
+          "animations": []
+        }
+      }
+    },
+    "Popover (composer project picker)": {
+      "before": {
+        "firstFrame": {
+          "opacity": "0",
+          "transform": "matrix3d(0.95, 0, 0, 0, 0, 0.95, 0, 0, 0, 0, 0.95, 0, 0, 0, 0, 1)",
+          "animations": [
+            {
+              "name": "enter",
+              "duration": 150
+            }
+          ]
+        }
+      },
+      "after": {
+        "firstFrame": {
+          "opacity": "1",
+          "transform": "none",
+          "animations": []
+        }
+      }
+    },
+    "Select (Send later > When)": {
+      "before": {
+        "firstFrame": {
+          "opacity": "0",
+          "transform": "matrix3d(0.95, 0, 0, 0, 0, 0.95, 0, 0, 0, 0, 0.95, 0, 0, -8, 0, 1)",
+          "animations": [
+            {
+              "name": "enter",
+              "duration": 150
+            }
+          ]
+        }
+      },
+      "after": {
+        "firstFrame": {
+          "opacity": "1",
+          "transform": "none",
+          "animations": []
+        }
+      }
+    }
+  },
+  "filmstrip": {
+    "before": {
+      "pausedAnimations": [
+        {
+          "name": "enter",
+          "duration": 150
+        }
+      ],
+      "samples": [
+        {
+          "ms": 0,
+          "opacity": "0",
+          "transform": "matrix3d(0.95, 0, 0, 0, 0, 0.95, 0, 0, 0, 0, 0.95, 0, -8, 0, 0, 1)"
+        },
+        {
+          "ms": 25,
+          "opacity": "0.220674",
+          "transform": "matrix3d(0.961034, 0, 0, 0, 0, 0.961034, 0, 0, 0, 0, 0.961034, 0, -6.23461, 0, 0, 1)"
+        },
+        {
+          "ms": 50,
+          "opacity": "0.575862",
+          "transform": "matrix3d(0.978793, 0, 0, 0, 0, 0.978793, 0, 0, 0, 0, 0.978793, 0, -3.3931, 0, 0, 1)"
+        },
+        {
+          "ms": 75,
+          "opacity": "0.802403",
+          "transform": "matrix3d(0.99012, 0, 0, 0, 0, 0.99012, 0, 0, 0, 0, 0.99012, 0, -1.58077, 0, 0, 1)"
+        },
+        {
+          "ms": 100,
+          "opacity": "0.924824",
+          "transform": "matrix3d(0.996241, 0, 0, 0, 0, 0.996241, 0, 0, 0, 0, 0.996241, 0, -0.601408, 0, 0, 1)"
+        },
+        {
+          "ms": 125,
+          "opacity": "0.983474",
+          "transform": "matrix3d(0.999174, 0, 0, 0, 0, 0.999174, 0, 0, 0, 0, 0.999174, 0, -0.132207, 0, 0, 1)"
+        },
+        {
+          "ms": 150,
+          "opacity": "1",
+          "transform": "none"
+        }
+      ]
+    },
+    "after": {
+      "pausedAnimations": [],
+      "samples": [
+        {
+          "ms": 0,
+          "opacity": "1",
+          "transform": "none"
+        },
+        {
+          "ms": 25,
+          "opacity": "1",
+          "transform": "none"
+        },
+        {
+          "ms": 50,
+          "opacity": "1",
+          "transform": "none"
+        },
+        {
+          "ms": 75,
+          "opacity": "1",
+          "transform": "none"
+        },
+        {
+          "ms": 100,
+          "opacity": "1",
+          "transform": "none"
+        },
+        {
+          "ms": 125,
+          "opacity": "1",
+          "transform": "none"
+        },
+        {
+          "ms": 150,
+          "opacity": "1",
+          "transform": "none"
+        }
+      ]
+    }
+  }
+}
