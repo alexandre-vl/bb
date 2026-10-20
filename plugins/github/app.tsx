@@ -2241,5 +2241,6 @@ export default definePluginApp((app) => {
     title: "GitHub PR",
     icon: "Github",
     component: PullPanelTab,
+    experimental_pullRequest: true,
   });
 });

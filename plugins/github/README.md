@@ -16,6 +16,10 @@ bb plugin install github
 - **Issue detail**: markdown body, comments, comment box, status,
   assignee, and label editing, plus "Send agent".
   Deep-linkable via the URL hash: `#/issues/<owner>/<repo>/<number>`.
+- **GitHub PR tab**: a thread side-panel tab with the thread's pull request
+  (checks, description, timeline, diffs, comment box). Clicking the pull
+  request in the thread's prompt banner or Info tab opens it; Cmd- or
+  Ctrl-click opens GitHub instead.
 - **Send agent / Review with agent**: spawns a BB worker thread on the issue
   (or a review thread on the PR) in the repo's BB project. The issue/PR then
   shows a ⚡ pill linking to the thread.

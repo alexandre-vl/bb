@@ -323,8 +323,8 @@ describe("ThreadPromptContextBanner", () => {
       />,
     );
 
-    expect(markup).toContain("PR #128");
-    expect(markup).not.toContain("PR #128 · Open");
+    expect(markup).toContain(">#128<");
+    expect(markup).not.toContain("#128 · Open");
     expect(markup).not.toContain(">Ready to merge</span>");
     expect(markup).not.toContain('alt="Checks success"');
   });
@@ -392,8 +392,8 @@ describe("ThreadPromptContextBanner", () => {
         />,
       );
 
-      expect(markup).toContain("PR #128");
-      expect(markup).not.toContain("PR #128 · Open");
+      expect(markup).toContain(">#128<");
+      expect(markup).not.toContain("#128 · Open");
       if (label) {
         expect(markup).toContain(`>${label}</span>`);
       } else {
@@ -433,7 +433,7 @@ describe("ThreadPromptContextBanner", () => {
       />,
     );
 
-    expect(markup).toContain("PR #128 · Closed");
+    expect(markup).toContain(">#128 · Closed<");
   });
 
   it("summarizes child threads with a header and total count", () => {
@@ -755,7 +755,7 @@ describe("ThreadPromptContextBanner", () => {
       />,
     );
 
-    expect(markup).toContain("PR #128");
+    expect(markup).toContain(">#128<");
     expect(markup).not.toContain(">Checks failing</span>");
     expect(markup).toContain('title="Open, Checks failing"');
     expect(markup).not.toContain("Checks failure");
@@ -776,8 +776,8 @@ describe("ThreadPromptContextBanner", () => {
       />,
     );
 
-    expect(markup).toContain("PR #128");
-    expect(markup).not.toContain("Open PR #128");
+    expect(markup).toContain(">#128<");
+    expect(markup).not.toContain("Open #128");
     expect(markup).not.toContain(">Ready to merge</span>");
     expect(markup).toContain("Uncommitted");
     expect(markup).toContain("1 file");
@@ -804,7 +804,7 @@ describe("ThreadPromptContextBanner", () => {
       />,
     );
 
-    expect(markup).toContain("PR #128");
+    expect(markup).toContain(">#128<");
     expect(markup).toContain("Uncommitted");
     expect(markup).toContain("Rebase and merge");
   });
@@ -824,7 +824,7 @@ describe("ThreadPromptContextBanner", () => {
       />,
     );
 
-    expect(markup).toContain("PR #128");
+    expect(markup).toContain(">#128<");
     expect(markup).toContain("Committed");
     expect(markup).toContain("1 file");
   });

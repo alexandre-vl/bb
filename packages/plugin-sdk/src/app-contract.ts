@@ -1049,6 +1049,16 @@ export interface PluginThreadPanelActionRegistration {
    * contained and logged; they never break the launcher.
    */
   run?(context: PluginThreadPanelActionContext): void | Promise<void>;
+  /**
+   * Declares that this action's tab shows the thread's pull request. A plain
+   * click on BB's pull request link for the thread — in the prompt banner and
+   * in the Info tab — then opens this tab without params instead of the pull
+   * request URL; `run` is not called. Modified and middle clicks still open
+   * the URL. When several actions declare it, the first in slot order wins.
+   *
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_pullRequest?: boolean;
 }
 
 /** Context handed to an `experimental_newThreadPanelAction`'s `run`. */

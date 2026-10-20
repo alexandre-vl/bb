@@ -790,12 +790,22 @@ export function collectPluginAppRegistrations(
         });
       },
       threadPanelAction(registration) {
+        const kind = "slots.threadPanelAction";
+        const action = collectPanelAction(
+          kind,
+          seenIds.threadPanelAction,
+          registration,
+        );
+        const pullRequest = registration.experimental_pullRequest;
+        if (pullRequest !== undefined && typeof pullRequest !== "boolean") {
+          throw new Error(
+            `${kind}: "experimental_pullRequest" must be a boolean when set`,
+          );
+        }
         collected.threadPanelActions.push(
-          collectPanelAction(
-            "slots.threadPanelAction",
-            seenIds.threadPanelAction,
-            registration,
-          ),
+          pullRequest === true
+            ? { ...action, experimental_pullRequest: true }
+            : action,
         );
       },
       experimental_newThreadPanelAction(registration) {

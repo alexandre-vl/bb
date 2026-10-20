@@ -70,9 +70,9 @@ import {
 } from "@/components/promptbox/banner/AnimatedBody";
 import {
   PROMPT_STACK_DISCLOSURE_TRIGGER_CLASS,
+  PROMPT_STACK_HOVER_CHEVRON_CLASS,
   PromptStackCollapseRow,
   PromptStackCountSlot,
-  PromptStackHoverChevron,
   useDisclosureFocusHandoff,
 } from "@bb/shared-ui/prompt-stack-disclosure";
 import {
@@ -88,7 +88,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@bb/shared-ui/dropdown-menu";
-import { useUrlAnchorClickHandler } from "@/lib/url-open-routing";
+import { usePullRequestLinkClickHandler } from "@/components/pull-request/usePullRequestLinkClickHandler";
 import {
   ThreadTitle,
   useThreadTitleDisplayText,
@@ -238,10 +238,14 @@ const SECTION_IDS = {
 } as const;
 
 const SEGMENT_SHRINK_CLASS = "min-w-0 overflow-hidden";
+const MERGE_BASE_TRIGGER_CLASS = cn(
+  PROMPT_STACK_INLAY_SEGMENT_CLASS,
+  "mx-0 h-auto max-w-[12rem] gap-1.5 [&_[data-icon-root]]:size-3.5",
+);
 
 interface SectionToggleButtonProps {
   buttonRef: RefObject<HTMLButtonElement | null>;
-  fillRow: boolean;
+  showChevron: boolean;
   id: string;
   controlsId: string;
   ariaLabel?: string;
@@ -255,7 +259,7 @@ interface SectionToggleButtonProps {
 
 function SectionToggleButton({
   buttonRef,
-  fillRow,
+  showChevron,
   id,
   controlsId,
   ariaLabel,
@@ -280,7 +284,6 @@ function SectionToggleButton({
         PROMPT_STACK_INLAY_SEGMENT_CLASS,
         SEGMENT_SHRINK_CLASS,
         label !== null && label !== undefined ? "gap-1.5" : "gap-0",
-        fillRow && "flex-1 justify-start text-left",
         PROMPT_STACK_DISCLOSURE_TRIGGER_CLASS,
         isExpanded ? "text-foreground" : "text-muted-foreground",
       )}
@@ -301,7 +304,13 @@ function SectionToggleButton({
           {compactLabel}
         </span>
       ) : null}
-      {fillRow ? <PromptStackHoverChevron isExpanded={isExpanded} /> : null}
+      {showChevron && !isExpanded ? (
+        <Icon
+          name="ChevronDown"
+          className={PROMPT_STACK_HOVER_CHEVRON_CLASS}
+          aria-hidden="true"
+        />
+      ) : null}
     </button>
   );
 }
@@ -403,7 +412,7 @@ function ParentThreadSectionToggle({
   return (
     <SectionToggleButton
       buttonRef={buttonRef}
-      fillRow={false}
+      showChevron={false}
       id={SECTION_IDS.parentThread.toggle}
       controlsId={SECTION_IDS.parentThread.body}
       ariaLabel={ariaLabel}
@@ -850,7 +859,9 @@ function PullRequestBannerLink({
 }) {
   const nextStep = getPullRequestNextStep(pullRequest);
   const stateDisplay = PULL_REQUEST_STATE_DISPLAY[pullRequest.state];
-  const handlePullRequestClick = useUrlAnchorClickHandler(pullRequest.url);
+  const handlePullRequestClick = usePullRequestLinkClickHandler(
+    pullRequest.url,
+  );
   const showAttentionLabel =
     showLabel && shouldShowPullRequestAttentionLabel(pullRequest);
   return (
@@ -875,7 +886,7 @@ function PullRequestBannerLink({
           className="min-w-0 truncate"
           data-promptbox-hide-compact={hideLabelInCompact ? "" : undefined}
         >
-          PR #{pullRequest.number}
+          #{pullRequest.number}
           {showStateLabel && pullRequest.state !== "open"
             ? ` · ${stateDisplay.label}`
             : ""}
@@ -1259,7 +1270,7 @@ function ReadOnlyContextBanner({
         ) : (
           <SectionToggleButton
             buttonRef={statusFocus.triggerRef}
-            fillRow
+            showChevron
             id={SECTION_IDS.status.toggle}
             controlsId={SECTION_IDS.status.body}
             icon={statusIcon}
@@ -1419,24 +1430,22 @@ export function ThreadPromptContextBanner({
       : { options: [], remoteOptions: [] };
   const segmentAction =
     hasSingleVisibleSegment && showGit && gitSection.mergeBase ? (
-      <BannerActionSlot hideInCompact>
-        <Icon
-          name="GitMerge"
-          className="size-3.5 shrink-0"
-          aria-hidden="true"
-        />
-        <span className="shrink-0">Merge base</span>
+      <BannerActionSlot hideInCompact className="pr-0">
         <BranchPicker
           value={gitSection.mergeBase.branch}
           options={mergeBaseCandidates.options}
           remoteOptions={mergeBaseCandidates.remoteOptions}
           variant="minimal"
+          triggerIcon="GitMerge"
+          triggerTitle={`Merge base: ${gitSection.mergeBase.branch}`}
+          ariaLabel="Merge base"
+          menuLabel="Merge base"
           emphasizeTriggerValue={false}
           loading={gitSection.mergeBase.optionsLoading}
           onChange={gitSection.mergeBase.onChange}
           onOpenChange={gitSection.mergeBase.onPickerOpenChange}
           onSearchQueryChange={gitSection.mergeBase.onSearchQueryChange}
-          className="max-w-[10rem]"
+          className={MERGE_BASE_TRIGGER_CLASS}
           muted
           popoverAlign="end"
         />
@@ -1509,7 +1518,7 @@ export function ThreadPromptContextBanner({
           {showGit && gitSummary ? (
             <SectionToggleButton
               buttonRef={gitFocus.triggerRef}
-              fillRow
+              showChevron
               id={SECTION_IDS.git.toggle}
               controlsId={SECTION_IDS.git.body}
               icon={

@@ -1971,6 +1971,38 @@ Before stabilization, audit:
    take `PluginPanelActionOpenOptions` and return `boolean`. Audit only
    whether the two contexts should merge.
 
+## `PluginThreadPanelActionRegistration.experimental_pullRequest` (`@get-bb/plugin-sdk/app`)
+
+**Added 2026-10-21 (SDK 0.6.65).** One consumer: the GitHub plugin's GitHub PR tab.
+
+`experimental_pullRequest: true` declares that a `threadPanelAction`'s tab
+shows the thread's pull request. A plain primary click on bb's pull request
+link for the thread opens that tab without params, as the launcher's
+`openPanel()` would, and does not call `run`. Modified and middle clicks keep
+the link's URL behavior, and so does a click when no action declares the flag
+or the side panel declines. The first declaring action in slot order wins.
+
+**Core callers.** The prompt banner's pull request pill and the Info tab's
+Pull request row both use `usePullRequestLinkClickHandler`, which opens the
+tab through the thread view's `PluginThreadPanelNavigationProvider` opener —
+the path `useBbNavigate().openThreadPanel` uses.
+`usePullRequestLinkClickHandler.test.tsx` runs one contract table against
+both surfaces.
+
+Docs: `frontend-core-slots.md`.
+
+**Audit before stabilizing.**
+
+1. **Resource breadth.** Decide whether issues, commits, or other forges'
+   review links need the same routing, and whether a general URL claim should
+   replace a per-resource flag.
+2. **Conflicts.** Confirm first-in-slot-order is acceptable when several
+   plugins declare the flag, or add a user preference like file openers'
+   Open with.
+3. **Identity.** The tab opens without params, so it resolves the pull
+   request itself. Decide whether bb should pass the pull request's URL and
+   number as params so the tab cannot drift from the link the user clicked.
+
 ## `app.experimental_sidebarFooter` (`@get-bb/plugin-sdk/app`)
 
 Registers host-rendered icon items in the sidebar footer: an `action` with
