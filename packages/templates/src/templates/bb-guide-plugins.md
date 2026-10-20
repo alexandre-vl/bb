@@ -65,6 +65,15 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  --yes); --dry-run only previews; --json
                                  prints the result. Installs nothing: run
                                  `bb plugin update <id>` next
+  bb plugin rollback <id>        Return a git:/npm: plugin to the release its
+                                 most recent update replaced, for 7 days
+                                 after that update. Its settings, KV
+                                 entries, data.db, secrets, schedules, and
+                                 enabled state go back to their values from
+                                 before the update; changes made since are
+                                 discarded. The tracked source range stays.
+                                 Same confirmation as update; --json prints
+                                 the result
   bb plugin list                 Status, services, schedules, handler timings,
                                  and contributed CLI commands. `bb status`
                                  also names enabled plugins that are
@@ -105,10 +114,12 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  releases, rolled-back updates, or
                                  interrupted operations) and leftover cache
                                  directories, and print what was freed.
-                                 Updates and removals already delete what
-                                 they replace. Never touches a running
-                                 version or a local path source. Also in the
-                                 command palette
+                                 Removals already delete what they replace;
+                                 an update keeps the version it replaced
+                                 while `bb plugin rollback` can return to
+                                 it. Never touches a running version, a
+                                 version kept for rollback, or a local path
+                                 source. Also in the command palette
 
   bb marketplace add <source>    Add a marketplace from an https manifest URL,
                                  git:<url>[@<ref>], or path:<directory>.
@@ -287,7 +298,11 @@ Updates and pinning
 Updates are manual: `bb plugin outdated` checks tracking sources and
 `bb plugin update` applies compatible candidates. Reinstalling an installed
 managed plugin is refused; use `bb plugin update`. A failed activation restores
-the previous version and leaves the failure visible.
+the previous version and leaves the failure visible. For 7 days after a
+successful update, `bb plugin rollback <id>` returns to the release it replaced
+and restores the plugin's data from before the update; the plugin's page offers
+the same. `bb plugin list --json` shows the target and deadline as
+`updateState.rollback` (`version`, `display`, `until`).
 
 Updates stay inside the range recorded at install and never move to a release
 older than the installed one. `bb plugin outdated`, `bb plugin update`, and
@@ -390,6 +405,8 @@ plugins.
 
 ### Background updates
 
-`bb plugin update <id> --yes` starts a server job and waits by polling, so the activation stability check does not hold one HTTP request open. Add `--no-wait` to return immediately. Use `bb plugin update-jobs [job-id] --json` for progress and results, including automatic rollback. Queued/running updates continue after the CLI or app disconnects. Finished jobs remain for ten minutes; jobs do not survive server restarts. Running updates cannot be cancelled midway through activation.
+`bb plugin update <id> --yes` starts a server job and waits by polling, so the activation stability check does not hold one HTTP request open. Add `--no-wait` to return immediately. Use `bb plugin update-jobs [job-id] --json` for progress and results, including automatic rollback; `bb plugin rollback` jobs appear there too, with `kind: "rollback"`. Queued/running updates continue after the CLI or app disconnects. Finished jobs remain for ten minutes; jobs do not survive server restarts. Running updates cannot be cancelled midway through activation.
 
 SDK: `plugins.applyUpdate({ pluginId, expectedVersion? })` waits; `plugins.experimental_startUpdate({ pluginId, expectedVersion? })` returns the job. `expectedVersion` is the `candidate.version` a check returned: when the release the server would install is no longer that one, it refuses and leaves the installation untouched (the fresh check result is still saved). Without it the newest compatible release in range is applied. Inspect with `plugins.experimental_updateJobs.list()` or `.get({ jobId })`. Raw HTTP callers opt in with `Prefer: respond-async`; legacy callers still receive the completed result.
+
+SDK rollback: `plugins.experimental_rollbackUpdate({ pluginId, expectedVersion? })` waits; `plugins.experimental_startRollbackUpdate({ pluginId, expectedVersion? })` returns the job. `expectedVersion` is the `updateState.rollback.version` the caller showed: the server refuses, changing nothing, when the rollback point is no longer that release. A completed rollback has outcome `reverted`; `rolled-back` means the old release failed to start and bb restored the updated release and its data. Raw HTTP: `POST /api/v1/plugins/:id/rollback` with `{ "expectedVersion"?: string }`.
