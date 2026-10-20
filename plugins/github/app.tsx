@@ -3,6 +3,7 @@ import {
   definePluginApp,
   experimental_Diff as Diff,
   experimental_FileLink as FileLink,
+  experimental_Icon as Icon,
   experimental_copyToClipboard,
   UrlLink,
   useBbNavigate,
@@ -23,6 +24,15 @@ import {
   type Suggestion,
   type SuggestionIcon,
 } from "./app-logic.js";
+import {
+  PULL_GROUPS,
+  pullGlyph,
+  pullGroup,
+  pullNextStep,
+  stackNotes,
+  type PullGroup,
+  type PullTone,
+} from "./pull-status.js";
 import type { githubRpcContract } from "./server.js";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +58,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { EmptyState } from "./components/empty-state.js";
 import { Markdown } from "./components/markdown-lite.js";
 
@@ -69,6 +85,18 @@ type ThreadLink = LinksMap[string][number];
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function compactAge(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const minutes = Math.max(1, Math.floor((Date.now() - then) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 60) return `${days}d`;
+  return `${Math.floor(days / 30)}mo`;
 }
 
 function relativeTime(iso: string): string {
@@ -814,6 +842,313 @@ function ItemsTable({
         <span className={COL.actions} />
       </div>
       {body}
+    </div>
+  );
+}
+
+const PULL_TONE_CLASS: Record<PullTone, string> = {
+  action: "text-destructive",
+  ready: "text-success",
+  merged: "text-pr-merged",
+  you: "text-foreground",
+  waiting: "text-muted-foreground",
+};
+
+const COLLAPSED_PULL_GROUPS: ReadonlySet<PullGroup> = new Set([
+  "draft",
+  "merged",
+  "closed",
+]);
+
+function splitConventionalTitle(title: string): {
+  prefix: string;
+  rest: string;
+} {
+  const match = /^([a-z]+(?:\([^)]*\))?!?:)\s+(.+)$/.exec(title);
+  return match === null || match[1] === undefined || match[2] === undefined
+    ? { prefix: "", rest: title }
+    : { prefix: match[1], rest: match[2] };
+}
+
+function PullAuthor({ login }: { login: string }) {
+  if (login.startsWith("app/")) {
+    return (
+      <span title={login.slice(4)} className="flex size-4 items-center">
+        <Icon name="Bot" className="size-4 text-muted-foreground" />
+      </span>
+    );
+  }
+  return <Avatar login={login} size="size-4" />;
+}
+
+function PullRow({
+  item,
+  group,
+  note,
+  showRepo,
+  viewer,
+  links,
+  onOpen,
+}: {
+  item: Item;
+  group: PullGroup;
+  note: string | undefined;
+  showRepo: boolean;
+  viewer: string | null;
+  links: ThreadLink[] | undefined;
+  onOpen: () => void;
+}) {
+  const navigate = useBbNavigate();
+  const { spawn, spawningKey } = useSpawn();
+  const busy = spawningKey === `${item.repo}#${item.number}`;
+  const { prefix, rest } = splitConventionalTitle(item.title);
+  const glyph =
+    item.pr === null
+      ? { icon: "GitPullRequest", tone: "waiting" as const, label: "Open" }
+      : pullGlyph(item.pr, group);
+  const reason =
+    item.pr === null ? "Status syncing" : pullNextStep(item.pr, group);
+  const parts = [
+    `${showRepo ? item.repo : ""}#${item.number}`,
+    reason,
+    ...(item.pr !== null && item.pr.state === "draft" && group !== "draft"
+      ? ["draft"]
+      : []),
+    ...(note === undefined ? [] : [note]),
+  ];
+  const latestLink =
+    links === undefined || links.length === 0
+      ? null
+      : links.reduce((latest, link) =>
+          link.createdAt > latest.createdAt ? link : latest,
+        );
+  const showAuthor =
+    viewer === null || item.author.toLowerCase() !== viewer.toLowerCase();
+  return (
+    <div className="group/row relative flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-state-hover has-[>button:focus-visible]:bg-state-hover">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`#${item.number} ${item.title}: ${reason}`}
+        className="absolute inset-0 cursor-default rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      />
+      <span className="flex h-4.5 shrink-0 items-center" title={glyph.label}>
+        <Icon
+          name={glyph.icon}
+          aria-label={glyph.label}
+          className={`size-4 ${PULL_TONE_CLASS[glyph.tone]}`}
+        />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-foreground">
+          {prefix.length > 0 ? (
+            <span className="font-normal text-subtle-foreground">
+              {prefix}{" "}
+            </span>
+          ) : null}
+          {rest}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-subtle-foreground">
+          {parts.map((part, index) => (
+            <span key={`${index}:${part}`}>
+              {index > 0 ? (
+                <span className="text-subtle-foreground/60"> · </span>
+              ) : null}
+              {part}
+            </span>
+          ))}
+          {latestLink === null ? null : (
+            <>
+              <span className="text-subtle-foreground/60"> · </span>
+              <button
+                type="button"
+                className="relative hover:text-foreground hover:underline"
+                onClick={() => navigate.toThread(latestLink.threadId)}
+              >
+                {links !== undefined && links.length > 1
+                  ? `${links.length} agent threads`
+                  : "Agent thread"}
+              </button>
+            </>
+          )}
+        </span>
+      </span>
+      <span className="flex h-4.5 shrink-0 items-center gap-2 text-xs text-subtle-foreground group-hover/row:invisible">
+        {showAuthor ? <PullAuthor login={item.author} /> : null}
+        <span className="min-w-6 text-right tabular-nums">
+          {compactAge(item.updatedAt)}
+        </span>
+      </span>
+      <span className="absolute top-0.5 right-1 hidden items-center gap-0.5 group-hover/row:flex">
+        <TooltipProvider delayDuration={250}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-7 text-muted-foreground"
+                disabled={spawningKey !== null}
+                aria-label={`Review #${item.number} with an agent`}
+                onClick={() => spawn("startReview", item.repo, item.number)}
+              >
+                <Icon
+                  name={busy ? "Loading" : "Zap"}
+                  className={`size-4 ${busy ? "animate-spin motion-reduce:animate-none" : ""}`}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Review with an agent</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <RowMenu item={item} />
+      </span>
+    </div>
+  );
+}
+
+function PullGroupHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      className="sticky top-0 z-10 flex h-8 w-full items-center gap-1.5 rounded-md bg-sidebar px-2 text-left text-xs font-medium text-subtle-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      <Icon
+        name="ChevronDown"
+        className={`size-3 transition-transform motion-reduce:transition-none ${collapsed ? "-rotate-90" : ""}`}
+      />
+      <span>{label}</span>
+      <span className="font-normal tabular-nums">{count}</span>
+    </button>
+  );
+}
+
+function PullInboxSkeleton() {
+  return (
+    <DelayedLoading>
+      <div className="flex flex-col gap-0.5">
+        <Skeleton className="h-8 w-full rounded-md" />
+        {[0, 1, 2, 3, 4].map((row) => (
+          <div key={row} className="flex items-start gap-2 px-2 py-1.5">
+            <Skeleton className="size-4 rounded-full" />
+            <span className="flex flex-1 flex-col gap-1.5">
+              <Skeleton className="h-3 w-3/5" />
+              <Skeleton className="h-2.5 w-2/5" />
+            </span>
+          </div>
+        ))}
+      </div>
+    </DelayedLoading>
+  );
+}
+
+function PullInbox({
+  items,
+  error,
+  hasFilter,
+  showRepo,
+  onOpenItem,
+}: {
+  items: Item[] | null;
+  error: string | null;
+  hasFilter: boolean;
+  showRepo: boolean;
+  onOpenItem: (repo: string, number: number) => void;
+}) {
+  const links = useLinks();
+  const viewer = useViewer();
+  const [toggled, setToggled] = useState<ReadonlySet<PullGroup>>(new Set());
+  const groups = useMemo(() => {
+    if (items === null) return [];
+    const notes = stackNotes(
+      items.flatMap((item) =>
+        item.pr === null
+          ? []
+          : [{ repo: item.repo, number: item.number, pr: item.pr }],
+      ),
+    );
+    const byGroup = new Map<
+      PullGroup,
+      Array<{ item: Item; note: string | undefined }>
+    >();
+    for (const item of items) {
+      const group =
+        item.pr === null ? "open" : pullGroup(item.pr, item.author, viewer);
+      const rows = byGroup.get(group) ?? [];
+      rows.push({ item, note: notes.get(`${item.repo}#${item.number}`) });
+      byGroup.set(group, rows);
+    }
+    return PULL_GROUPS.flatMap((group) => {
+      const rows = byGroup.get(group.id);
+      return rows === undefined ? [] : [{ ...group, rows }];
+    });
+  }, [items, viewer]);
+
+  if (error !== null) return <EmptyState message={error} />;
+  if (items === null) return <PullInboxSkeleton />;
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        message={
+          hasFilter
+            ? "No pull requests match this filter."
+            : "No pull requests in the tracked repos."
+        }
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      {groups.map((group) => {
+        const collapsed =
+          COLLAPSED_PULL_GROUPS.has(group.id) !== toggled.has(group.id);
+        return (
+          <section
+            key={group.id}
+            aria-label={group.label}
+            className="flex flex-col gap-0.5"
+          >
+            <PullGroupHeader
+              label={group.label}
+              count={group.rows.length}
+              collapsed={collapsed}
+              onToggle={() =>
+                setToggled((current) => {
+                  const next = new Set(current);
+                  if (next.has(group.id)) next.delete(group.id);
+                  else next.add(group.id);
+                  return next;
+                })
+              }
+            />
+            {collapsed
+              ? null
+              : group.rows.map(({ item, note }) => (
+                  <PullRow
+                    key={`${item.repo}#${item.number}`}
+                    item={item}
+                    group={group.id}
+                    note={note}
+                    showRepo={showRepo}
+                    viewer={viewer}
+                    links={links[`pr:${item.repo}#${item.number}`]}
+                    onOpen={() => onOpenItem(item.repo, item.number)}
+                  />
+                ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -2102,13 +2437,23 @@ function ListView({
         repos={repos}
         kind={kind}
       />
-      <ItemsTable
-        kind={kind}
-        items={filtered}
-        error={error}
-        hasFilter={query.trim().length > 0}
-        onOpenItem={onOpenItem}
-      />
+      {kind === "pr" ? (
+        <PullInbox
+          items={filtered}
+          error={error}
+          hasFilter={query.trim().length > 0}
+          showRepo={repos.length > 1}
+          onOpenItem={onOpenItem}
+        />
+      ) : (
+        <ItemsTable
+          kind={kind}
+          items={filtered}
+          error={error}
+          hasFilter={query.trim().length > 0}
+          onOpenItem={onOpenItem}
+        />
+      )}
     </>
   );
 }

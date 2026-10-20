@@ -21,6 +21,7 @@ const issue: Item = {
   url: "https://github.com/acme/widgets/issues/7",
   body: "",
   updatedAt: "2026-08-19T12:00:00Z",
+  pr: null,
 };
 
 describe("github panel routes", () => {

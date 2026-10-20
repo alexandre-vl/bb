@@ -3,8 +3,115 @@
 import { describe, expect, it } from "vitest";
 import { act } from "react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import { assemblePullStatus, type RawPullStatus } from "./pull-status";
 
 const app = await loadPluginApp(() => import("./app"));
+
+function pull(
+  number: number,
+  title: string,
+  author: string,
+  overrides: Partial<RawPullStatus> = {},
+) {
+  return {
+    repo: "get-bb/bb",
+    number,
+    kind: "pr",
+    title,
+    state: "OPEN",
+    author,
+    labels: [],
+    assignees: [],
+    url: `https://github.com/get-bb/bb/pull/${number}`,
+    body: "",
+    updatedAt: "2026-08-20T00:00:00.000Z",
+    pr: assemblePullStatus({
+      state: "OPEN",
+      isDraft: false,
+      baseRefName: "main",
+      headRefName: `branch-${number}`,
+      mergeable: "MERGEABLE",
+      reviewDecision: null,
+      isInMergeQueue: false,
+      requestedReviewers: [],
+      checkRunCounts: [{ state: "SUCCESS", count: 5 }],
+      statusContextCounts: [],
+      ...overrides,
+    }),
+  };
+}
+
+describe("GitHub pull request inbox", () => {
+  it("groups pull requests by what they need next and says why on the second line", async () => {
+    const slot = renderSlot(
+      app.navPanels[0]!,
+      { subPath: "pulls" },
+      {
+        rpc: {
+          listItems: () => ({
+            items: [
+              pull(1, "feat(list): Ship the inbox", "octocat"),
+              pull(2, "Fix the flaky shard", "hubot", {
+                isDraft: true,
+                checkRunCounts: [
+                  { state: "FAILURE", count: 2 },
+                  { state: "SUCCESS", count: 3 },
+                ],
+              }),
+              pull(3, "Review me", "hubot", {
+                requestedReviewers: ["octocat"],
+              }),
+              pull(4, "Still a draft", "hubot", { isDraft: true }),
+              pull(5, "Build on the inbox", "hubot", {
+                baseRefName: "branch-1",
+              }),
+            ],
+          }),
+          listLinks: () => ({ links: {} }),
+          status: () => ({
+            ghOk: true,
+            ghState: "ready",
+            ghError: null,
+            repos: [{ repo: "get-bb/bb", projectId: null }],
+            lastSyncedAt: null,
+          }),
+          viewer: () => ({ login: "octocat" }),
+        },
+      },
+    );
+
+    await slot.findByText("Ship the inbox");
+    await act(async () => {});
+    const groups = slot
+      .getAllByRole("region")
+      .map((region) => region.querySelector("button")?.textContent);
+    expect(groups).toEqual([
+      "Your move1",
+      "Ready to merge2",
+      "Needs fixing1",
+      "Drafts1",
+    ]);
+    expect(slot.getByText("feat(list):")).toBeTruthy();
+    expect(slot.getByText("Your review is requested")).toBeTruthy();
+    expect(slot.getByText("2 checks failing")).toBeTruthy();
+    expect(slot.getByText("has #5 on top")).toBeTruthy();
+    expect(slot.getByText("stacked on #1")).toBeTruthy();
+    expect(slot.queryByText("Still a draft")).toBeNull();
+
+    await act(async () => slot.getByRole("button", { name: /Drafts/ }).click());
+    expect(slot.getByText("Still a draft")).toBeTruthy();
+
+    await act(async () =>
+      slot.getByRole("button", { name: /^#3 Review me/ }).click(),
+    );
+    expect(slot.navigateCalls).toContainEqual({
+      method: "toPluginPanel",
+      path: "github",
+      options: { subPath: "pulls/get-bb/bb/3" },
+    });
+    slot.lifecycle.unmount();
+  });
+});
 
 describe("GitHub app navigation", () => {
   it("opens issue details in the URL-backed page instead of a fixed tab", async () => {

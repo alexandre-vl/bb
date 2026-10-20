@@ -48,6 +48,30 @@ beforeEach(() => {
       url: "https://github.com/acme/widgets/pull/42",
       body: "Normalize every GitHub shape.",
       updatedAt: "2026-08-19T13:00:00Z",
+      isDraft: true,
+      headRefName: "normalize",
+      baseRefName: "main",
+      mergeable: "MERGEABLE",
+      reviewDecision: null,
+      isInMergeQueue: false,
+      reviewRequests: { nodes: [] },
+      commits: {
+        nodes: [
+          {
+            commit: {
+              statusCheckRollup: {
+                contexts: {
+                  checkRunCountsByState: [
+                    { state: "FAILURE", count: 1 },
+                    { state: "SUCCESS", count: 4 },
+                  ],
+                  statusContextCountsByState: [],
+                },
+              },
+            },
+          },
+        ],
+      },
     },
   ];
   const lists = JSON.stringify({
@@ -332,6 +356,25 @@ describe("github plugin RPC behavior", () => {
       ],
     });
     expect(payload.items[0]).not.toHaveProperty("body");
+
+    const prs = await harness.runCli(["prs", "acme/widgets", "--json"]);
+    expect(JSON.parse(prs.stdout)).toMatchObject({
+      ok: true,
+      items: [
+        {
+          number: 42,
+          kind: "pr",
+          nextStep: "1 check failing",
+          pr: { state: "draft", attention: "checks_failed" },
+        },
+      ],
+    });
+    await expect(harness.runCli(["prs", "acme/widgets"])).resolves.toEqual({
+      exitCode: 0,
+      stdout:
+        "acme/widgets#42\t[OPEN]\tNormalize pull details\t1 check failing",
+      stderr: "",
+    });
   });
 
   it("syncs, filters, mutates, and exposes the same cached issue across surfaces", async () => {

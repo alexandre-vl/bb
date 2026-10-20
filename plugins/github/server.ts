@@ -12,6 +12,12 @@ import {
   type PluginCliResult,
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import {
+  assemblePullStatus,
+  pullGroup,
+  pullNextStep,
+  type PullStatus,
+} from "./pull-status.js";
 
 const SYNC_INTERVAL_MS = 15 * 60_000;
 const SYNC_RETRY_MAX_MS = 5 * 60_000;
@@ -36,6 +42,53 @@ const nonBlankStringSchema = z
 const repoInfoSchema = z
   .object({ repo: repoNameSchema, projectId: z.string().nullable() })
   .strict();
+const pullStatusSchema = z
+  .object({
+    state: z.enum(["open", "draft", "merged", "closed"]),
+    baseRefName: z.string(),
+    headRefName: z.string(),
+    checks: z
+      .object({
+        state: z.enum([
+          "passing",
+          "failing",
+          "pending",
+          "no_checks",
+          "unknown",
+        ]),
+        passed: z.number().int().nonnegative(),
+        failed: z.number().int().nonnegative(),
+        pending: z.number().int().nonnegative(),
+      })
+      .strict(),
+    review: z
+      .object({
+        state: z.enum([
+          "approved",
+          "changes_requested",
+          "review_requested",
+          "review_required",
+          "none",
+        ]),
+        requested: z.array(z.string()),
+      })
+      .strict(),
+    mergeability: z.enum(["conflicts", "draft", "mergeable", "unknown"]),
+    attention: z.enum([
+      "merged",
+      "closed",
+      "conflicts",
+      "checks_failed",
+      "changes_requested",
+      "draft",
+      "queued",
+      "review_requested",
+      "checks_pending",
+      "ready_to_merge",
+      "none",
+    ]),
+  })
+  .strict() satisfies z.ZodType<PullStatus>;
 const itemSchema = z
   .object({
     repo: repoNameSchema,
@@ -49,6 +102,7 @@ const itemSchema = z
     url: z.string(),
     body: z.string(),
     updatedAt: z.string(),
+    pr: pullStatusSchema.nullable(),
   })
   .strict();
 const syncResultSchema = z
@@ -427,6 +481,51 @@ const listNodeSchema = z.object({
   body: z.string(),
   updatedAt: z.string(),
 });
+const stateCountsSchema = z
+  .array(z.object({ state: z.string(), count: z.number().int().nonnegative() }))
+  .nullable();
+const closedPullNodeSchema = listNodeSchema.extend({
+  state: z.enum(["CLOSED", "MERGED"]),
+  isDraft: z.boolean(),
+  headRefName: z.string(),
+  baseRefName: z.string(),
+});
+const openPullNodeSchema = listNodeSchema.extend({
+  state: z.literal("OPEN"),
+  isDraft: z.boolean(),
+  headRefName: z.string(),
+  baseRefName: z.string(),
+  mergeable: z.string(),
+  reviewDecision: z.string().nullable(),
+  isInMergeQueue: z.boolean(),
+  reviewRequests: z.object({
+    nodes: z.array(
+      z.object({
+        requestedReviewer: z
+          .object({ login: z.string().optional(), slug: z.string().optional() })
+          .nullable(),
+      }),
+    ),
+  }),
+  commits: z.object({
+    nodes: z
+      .array(
+        z.object({
+          commit: z.object({
+            statusCheckRollup: z
+              .object({
+                contexts: z.object({
+                  checkRunCountsByState: stateCountsSchema,
+                  statusContextCountsByState: stateCountsSchema,
+                }),
+              })
+              .nullable(),
+          }),
+        }),
+      )
+      .max(1),
+  }),
+});
 const repositoryListsSchema = z.object({
   data: z.object({
     repository: z.object({
@@ -442,14 +541,10 @@ const repositoryListsSchema = z.object({
           .max(CLOSED_ISSUE_PAGE),
       }),
       openPrs: z.object({
-        nodes: z
-          .array(listNodeSchema.extend({ state: z.literal("OPEN") }))
-          .max(PR_PAGE),
+        nodes: z.array(openPullNodeSchema).max(PR_PAGE),
       }),
       closedPrs: z.object({
-        nodes: z
-          .array(listNodeSchema.extend({ state: z.enum(["CLOSED", "MERGED"]) }))
-          .max(CLOSED_PR_PAGE),
+        nodes: z.array(closedPullNodeSchema).max(CLOSED_PR_PAGE),
       }),
     }),
   }),
@@ -461,6 +556,19 @@ const listFields = `
   assignees(first: 100) { nodes { login } }
   url body updatedAt
 `;
+const closedPullFields = `isDraft headRefName baseRefName`;
+const openPullFields = `
+  isDraft headRefName baseRefName mergeable reviewDecision isInMergeQueue
+  reviewRequests(first: 20) {
+    nodes { requestedReviewer { ... on User { login } ... on Team { slug } } }
+  }
+  commits(last: 1) {
+    nodes { commit { statusCheckRollup { contexts(first: 1) {
+      checkRunCountsByState { state count }
+      statusContextCountsByState { state count }
+    } } } }
+  }
+`;
 const repositoryListsQuery = `query RepositoryLists($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     hasIssuesEnabled
@@ -471,10 +579,10 @@ const repositoryListsQuery = `query RepositoryLists($owner: String!, $name: Stri
       nodes { ${listFields} }
     }
     openPrs: pullRequests(first: ${PR_PAGE}, states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { ${listFields} }
+      nodes { ${listFields} ${openPullFields} }
     }
     closedPrs: pullRequests(first: ${CLOSED_PR_PAGE}, states: [CLOSED, MERGED], orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes { ${listFields} }
+      nodes { ${listFields} ${closedPullFields} }
     }
   }
 }`;
@@ -499,34 +607,84 @@ async function fetchRepoItems(
   const {
     data: { repository },
   } = repositoryListsSchema.parse(JSON.parse(raw));
-  const toItems = (
-    nodes: z.infer<typeof listNodeSchema>[],
+  const toItem = (
+    entry: z.infer<typeof listNodeSchema>,
     kind: "issue" | "pr",
-  ): CachedItem[] =>
-    nodes.map((entry) => ({
-      repo,
-      number: entry.number,
-      kind,
-      title: entry.title,
-      state: entry.state,
-      author: entry.author?.id
-        ? entry.author.login
-        : `app/${entry.author?.login ?? ""}`,
-      labels: entry.labels.nodes.map((label) => label.name),
-      assignees: entry.assignees.nodes.map((user) => user.login),
-      url: entry.url,
-      body: entry.body,
-      updatedAt: entry.updatedAt,
-    }));
+    pr: PullStatus | null,
+  ): CachedItem => ({
+    repo,
+    number: entry.number,
+    kind,
+    title: entry.title,
+    state: entry.state,
+    author: entry.author?.id
+      ? entry.author.login
+      : `app/${entry.author?.login ?? ""}`,
+    labels: entry.labels.nodes.map((label) => label.name),
+    assignees: entry.assignees.nodes.map((user) => user.login),
+    url: entry.url,
+    body: entry.body,
+    updatedAt: entry.updatedAt,
+    pr,
+  });
+  const toOpenPullItem = (
+    entry: z.infer<typeof openPullNodeSchema>,
+  ): CachedItem => {
+    const contexts =
+      entry.commits.nodes[0]?.commit.statusCheckRollup?.contexts ?? null;
+    return toItem(
+      entry,
+      "pr",
+      assemblePullStatus({
+        state: entry.state,
+        isDraft: entry.isDraft,
+        baseRefName: entry.baseRefName,
+        headRefName: entry.headRefName,
+        mergeable: entry.mergeable,
+        reviewDecision: entry.reviewDecision,
+        isInMergeQueue: entry.isInMergeQueue,
+        requestedReviewers: entry.reviewRequests.nodes.flatMap((request) => {
+          const name =
+            request.requestedReviewer?.login ?? request.requestedReviewer?.slug;
+          return name === undefined ? [] : [name];
+        }),
+        checkRunCounts: contexts?.checkRunCountsByState ?? [],
+        statusContextCounts: contexts?.statusContextCountsByState ?? [],
+      }),
+    );
+  };
+  const toClosedPullItem = (
+    entry: z.infer<typeof closedPullNodeSchema>,
+  ): CachedItem =>
+    toItem(
+      entry,
+      "pr",
+      assemblePullStatus({
+        state: entry.state,
+        isDraft: entry.isDraft,
+        baseRefName: entry.baseRefName,
+        headRefName: entry.headRefName,
+        mergeable: "UNKNOWN",
+        reviewDecision: null,
+        isInMergeQueue: false,
+        requestedReviewers: [],
+        checkRunCounts: [],
+        statusContextCounts: [],
+      }),
+    );
   return [
     ...(repository.hasIssuesEnabled
       ? [
-          ...toItems(repository.openIssues.nodes, "issue"),
-          ...toItems(repository.closedIssues.nodes, "issue"),
+          ...repository.openIssues.nodes.map((entry) =>
+            toItem(entry, "issue", null),
+          ),
+          ...repository.closedIssues.nodes.map((entry) =>
+            toItem(entry, "issue", null),
+          ),
         ]
       : []),
-    ...toItems(repository.openPrs.nodes, "pr"),
-    ...toItems(repository.closedPrs.nodes, "pr"),
+    ...repository.openPrs.nodes.map(toOpenPullItem),
+    ...repository.closedPrs.nodes.map(toClosedPullItem),
   ];
 }
 
@@ -699,6 +857,7 @@ export default async function plugin(bb: BbPluginApi) {
        PRIMARY KEY (repo, kind, number)
      )`,
     `ALTER TABLE items ADD COLUMN assignees TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE items ADD COLUMN pr TEXT`,
   ]);
 
   function parseStringArray(raw: unknown): string[] {
@@ -707,6 +866,16 @@ export default async function plugin(bb: BbPluginApi) {
       if (Array.isArray(parsed)) return parsed.map(String);
     } catch {}
     return [];
+  }
+
+  function parsePullStatus(raw: unknown): PullStatus | null {
+    if (typeof raw !== "string") return null;
+    try {
+      const parsed = pullStatusSchema.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
   }
 
   function rowToItem(row: Record<string, unknown>): CachedItem {
@@ -722,6 +891,7 @@ export default async function plugin(bb: BbPluginApi) {
       url: String(row.url),
       body: String(row.body),
       updatedAt: String(row.updated_at),
+      pr: row.kind === "pr" ? parsePullStatus(row.pr) : null,
     };
   }
 
@@ -779,8 +949,8 @@ export default async function plugin(bb: BbPluginApi) {
 
   function replaceRepoRows(repo: string, items: CachedItem[]): void {
     const insert = db.prepare(
-      `INSERT INTO items (repo, number, kind, title, state, author, labels, assignees, url, body, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (repo, number, kind, title, state, author, labels, assignees, url, body, updated_at, pr)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     db.transaction(() => {
       db.prepare("DELETE FROM items WHERE repo = ?").run(repo);
@@ -797,6 +967,7 @@ export default async function plugin(bb: BbPluginApi) {
           item.url,
           item.body,
           item.updatedAt,
+          item.pr === null ? null : JSON.stringify(item.pr),
         );
       }
     })();
@@ -833,7 +1004,7 @@ export default async function plugin(bb: BbPluginApi) {
     const before = JSON.stringify(
       db
         .prepare(
-          "SELECT repo, kind, number, updated_at FROM items ORDER BY repo, kind, number",
+          "SELECT repo, kind, number, updated_at, pr FROM items ORDER BY repo, kind, number",
         )
         .all(),
     );
@@ -862,7 +1033,7 @@ export default async function plugin(bb: BbPluginApi) {
     const after = JSON.stringify(
       db
         .prepare(
-          "SELECT repo, kind, number, updated_at FROM items ORDER BY repo, kind, number",
+          "SELECT repo, kind, number, updated_at, pr FROM items ORDER BY repo, kind, number",
         )
         .all(),
     );
@@ -1656,14 +1827,21 @@ export default async function plugin(bb: BbPluginApi) {
       assignees: item.assignees,
       url: item.url,
       updatedAt: item.updatedAt,
+      pr: item.pr,
+      nextStep: nextStepOf(item),
     };
+  }
+
+  function nextStepOf(item: CachedItem): string | null {
+    if (item.pr === null) return null;
+    return pullNextStep(item.pr, pullGroup(item.pr, item.author, null));
   }
 
   function listCachedItemsCommand(kind: "issue" | "pr") {
     return cliCommand({
       summary:
         kind === "pr"
-          ? "List cached open pull requests"
+          ? "List cached open pull requests and what each needs next"
           : "List cached open issues",
       description:
         "Reads the local cache only; run `bb github sync` to refresh it from GitHub.",
@@ -1708,7 +1886,9 @@ export default async function plugin(bb: BbPluginApi) {
             stdout: items
               .map(
                 (item) =>
-                  `${item.repo}#${item.number}\t[${item.state}]\t${item.title}`,
+                  `${item.repo}#${item.number}\t[${item.state}]\t${item.title}${
+                    item.pr === null ? "" : `\t${nextStepOf(item)}`
+                  }`,
               )
               .join("\n"),
           };
