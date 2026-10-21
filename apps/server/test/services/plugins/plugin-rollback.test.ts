@@ -528,6 +528,62 @@ describe("plugin update rollback", () => {
     });
   }, 60_000);
 
+  it("brings back the updated release when bb stops while the previous one is starting", async () => {
+    await writeState("v1", "ok");
+    const { previousCommit, nextCommit } = await updateToNextRelease();
+    await writeState("v2", "error");
+    await service.stop();
+    let elapse: (() => void) | undefined;
+    const stopped = createService({
+      stabilizationWindowMs: 60_000,
+      scheduleStabilizationWindow: (_durationMs, onElapsed) => {
+        elapse = onElapsed;
+        return () => {};
+      },
+    });
+    await stopped.start();
+    const abandoned = stopped
+      .rollbackUpdate(PLUGIN_ID, { expectedVersion: previousCommit })
+      .catch(() => undefined);
+    await vi.waitFor(() => expect(elapse).toBeDefined(), { timeout: 20_000 });
+    expect(
+      listPluginStateSnapshots(db, PLUGIN_ID).map(({ operation, status }) => ({
+        operation,
+        status,
+      })),
+    ).toEqual([
+      { operation: "update", status: "ready" },
+      { operation: "rollback", status: "rollback-pending" },
+    ]);
+    expect(registration()).toMatchObject({
+      version: "1.0.0",
+      gitResolvedCommit: previousCommit,
+    });
+
+    service = createService();
+    await service.start();
+
+    expect(registration()).toMatchObject({
+      version: "1.1.0",
+      gitResolvedCommit: nextCommit,
+      lastFailureVersion: null,
+    });
+    expect(installed()).toMatchObject({ version: "1.1.0", status: "running" });
+    expect(await readState()).toEqual({
+      ...expectedState("v2", "error"),
+      schedules: expect.arrayContaining([
+        { name: "hourly", lastStatus: null, lastError: null },
+      ]),
+    });
+    expect(installed().updateState.rollback).toMatchObject({
+      version: previousCommit,
+    });
+
+    elapse?.();
+    await abandoned;
+    await stopped.stop();
+  }, 90_000);
+
   it("refuses to roll back to a release other than the one the user reviewed", async () => {
     const { nextCommit } = await updateToNextRelease();
     const before = registration();
