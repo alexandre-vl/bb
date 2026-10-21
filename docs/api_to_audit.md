@@ -3199,8 +3199,10 @@ incompatible with this bb, and when `expectedVersion` differs from
 `updateState.rollback.version`. A server without the route answers 404, which
 the SDK reports as "predates plugin rollback". `updateState.rollback`
 (`version`, `display`, `until`) on each installed plugin names the target and
-deadline. Core callers: `bb plugin rollback` (`apps/cli/src/commands/plugin.ts`)
-and the plugin details Roll back control
+deadline. Each rollback undoes the latest update still inside the window, so a
+second rollback steps back one more release while that update's snapshot is
+retained. Core callers: `bb plugin rollback`
+(`apps/cli/src/commands/plugin.ts`) and the plugin details Roll back control
 (`apps/app/src/components/plugin/management/RollbackPluginDialog.tsx`, through
 `startPluginRollback`).
 

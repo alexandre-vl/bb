@@ -596,6 +596,195 @@ describe("plugin update rollback", () => {
     expect(registration()).toMatchObject({ version: "1.1.0" });
   }, 60_000);
 
+  it("steps back one update per rollback while the earlier release is kept", async () => {
+    const first = registration();
+    await writeState("v1", "ok");
+    const { previousCommit: firstCommit, nextCommit: secondCommit } =
+      await updateToNextRelease();
+    const second = registration();
+    await writeState("v2", "error");
+    const thirdCommit = await updateTo("1.2.0", ["nightly"]);
+    await writeState("v3", "ok");
+    expect(installed().updateState.rollback).toMatchObject({
+      version: secondCommit,
+    });
+
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: secondCommit }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        outcome: "reverted",
+        from: { version: thirdCommit },
+        to: { version: secondCommit },
+      },
+    });
+    expect(registration()).toMatchObject({
+      version: "1.1.0",
+      gitResolvedCommit: secondCommit,
+      sourceGitResolvedTag: "v1.1.0",
+      activeArtifactId: second.activeArtifactId,
+      rootDir: second.rootDir,
+    });
+    expect(await readState()).toEqual({
+      ...expectedState("v2", "error"),
+      schedules: expect.arrayContaining([
+        { name: "hourly", lastStatus: null, lastError: null },
+      ]),
+    });
+    const firstUpdate = listPluginStateSnapshots(db, PLUGIN_ID).find(
+      (snapshot) =>
+        snapshot.fromArtifactId === first.activeArtifactId &&
+        snapshot.toArtifactId === second.activeArtifactId,
+    );
+    expect(installed().updateState.rollback).toEqual({
+      version: firstCommit,
+      display: `${repo}@v1.0.0 (${firstCommit.slice(0, 12)})`,
+      until: firstUpdate?.retainedUntil,
+    });
+
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: firstCommit }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        outcome: "reverted",
+        from: { version: secondCommit },
+        to: { version: firstCommit },
+      },
+    });
+    expect(registration()).toMatchObject({
+      version: "1.0.0",
+      gitResolvedCommit: firstCommit,
+      sourceGitResolvedTag: "v1.0.0",
+      activeArtifactId: first.activeArtifactId,
+      rootDir: first.rootDir,
+    });
+    expect(installed()).toMatchObject({ version: "1.0.0", status: "running" });
+    expect(await readState()).toEqual({
+      ...expectedState("v1", "ok"),
+      schedules: [{ name: "nightly", lastStatus: "ok", lastError: null }],
+    });
+    expect(installed().updateState).not.toHaveProperty("rollback");
+    expect(listPluginArtifacts(db, PLUGIN_ID).map(({ id }) => id)).toEqual([
+      first.activeArtifactId,
+    ]);
+  }, 90_000);
+
+  it("rolls back a plugin installed from a monorepo subdirectory with a tag prefix", async () => {
+    const mono = join(workDir, "mono");
+    await mkdir(mono, { recursive: true });
+    await git(mono, ["init", "-q", "-b", "main"]);
+    await git(mono, ["config", "user.email", "test@example.com"]);
+    await git(mono, ["config", "user.name", "Test"]);
+    async function writeMonoPlugin(name: string, version: string) {
+      const dir = join(mono, "plugins", name);
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, "package.json"),
+        JSON.stringify({
+          name: `bb-plugin-mono-${name}`,
+          version,
+          bb: {
+            name: `Mono ${name}`,
+            description: "Monorepo rollback fixture.",
+            branding: { icon: "Zap" },
+            server: "./server.ts",
+          },
+        }),
+      );
+      await writeFile(
+        join(dir, "server.ts"),
+        `export default function plugin(bb: any) { bb.log.info(${JSON.stringify(`${name} ${version}`)}); }`,
+      );
+    }
+    async function tagRelease(tags: string[]) {
+      await git(mono, ["add", "-A"]);
+      await git(mono, ["commit", "-qm", tags.join(" ")]);
+      for (const tag of tags) await git(mono, ["tag", tag]);
+      return git(mono, ["rev-parse", "HEAD"]);
+    }
+    function monoPlugin(id: string) {
+      const row = getInstalledPluginRegistration(db, id);
+      if (row === undefined) throw new Error(`missing ${id}`);
+      return row;
+    }
+    function listed(id: string) {
+      return service.list().find((entry) => entry.id === id);
+    }
+
+    await writeMonoPlugin("notes", "1.0.0");
+    await writeMonoPlugin("other", "1.0.0");
+    const firstCommit = await tagRelease([
+      "notes/v1.0.0",
+      "other/v1.0.0",
+      "v9.0.0",
+    ]);
+    await service.install(`git:${mono}@semver:notes/:^1.0.0`, {
+      kind: "subdirectory",
+      path: "plugins/notes",
+    });
+    await service.install(`git:${mono}@semver:other/:^1.0.0`, {
+      kind: "subdirectory",
+      path: "plugins/other",
+    });
+    const notes = monoPlugin("mono-notes");
+    const other = monoPlugin("mono-other");
+    expect(notes).toMatchObject({
+      sourceGitSubdirectory: "plugins/notes",
+      sourceGitTagPrefix: "notes/",
+      sourceGitResolvedTag: "notes/v1.0.0",
+      gitResolvedCommit: firstCommit,
+    });
+
+    await writeMonoPlugin("notes", "1.1.0");
+    const secondCommit = await tagRelease(["notes/v1.1.0"]);
+    await applyCandidate("mono-notes", secondCommit);
+    const updated = monoPlugin("mono-notes");
+    expect(updated).toMatchObject({
+      version: "1.1.0",
+      sourceGitResolvedTag: "notes/v1.1.0",
+      gitResolvedCommit: secondCommit,
+    });
+    expect(listed("mono-notes")?.updateState.rollback).toMatchObject({
+      version: firstCommit,
+      display: expect.stringContaining(
+        `@notes/v1.0.0 (${firstCommit.slice(0, 12)})`,
+      ),
+    });
+
+    await expect(
+      service.rollbackUpdate("mono-notes", { expectedVersion: firstCommit }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        outcome: "reverted",
+        from: { version: secondCommit },
+        to: { version: firstCommit },
+      },
+    });
+    expect(monoPlugin("mono-notes")).toMatchObject({
+      sourceGitSubdirectory: "plugins/notes",
+      sourceGitTagPrefix: "notes/",
+      sourceGitRange: "^1.0.0",
+      sourceGitResolvedTag: "notes/v1.0.0",
+      gitResolvedCommit: firstCommit,
+      version: "1.0.0",
+      activeArtifactId: notes.activeArtifactId,
+      rootDir: notes.rootDir,
+    });
+    expect(listed("mono-notes")).toMatchObject({
+      version: "1.0.0",
+      status: "running",
+    });
+    expect(monoPlugin("mono-other")).toEqual(other);
+    expect(listed("mono-other")).toMatchObject({ status: "running" });
+    await stat(other.rootDir);
+    await expect(stat(updated.rootDir)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  }, 90_000);
+
   it("keeps only rollback points in its snapshot registration cache", async () => {
     let clock = Date.now();
     await service.stop();
