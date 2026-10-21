@@ -1343,6 +1343,34 @@ describe("ThreadDetailPromptArea", () => {
     expect(card().getAttribute("data-expanded")).toBe("false");
   });
 
+  it("folds the background commands when the pane moves to another thread", () => {
+    const activeBackgroundCommands = [
+      backgroundCommandRow({
+        id: "row-bg-newer",
+        status: "pending",
+        taskStatus: "running",
+      }),
+      backgroundCommandRow({
+        id: "row-bg-older",
+        status: "pending",
+        taskStatus: "running",
+      }),
+    ];
+    const card = () => screen.getByTestId("background-commands-card");
+    const { rerender } = renderPromptArea({ activeBackgroundCommands });
+    fireEvent.click(card());
+
+    rerender(
+      buildPromptAreaElement({
+        activeBackgroundCommands,
+        thread: makeThread({ id: "thr_2" }),
+      }),
+    );
+    rerender(buildPromptAreaElement({ activeBackgroundCommands }));
+
+    expect(card().getAttribute("data-expanded")).toBe("false");
+  });
+
   it("keeps the same child threads banner while the parent asks and answers its own question", () => {
     const childThreadsSection = {
       items: [

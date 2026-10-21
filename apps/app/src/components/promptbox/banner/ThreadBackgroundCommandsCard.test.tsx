@@ -92,6 +92,24 @@ describe("ThreadBackgroundCommandsCard", () => {
 
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("11m 3s");
+    expect(toggle.textContent).toContain("42s");
+  });
+
+  it("forgets the unfolded rows once fewer than two commands run", () => {
+    const [newest] = newestFirst;
+    if (!newest) throw new Error("Expected a fixture command.");
+    const { container, rerender } = render(
+      <StatefulCard commands={newestFirst} />,
+    );
+    const toggle = screen.getByRole("button");
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+
+    rerender(<StatefulCard commands={[newest]} />);
+    rerender(<StatefulCard commands={newestFirst} />);
+
+    expect(container.querySelectorAll("li")).toHaveLength(0);
   });
 
   it("renders a single command as a plain row with its duration", () => {
@@ -124,7 +142,7 @@ describe("ThreadBackgroundCommandsCard", () => {
 
     expect(
       screen.getByRole("button", {
-        name: "Background activity (2): Audit plugin pin fixtures",
+        name: "Background activity (2): Audit plugin pin fixtures · Model haiku",
       }),
     ).toBeTruthy();
     expect(screen.getByTitle("Model: haiku").textContent).toBe("haiku");

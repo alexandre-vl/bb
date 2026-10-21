@@ -686,7 +686,8 @@ export function ThreadDetailPromptArea({
   ] = useState<string | null>(null);
   if (
     backgroundCommandsExpandedThreadId !== null &&
-    activeBackgroundCommands.length < 2
+    (backgroundCommandsExpandedThreadId !== thread.id ||
+      activeBackgroundCommands.length < 2)
   ) {
     setBackgroundCommandsExpandedThreadId(null);
   }
@@ -2203,6 +2204,7 @@ export function ThreadDetailPromptArea({
           onToggleWorkflow={toggleWorkflowExpanded}
         />
         <ThreadBackgroundCommandsCard
+          key={thread.id}
           commands={activeBackgroundCommands}
           isExpanded={isBackgroundCommandsExpanded}
           onToggle={() =>

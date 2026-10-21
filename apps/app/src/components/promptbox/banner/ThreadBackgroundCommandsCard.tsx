@@ -24,9 +24,19 @@ function backgroundActivityGroupLabel(
   return hasAgent ? "Background agents" : "Background commands";
 }
 
-function BackgroundActivityRow({ row }: { row: TimelineWorkflowWorkRow }) {
+function backgroundActivityModel(row: TimelineWorkflowWorkRow): string | null {
+  return isBackgroundAgentTaskType(row.taskType) ? row.model : null;
+}
+
+function BackgroundActivityRow({
+  row,
+  showDuration,
+}: {
+  row: TimelineWorkflowWorkRow;
+  showDuration: boolean;
+}) {
   const isAgent = isBackgroundAgentTaskType(row.taskType);
-  const model = isAgent ? row.model : null;
+  const model = backgroundActivityModel(row);
   return (
     <>
       <Icon
@@ -49,7 +59,7 @@ function BackgroundActivityRow({ row }: { row: TimelineWorkflowWorkRow }) {
         </span>
       ) : null}
       <span className="shrink-0 whitespace-nowrap tabular-nums text-subtle-foreground">
-        <LiveDurationText startedAt={row.startedAt} />
+        {showDuration ? <LiveDurationText startedAt={row.startedAt} /> : null}
       </span>
     </>
   );
@@ -68,8 +78,9 @@ export function ThreadBackgroundCommandsCard({
 }: ThreadBackgroundCommandsCardProps) {
   const olderListId = useId();
   const [hasOpenedOlder, setHasOpenedOlder] = useState(isExpanded);
-  if (isExpanded && !hasOpenedOlder) {
-    setHasOpenedOlder(true);
+  const keepsOlderRows = commands.length > 1 && (hasOpenedOlder || isExpanded);
+  if (keepsOlderRows !== hasOpenedOlder) {
+    setHasOpenedOlder(keepsOlderRows);
   }
   const newest = commands[0];
   if (!newest) {
@@ -77,6 +88,7 @@ export function ThreadBackgroundCommandsCard({
   }
   const older = commands.slice(1).reverse();
   const groupLabel = backgroundActivityGroupLabel(commands);
+  const newestModel = backgroundActivityModel(newest);
 
   return (
     <PromptStackCard
@@ -85,7 +97,7 @@ export function ThreadBackgroundCommandsCard({
     >
       {older.length === 0 ? (
         <div className={ROW_CLASS}>
-          <BackgroundActivityRow row={newest} />
+          <BackgroundActivityRow row={newest} showDuration />
         </div>
       ) : (
         <>
@@ -97,14 +109,17 @@ export function ThreadBackgroundCommandsCard({
               isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
             )}
           >
-            <ul id={olderListId} className="min-h-0 overflow-hidden">
+            <ul
+              id={olderListId}
+              className="flex min-h-0 flex-col justify-end overflow-hidden"
+            >
               {hasOpenedOlder
                 ? older.map((row, index) => (
                     <li
                       key={row.id}
                       className={cn(
                         ROW_CLASS,
-                        "transition-[opacity,translate] duration-200 ease-out starting:translate-y-1.5 starting:opacity-0 motion-reduce:transition-none",
+                        "shrink-0 transition-[opacity,translate] duration-200 ease-out starting:translate-y-1.5 starting:opacity-0 motion-reduce:transition-none",
                         isExpanded
                           ? "translate-y-0 opacity-100"
                           : "translate-y-1.5 opacity-0",
@@ -117,7 +132,10 @@ export function ThreadBackgroundCommandsCard({
                           : undefined
                       }
                     >
-                      <BackgroundActivityRow row={row} />
+                      <BackgroundActivityRow
+                        row={row}
+                        showDuration={isExpanded}
+                      />
                     </li>
                   ))
                 : null}
@@ -127,14 +145,14 @@ export function ThreadBackgroundCommandsCard({
             type="button"
             aria-expanded={isExpanded}
             aria-controls={olderListId}
-            aria-label={`${groupLabel} (${commands.length}): ${newest.description}`}
+            aria-label={`${groupLabel} (${commands.length}): ${newest.description}${newestModel ? ` · Model ${newestModel}` : ""}`}
             onClick={onToggle}
             className={cn(
               ROW_CLASS,
-              "group/toggle cursor-pointer transition-colors hover:bg-state-hover",
+              "group/toggle cursor-pointer transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
             )}
           >
-            <BackgroundActivityRow row={newest} />
+            <BackgroundActivityRow row={newest} showDuration />
             <span className="ml-auto inline-flex h-4.5 shrink-0 items-center gap-0.5 rounded-full bg-surface-recessed pr-1 pl-1.5 text-2xs leading-none tabular-nums text-muted-foreground transition-colors group-hover/toggle:bg-state-active group-hover/toggle:text-foreground">
               {commands.length}
               <Icon
