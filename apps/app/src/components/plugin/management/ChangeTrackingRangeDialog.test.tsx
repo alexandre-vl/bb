@@ -317,25 +317,23 @@ describe("ChangeTrackingRangeDialog", () => {
 
   it.each([
     {
-      installedVersion: "0.1.0",
       currentRange: "^0.1.0",
       outside: "0.2.0",
       suggested: ">=0.1.0 <1.0.0",
     },
     {
-      installedVersion: "1.4.0",
       currentRange: "^1.4.0",
       outside: "2.0.0",
       suggested: ">=1.4.0 <3.0.0",
     },
   ])(
-    "suggests $suggested to reach $outside, outside $currentRange",
-    async ({ installedVersion, currentRange, outside, suggested }) => {
+    "opens on the server's suggestion $suggested to reach $outside, outside $currentRange",
+    async ({ currentRange, outside, suggested }) => {
       const { bodies } = stubTrackingServer();
       renderDialog(
         makePluginListItem({
           ...GIT_PLUGIN,
-          version: installedVersion,
+          version: "9.9.9",
           updateState: {
             ...GIT_PLUGIN.updateState,
             outsideRange: {
@@ -343,6 +341,7 @@ describe("ChangeTrackingRangeDialog", () => {
               display: `https://github.com/acme/notes@v${outside} (cccccccccccc)`,
               breaking: true,
               range: currentRange,
+              suggestedRange: suggested,
             },
           },
         }),
@@ -360,6 +359,27 @@ describe("ChangeTrackingRangeDialog", () => {
       expect(bodies).toEqual([{ range: suggested, dryRun: true }]);
     },
   );
+
+  it("opens on the current range when the server suggests none for a release outside it", () => {
+    stubTrackingServer();
+    renderDialog(
+      makePluginListItem({
+        ...GIT_PLUGIN,
+        updateState: {
+          ...GIT_PLUGIN.updateState,
+          outsideRange: {
+            version: "0.2.0",
+            display: "https://github.com/acme/notes@v0.2.0 (cccccccccccc)",
+            breaking: true,
+            range: "^0.1.0",
+          },
+        },
+      }),
+    );
+
+    expect(rangeInput().value).toBe("^0.1.0");
+    expect(screen.queryByText(/^Suggested to include/u)).toBeNull();
+  });
 
   it.each([
     [
@@ -405,6 +425,7 @@ describe("trackingRangeCheckSummary", () => {
     display: "https://github.com/acme/notes@v1.0.0 (dddddddddddd)",
     breaking: true,
     range: "^0.2.0",
+    suggestedRange: ">=0.2.0 <2.0.0",
   };
 
   it.each([

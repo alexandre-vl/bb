@@ -83,7 +83,10 @@ function untrackableResolution(
   if (resolution.outcome === "pinned") {
     return { ...resolution, detail: refusal };
   }
-  return resolution;
+  if (resolution.outsideRange === undefined) return resolution;
+  const { suggestedRange: _suggestedRange, ...outsideRange } =
+    resolution.outsideRange;
+  return { ...resolution, outsideRange };
 }
 
 export interface PluginUpdates {

@@ -1442,6 +1442,11 @@ describe("plugin update service and routes", () => {
       display: `${tagged}@v2.0.0 (${majorCommit.slice(0, 12)})`,
       breaking: true,
       range: "^1.0.0",
+      suggestedRange: ">=1.0.0 <3.0.0",
+    };
+    const outsideRangeAfterApply = {
+      ...outsideRange,
+      suggestedRange: ">=1.1.0 <3.0.0",
     };
 
     const checked = await service.checkForUpdates("tagged");
@@ -1480,17 +1485,24 @@ describe("plugin update service and routes", () => {
         expect.objectContaining({
           id: "tagged",
           outcome: "current",
-          outsideRange,
+          outsideRange: outsideRangeAfterApply,
         }),
       ]),
     );
     const afterApply = service
       .list()
       .find((entry) => entry.id === "tagged")?.updateState;
-    expect(afterApply).toMatchObject({ outcome: "current", outsideRange });
+    expect(afterApply).toMatchObject({
+      outcome: "current",
+      outsideRange: outsideRangeAfterApply,
+    });
     expect(afterApply).not.toHaveProperty("availableVersion");
-    expect(await service.checkForUpdates("tagged")).toMatchObject([
-      { id: "tagged", outcome: "current", outsideRange },
+    expect(await service.checkForUpdates("tagged")).toEqual([
+      expect.objectContaining({
+        id: "tagged",
+        outcome: "current",
+        outsideRange: outsideRangeAfterApply,
+      }),
     ]);
   });
 
@@ -1514,6 +1526,7 @@ describe("plugin update service and routes", () => {
           display: `${tagged}@v0.2.0 (${minorCommit.slice(0, 12)})`,
           breaking: true,
           range: "^0.1.0",
+          suggestedRange: ">=0.1.0 <1.0.0",
         },
       },
     ]);

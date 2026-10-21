@@ -474,6 +474,15 @@ function outsideRangeSummary(result: PluginUpdateResult): string {
   return `${result.outsideRange.version}${result.outsideRange.breaking ? " (may break)" : ""}`;
 }
 
+function followOutsideRange(
+  id: string,
+  outsideRange: { suggestedRange?: string },
+): string {
+  return outsideRange.suggestedRange === undefined
+    ? ""
+    : ` To follow it: bb plugin track ${id} "${outsideRange.suggestedRange}"`;
+}
+
 function updateStatusSummary(result: PluginUpdateResult): string {
   return `${UPDATE_STATUS_LABELS[result.outcome]}${result.candidateBreaking ? " (may break)" : ""}${result.devMode ? " [dev build: engines.bb not enforced]" : ""}`;
 }
@@ -1458,6 +1467,13 @@ export function registerPluginCommands(
             "Outside range: the newest release the installed range excludes; compatibility not checked.",
           );
         }
+        for (const result of results) {
+          if (result.outsideRange !== undefined) {
+            console.log(
+              `${result.id}: ${outsideRangeSummary(result)} is outside ${result.outsideRange.range}.${followOutsideRange(result.id, result.outsideRange)}`,
+            );
+          }
+        }
       }),
     );
 
@@ -1566,7 +1582,7 @@ export function registerPluginCommands(
                 );
               } else if (result.outsideRange) {
                 console.log(
-                  `${result.id}: current within ${result.outsideRange.range}; ${outsideRangeSummary(result)} is outside the range (compatibility not checked).`,
+                  `${result.id}: current within ${result.outsideRange.range}; ${outsideRangeSummary(result)} is outside the range (compatibility not checked).${followOutsideRange(result.id, result.outsideRange)}`,
                 );
               } else {
                 console.log(
@@ -1587,7 +1603,7 @@ export function registerPluginCommands(
             }
             if (result.outsideRange) {
               console.log(
-                `${result.id}: ${outsideRangeSummary(result)} is outside the range ${result.outsideRange.range} and is not part of this update (compatibility not checked).`,
+                `${result.id}: ${outsideRangeSummary(result)} is outside the range ${result.outsideRange.range} and is not part of this update (compatibility not checked).${followOutsideRange(result.id, result.outsideRange)}`,
               );
             }
             await confirmPluginAction(

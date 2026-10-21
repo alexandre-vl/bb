@@ -752,6 +752,7 @@ describe("plugin tracking range service and route", () => {
             version: "1.0.0",
             breaking: true,
             range: ">=0.1.0 <1.0.0",
+            suggestedRange: ">=0.1.0 <2.0.0",
           },
         },
       },
@@ -1132,4 +1133,72 @@ describe("plugin tracking range service and route", () => {
       service.setTrackingRange("linear", { range: "^1.0.0" }),
     ).resolves.toEqual({ ok: false, reason: "refused", error: refusal });
   });
+
+  it.each([
+    ["managed", "linear-artifact", { suggestedRange: ">=1.0.0 <3.0.0" }],
+    ["legacy", null, {}],
+  ] as const)(
+    "suggests a range for the release outside a %s npm install's range only if track can change it",
+    async (_kind, artifactId, suggestion) => {
+      if (artifactId !== null) {
+        createPluginArtifact(db, {
+          id: artifactId,
+          pluginId: "linear",
+          sourceKind: "npm",
+          npmResolvedVersion: "1.0.0",
+          gitResolvedCommit: null,
+          gitCheckoutRoot: null,
+          path: join(workDir, "linear"),
+          integrity: "sha512-current",
+          contentHash: null,
+          validationResult: "valid",
+          validatedAt: 1,
+        });
+      }
+      upsertInstalledPlugin(db, {
+        id: "linear",
+        source: "npm:bb-plugin-linear@^1.0.0",
+        provenance: { kind: "direct" },
+        sourceIntent: {
+          kind: "npm",
+          packageName: "bb-plugin-linear",
+          registry: "https://registry.test",
+          requestedSpec: "^1.0.0",
+          specKind: "range",
+        },
+        exactResolution: {
+          kind: "npm",
+          version: "1.0.0",
+          integrity: "sha512-current",
+        },
+        updateState: EMPTY_UPDATE_STATE,
+        activeArtifactId: artifactId,
+        rootDir: join(workDir, "linear"),
+        version: "1.0.0",
+        enabled: false,
+        enabledFollowsDefault: false,
+      });
+      vi.stubGlobal("fetch", async () =>
+        Response.json({
+          versions: Object.fromEntries(
+            ["1.0.0", "1.1.0", "2.0.0"].map((version) => [
+              version,
+              { version, dist: { integrity: `sha512-${version}` } },
+            ]),
+          ),
+          "dist-tags": { latest: "2.0.0" },
+        }),
+      );
+
+      const [check] = await service.checkForUpdates("linear");
+
+      expect(check?.outsideRange).toEqual({
+        version: "2.0.0",
+        display: "bb-plugin-linear@2.0.0",
+        breaking: true,
+        range: "^1.0.0",
+        ...suggestion,
+      });
+    },
+  );
 });

@@ -689,6 +689,7 @@ describe("releases outside the installed range", () => {
         display: `${repo}@v0.2.0 (${commitOf.get("v0.2.0")?.slice(0, 12)})`,
         breaking: true,
         range: "^0.1.0",
+        suggestedRange: ">=0.1.0 <1.0.0",
       },
     });
     expect(probed).toEqual([]);
@@ -718,7 +719,12 @@ describe("releases outside the installed range", () => {
       outcome: "update-available",
       candidate: { version: commitOf.get("v1.1.0") },
       candidateRelease: "1.1.0",
-      outsideRange: { version: "2.0.0", breaking: true, range: "^1.0.0" },
+      outsideRange: {
+        version: "2.0.0",
+        breaking: true,
+        range: "^1.0.0",
+        suggestedRange: ">=1.0.0 <3.0.0",
+      },
     });
     expect(resolution).not.toHaveProperty("candidateBreaking");
   });
@@ -771,6 +777,7 @@ describe("releases outside the installed range", () => {
       outsideRange: {
         version: "2.0.0",
         display: expect.stringContaining("@notes/v2.0.0 ("),
+        suggestedRange: ">=1.0.0 <3.0.0",
       },
     });
   });
@@ -891,6 +898,7 @@ describe("releases outside the installed range", () => {
         display: "bb-plugin-matrix@1.6.0",
         breaking: false,
         range: "~1.4.0",
+        suggestedRange: ">=1.5.0 <2.0.0",
       },
     });
     expect(
@@ -1046,6 +1054,7 @@ describe("releases outside the installed range", () => {
         display: "bb-plugin-matrix@0.0.2",
         breaking: true,
         range: "^0.0.1",
+        suggestedRange: ">=0.0.1 <1.0.0",
       },
     });
     expect(
@@ -1102,4 +1111,39 @@ describe("releases outside the installed range", () => {
     });
     expect(resolution).not.toHaveProperty("outsideRange");
   });
+});
+
+describe("suggested tracking range", () => {
+  it.each([
+    {
+      range: "^1.0.0 || ^3.0.0",
+      releases: ["2.0.0", "1.0.0"],
+      outside: "2.0.0",
+      suggested: "^1.0.0 || ^3.0.0 || >=2.0.0 <3.0.0",
+    },
+    {
+      range: "^1.0.0 || ^2.0.0",
+      releases: ["3.0.0", "2.0.0", "1.0.0"],
+      outside: "3.0.0",
+      suggested: ">=1.0.0 <4.0.0",
+    },
+  ])(
+    "suggests $suggested for $outside outside $range",
+    async ({ range, releases, outside, suggested }) => {
+      expect(
+        await resolveNpmUpdate({
+          intent: npmIntent(range, "range"),
+          current: { version: "1.0.0", display: "bb-plugin-matrix@1.0.0" },
+          appVersion: "1.0.0",
+          run: createNpmResolverRun({
+            fetch: packumentFetch(
+              Object.fromEntries(releases.map((release) => [release, {}])),
+            ),
+          }),
+        }),
+      ).toMatchObject({
+        outsideRange: { version: outside, range, suggestedRange: suggested },
+      });
+    },
+  );
 });

@@ -188,6 +188,17 @@ function isNewerRelease(candidate: string, installed: string): boolean {
   return semver.gt(candidate, installed);
 }
 
+function suggestedTrackingRange(args: {
+  installed: string;
+  outside: string;
+  range: string;
+}): string {
+  const below = `<${semver.major(args.outside) + 1}.0.0`;
+  return semver.gtr(args.outside, args.range)
+    ? `>=${args.installed} ${below}`
+    : `${args.range} || >=${args.outside} ${below}`;
+}
+
 function outsideRangeRelease<T extends { version: string }>(args: {
   releases: readonly T[];
   installed: string;
@@ -218,6 +229,11 @@ function outsideRangeRelease<T extends { version: string }>(args: {
     display: args.display(newest),
     breaking: isBreakingRelease(args.installed, newest.version),
     range: args.range,
+    suggestedRange: suggestedTrackingRange({
+      installed: args.installed,
+      outside: newest.version,
+      range: args.range,
+    }),
   };
 }
 
@@ -231,6 +247,11 @@ export function carriedOutsideRangeRelease(
   return {
     ...outsideRange,
     breaking: isBreakingRelease(installed, outsideRange.version),
+    suggestedRange: suggestedTrackingRange({
+      installed,
+      outside: outsideRange.version,
+      range: outsideRange.range,
+    }),
   };
 }
 

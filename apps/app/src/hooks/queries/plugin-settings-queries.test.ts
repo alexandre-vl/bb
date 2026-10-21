@@ -175,6 +175,7 @@ describe("plugin list envelope", () => {
       display: "@bb-plugins/linear@2.0.0",
       breaking: true,
       range: "^1",
+      suggestedRange: ">=1.6.2 <3.0.0",
     };
     const result = await listPlugins(
       fetchReturning({
@@ -197,6 +198,23 @@ describe("plugin list envelope", () => {
       availableBreaking: true,
       outsideRange,
     });
+  });
+
+  it("keeps an out-of-range release from a server that suggests no range", async () => {
+    const outsideRange = {
+      version: "2.0.0",
+      display: "@bb-plugins/linear@2.0.0",
+      breaking: true,
+      range: "^1",
+    };
+    const result = await listPlugins(
+      fetchReturning({
+        plugins: [
+          { ...ROW, updateState: { ...ROW.updateState, outsideRange } },
+        ],
+      }),
+    );
+    expect(result.plugins[0]?.updateState.outsideRange).toEqual(outsideRange);
   });
 
   it("preserves authoritative source and activity metadata for detail pages", async () => {

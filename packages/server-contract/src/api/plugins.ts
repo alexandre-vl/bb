@@ -37,6 +37,7 @@ export const pluginOutsideRangeReleaseSchema = z.object({
   display: z.string(),
   breaking: z.boolean(),
   range: z.string(),
+  suggestedRange: z.string().optional(),
 });
 export type PluginOutsideRangeRelease = z.infer<
   typeof pluginOutsideRangeReleaseSchema

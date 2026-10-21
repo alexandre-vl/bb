@@ -93,6 +93,7 @@ describe("bb plugin update commands", () => {
               display: "g@0.2.0",
               breaking: true,
               range: "^0.1.0",
+              suggestedRange: ">=0.1.0 <1.0.0",
             },
           },
           {
@@ -129,9 +130,10 @@ describe("bb plugin update commands", () => {
       expect.arrayContaining([
         "e: registry offline",
         'h: npm dist-tag "next" points to 1.0.0, older than the installed 2.0.0; bb does not downgrade',
+        'g: 0.2.0 (may break) is outside ^0.1.0. To follow it: bb plugin track g ">=0.1.0 <1.0.0"',
       ]),
     );
-    expect(output).not.toMatch(/^[abcdfg]: /mu);
+    expect(output).not.toMatch(/^[abcdf]: /mu);
   });
 
   it("outdated --json prints the parsed results", async () => {
@@ -145,6 +147,7 @@ describe("bb plugin update commands", () => {
           display: "notes@2.0.0",
           breaking: true,
           range: "^1.0.0",
+          suggestedRange: ">=1.0.0 <3.0.0",
         },
       },
     ];
@@ -406,6 +409,7 @@ describe("bb plugin update commands", () => {
               display: "agent-board@0.7.0",
               breaking: true,
               range: "^0.6.1",
+              suggestedRange: ">=0.6.1 <1.0.0",
             },
           },
         ],
@@ -415,10 +419,48 @@ describe("bb plugin update commands", () => {
     await runCommand(["plugin", "update", "agent-board"], register);
 
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      "agent-board: current within ^0.6.1; 0.7.0 (may break) is outside the range (compatibility not checked).",
+      'agent-board: current within ^0.6.1; 0.7.0 (may break) is outside the range (compatibility not checked). To follow it: bb plugin track agent-board ">=0.6.1 <1.0.0"',
     ]);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    {
+      command: "outdated",
+      args: ["plugin", "outdated"],
+      line: "notes: 2.0.0 (may break) is outside ^1.0.0.",
+    },
+    {
+      command: "update",
+      args: ["plugin", "update", "notes"],
+      line: "notes: current within ^1.0.0; 2.0.0 (may break) is outside the range (compatibility not checked).",
+    },
+  ])(
+    "$command names a release outside the range without a track command when the server suggests no range",
+    async ({ args, line }) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json({
+          results: [
+            {
+              id: "notes",
+              outcome: "current",
+              installed: version("1.0.0"),
+              outsideRange: {
+                version: "2.0.0",
+                display: "notes@2.0.0",
+                breaking: true,
+                range: "^1.0.0",
+              },
+            },
+          ],
+        }),
+      );
+
+      await runCommand(args, register);
+
+      expect(collectLogPayloads(vi.mocked(console.log))).toContain(line);
+    },
+  );
 
   it("warns about a breaking candidate before asking to apply it", async () => {
     Object.defineProperty(process.stdin, "isTTY", {
@@ -473,6 +515,7 @@ describe("bb plugin update commands", () => {
                 display: "notes@0.2.0",
                 breaking: true,
                 range: "^0.1.0",
+                suggestedRange: ">=0.1.0 <1.0.0",
               },
             },
           ],
@@ -485,7 +528,7 @@ describe("bb plugin update commands", () => {
     ).rejects.toThrow("process.exit:1");
 
     expect(collectLogPayloads(vi.mocked(console.log))).toContain(
-      "notes: 0.2.0 (may break) is outside the range ^0.1.0 and is not part of this update (compatibility not checked).",
+      'notes: 0.2.0 (may break) is outside the range ^0.1.0 and is not part of this update (compatibility not checked). To follow it: bb plugin track notes ">=0.1.0 <1.0.0"',
     );
   });
 

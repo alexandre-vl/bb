@@ -172,6 +172,7 @@ describe("bb plugin track", () => {
             display: "repo@v1.0.0 (cccccccccccc)",
             breaking: true,
             range: "^0.2.0",
+            suggestedRange: ">=0.1.0 <2.0.0",
           },
         },
       }),

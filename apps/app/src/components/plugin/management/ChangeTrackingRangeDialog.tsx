@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type {
-  PluginOutsideRangeRelease,
-  PluginUpdateCheckEntry,
-} from "@bb/server-contract";
+import type { PluginUpdateCheckEntry } from "@bb/server-contract";
 import { Button } from "@bb/shared-ui/button";
 import {
   Dialog,
@@ -176,21 +173,6 @@ export function ChangeTrackingRangeDialog({
   );
 }
 
-const RELEASE_VERSION = /^(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
-
-function outsideRangeSuggestion(
-  plugin: PluginListItem,
-): { range: string; release: PluginOutsideRangeRelease } | null {
-  const release = plugin.updateState.outsideRange;
-  if (release === null || !RELEASE_VERSION.test(plugin.version)) return null;
-  const major = RELEASE_VERSION.exec(release.version)?.[1];
-  if (major === undefined) return null;
-  return {
-    range: `>=${plugin.version} <${Number(major) + 1}.0.0`,
-    release,
-  };
-}
-
 function ChangeTrackingRangeDialogContent({
   plugin,
   tracking,
@@ -202,9 +184,13 @@ function ChangeTrackingRangeDialogContent({
 }) {
   const queryClient = useQueryClient();
   const name = plugin.name ?? plugin.id;
-  const [suggestion] = useState(() => outsideRangeSuggestion(plugin));
+  const [suggestion] = useState(() =>
+    plugin.updateState.outsideRange?.suggestedRange === undefined
+      ? null
+      : plugin.updateState.outsideRange,
+  );
   const [rangeText, setRangeText] = useState(
-    suggestion?.range ??
+    suggestion?.suggestedRange ??
       (tracking.kind === "range" ? tracking.range : `^${plugin.version}`),
   );
   const range = rangeText.trim();
@@ -278,7 +264,7 @@ function ChangeTrackingRangeDialogContent({
                 release (a 0.x minor may break).
               </>
             ) : (
-              `Suggested to include ${suggestion.release.version}, the newest release outside ${suggestion.release.range}.`
+              `Suggested to include ${suggestion.version}, the newest release outside ${suggestion.range}.`
             )}
           </p>
         </div>
