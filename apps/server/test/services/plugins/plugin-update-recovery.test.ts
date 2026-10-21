@@ -936,6 +936,47 @@ describe("plugin update recovery", () => {
     expect(cursor()).toBe("v1.1-data");
   }, 90_000);
 
+  it("discards a rollback's safety snapshot and deletes its files when the rollback fails before it writes the registration", async () => {
+    const previousCommit =
+      getInstalledPluginRegistration(db, PLUGIN_ID)?.gitResolvedCommit ?? "";
+    const nextCommit = await offered("1.1.0");
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: nextCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
+
+    await expect(
+      withPluginUpdateProgress(
+        (phase) => {
+          if (phase !== "activating") return;
+          db.$client
+            .prepare("UPDATE plugins SET enabled = 0 WHERE id = ?")
+            .run(PLUGIN_ID);
+        },
+        () =>
+          service.rollbackUpdate(PLUGIN_ID, {
+            expectedVersion: previousCommit,
+          }),
+      ),
+    ).rejects.toThrow(
+      `plugin "${PLUGIN_ID}" registration changed during activation`,
+    );
+
+    const snapshots = listPluginStateSnapshots(db, PLUGIN_ID);
+    expect(
+      snapshots.map(({ operation, status }) => ({ operation, status })),
+    ).toEqual([
+      { operation: "update", status: "ready" },
+      { operation: "rollback", status: "discarded" },
+    ]);
+    const [kept, safety] = snapshots.map(({ snapshotPath }) => snapshotPath);
+    await stat(kept ?? "");
+    await expect(stat(safety ?? "")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+      gitResolvedCommit: nextCommit,
+    });
+  }, 60_000);
+
   it("keeps a rollback held when it fails while writing the kept data, even if its safety snapshot is then unusable", async () => {
     const previousCommit =
       getInstalledPluginRegistration(db, PLUGIN_ID)?.gitResolvedCommit ?? "";

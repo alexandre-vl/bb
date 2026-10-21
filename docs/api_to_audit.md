@@ -3193,7 +3193,9 @@ so do `enabled` and `enabledFollowsDefault`: a plugin disabled after the
 update stays disabled, and the rollback never flips the flag behind the
 enable and disable side effects. If
 the old release fails to start, bb restores the post-update snapshot and the
-result is `rolled-back`, with the failure in `detail`; success is `reverted`.
+result is `rolled-back`, with the failure in `detail`; success is `reverted`,
+after which bb deletes the files of the pre-update snapshot and of the
+post-update safety snapshot and keeps their rows (`restored`, `discarded`).
 A failed rollback reaches the caller only through that result and the job:
 it leaves `updateState.lastFailure`, which drives the update Retry control,
 untouched, and the rollback point stays offered. A rollback interrupted by a

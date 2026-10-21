@@ -348,9 +348,16 @@ describe("plugin update rollback", () => {
       ...expectedState("v1", "ok"),
       schedules: [{ name: "nightly", lastStatus: "ok", lastError: null }],
     });
-    expect(
-      listPluginStateSnapshots(db, PLUGIN_ID).map(({ status }) => status),
-    ).toEqual(["restored", "discarded"]);
+    const snapshots = listPluginStateSnapshots(db, PLUGIN_ID);
+    expect(snapshots.map(({ status }) => status)).toEqual([
+      "restored",
+      "discarded",
+    ]);
+    for (const { snapshotPath } of snapshots) {
+      await expect(stat(snapshotPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    }
     expect(listPluginArtifacts(db, PLUGIN_ID).map(({ id }) => id)).toEqual([
       before.activeArtifactId,
     ]);
@@ -456,6 +463,26 @@ describe("plugin update rollback", () => {
     });
     expect(installed().updateState.rollback).toMatchObject({
       version: previousCommit,
+    });
+    const snapshots = listPluginStateSnapshots(db, PLUGIN_ID);
+    expect(
+      snapshots.map(({ operation, status }) => ({ operation, status })),
+    ).toEqual([
+      { operation: "update", status: "ready" },
+      { operation: "rollback", status: "restored" },
+    ]);
+    const [kept, safety] = snapshots.map(({ snapshotPath }) => snapshotPath);
+    await stat(kept ?? "");
+    await expect(stat(safety ?? "")).rejects.toMatchObject({ code: "ENOENT" });
+
+    vi.unstubAllGlobals();
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: previousCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "reverted" } });
+    expect(installed()).toMatchObject({ version: "1.0.0", status: "running" });
+    expect(await readState()).toEqual({
+      ...expectedState("v1", "ok"),
+      schedules: [{ name: "nightly", lastStatus: "ok", lastError: null }],
     });
   }, 60_000);
 

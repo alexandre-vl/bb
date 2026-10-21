@@ -398,7 +398,7 @@ export function createPluginRollback(context: PluginRollbackContext) {
               exactResolution: exactResolutionForRow(point.registration),
               artifactId: point.artifact.id,
               rollback: {
-                snapshotId: point.snapshot.id,
+                snapshot: point.snapshot,
                 registration: point.registration,
               },
             });

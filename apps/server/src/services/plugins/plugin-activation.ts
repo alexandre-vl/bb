@@ -46,7 +46,7 @@ export class PluginActivationRolledBackError extends Error {
 }
 
 export interface PluginRollbackActivation {
-  snapshotId: string;
+  snapshot: PluginStateSnapshotRow;
   registration: InstalledPluginRow;
 }
 
@@ -531,7 +531,7 @@ export function createPluginActivation(context: PluginActivationContext) {
           await applyPluginStateSnapshot({
             db: deps.db,
             dataDir: deps.dataDir,
-            snapshotId: args.rollback.snapshotId,
+            snapshotId: args.rollback.snapshot.id,
           });
           if (
             !setPluginStateSnapshotRollbackApplied(deps.db, snapshot.id, now())
@@ -596,10 +596,13 @@ export function createPluginActivation(context: PluginActivationContext) {
           );
           setPluginStateSnapshotStatus(
             deps.db,
-            args.rollback.snapshotId,
+            args.rollback.snapshot.id,
             "restored",
             now(),
           );
+          for (const finished of [snapshot, args.rollback.snapshot]) {
+            await removeSnapshotFiles(finished);
+          }
         }
       } catch (error) {
         if (!pointerWritten) {
@@ -610,6 +613,7 @@ export function createPluginActivation(context: PluginActivationContext) {
               "discarded",
               now(),
             );
+            await removeSnapshotFiles(snapshot);
           }
           const previous = getInstalledPlugin(deps.db, args.row.id);
           if (previous) await loadOne(previous);
@@ -636,6 +640,7 @@ export function createPluginActivation(context: PluginActivationContext) {
             `${failed}: ${detail}; ${recovery.warnings.join("; ")}`,
           );
         }
+        if (args.rollback !== undefined) await removeSnapshotFiles(snapshot);
         const restoredFailure = startFailure(args.row.id);
         const failures =
           restoredFailure === null
