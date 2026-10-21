@@ -31,7 +31,7 @@ describe("bundled plugin SDK declarations", () => {
     expect(declarations).toContain("checkUpdates(");
     expect(declarations).toContain("applyUpdate(args: PluginApplyUpdateArgs)");
     expect(declarations).toContain(
-      "experimental_rollbackUpdate(args: PluginRollbackUpdateArgs): Promise<PluginApplyUpdateResult>;",
+      "experimental_rollbackUpdate(args: PluginRollbackUpdateArgs): Promise<PluginRollbackUpdateResult>;",
     );
     expect(declarations).toContain(
       "type PluginProviderNativeRootEntry = ProviderNativeRootInput;",

@@ -8,6 +8,7 @@ import {
   pluginRollbackRequestSchema,
   pluginSettingDescriptorSchema,
   pluginUpdateJobListResponseSchema,
+  pluginUpdateJobSchema,
 } from "../src/index.js";
 
 describe("plugin contracts", () => {
@@ -172,6 +173,48 @@ describe("plugin contracts", () => {
         })
         .jobs.map((entry) => entry.kind),
     ).toEqual(["update", "rollback"]);
+  });
+
+  it("reads a completed job's result by the job's kind", () => {
+    const completed = {
+      id: "job-1",
+      pluginId: "notes",
+      displayName: "Notes",
+      state: "completed",
+    };
+    const from = { version: "1.1.0", display: "1.1.0" };
+    const to = { version: "1.0.0", display: "1.0.0" };
+    expect(
+      pluginUpdateJobSchema.parse({
+        ...completed,
+        result: { applied: true, from, to, outcome: "updated" },
+      }),
+    ).toMatchObject({ kind: "update" });
+    expect(
+      pluginUpdateJobSchema.parse({
+        ...completed,
+        kind: "rollback",
+        result: { applied: true, from, to, outcome: "reverted" },
+      }),
+    ).toMatchObject({ kind: "rollback" });
+    for (const job of [
+      {
+        ...completed,
+        result: { applied: true, from, to, outcome: "reverted" },
+      },
+      {
+        ...completed,
+        kind: "rollback",
+        result: { applied: true, from, to, outcome: "updated" },
+      },
+      {
+        ...completed,
+        kind: "rollback",
+        result: { applied: true, from, outcome: "reverted" },
+      },
+    ]) {
+      expect(pluginUpdateJobSchema.safeParse(job).success).toBe(false);
+    }
   });
 
   it("accepts only an expected version on a rollback request", () => {

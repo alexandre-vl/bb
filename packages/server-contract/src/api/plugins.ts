@@ -79,12 +79,21 @@ export const pluginApplyUpdateResultSchema = z.object({
   applied: z.boolean(),
   from: pluginResolvedVersionSchema,
   to: pluginResolvedVersionSchema.optional(),
-  outcome: z.enum(["current", "updated", "rolled-back", "reverted"]),
+  outcome: z.enum(["current", "updated", "rolled-back"]),
   detail: z.string().optional(),
 });
 export type PluginApplyUpdateResult = z.infer<
   typeof pluginApplyUpdateResultSchema
 >;
+
+export const pluginRollbackResultSchema = z.object({
+  applied: z.boolean(),
+  from: pluginResolvedVersionSchema,
+  to: pluginResolvedVersionSchema,
+  outcome: z.enum(["reverted", "rolled-back"]),
+  detail: z.string().optional(),
+});
+export type PluginRollbackResult = z.infer<typeof pluginRollbackResultSchema>;
 
 export const pluginUpdatePhaseSchema = z.enum([
   "preparing",
@@ -94,30 +103,34 @@ export const pluginUpdatePhaseSchema = z.enum([
 ]);
 export type PluginUpdatePhase = z.infer<typeof pluginUpdatePhaseSchema>;
 
-const pluginUpdateJobFields = {
-  id: z.string().min(1),
-  pluginId: z.string().min(1),
-  displayName: z.string().min(1),
-  kind: z.enum(["update", "rollback"]).default("update"),
-};
+function pluginUpdateJobStates<
+  Kind extends z.ZodType,
+  Result extends z.ZodType,
+>(kind: Kind, result: Result) {
+  const fields = {
+    id: z.string().min(1),
+    pluginId: z.string().min(1),
+    displayName: z.string().min(1),
+    kind,
+  };
+  return z.discriminatedUnion("state", [
+    z.object({ ...fields, state: z.literal("queued") }),
+    z.object({
+      ...fields,
+      state: z.literal("running"),
+      phase: pluginUpdatePhaseSchema,
+    }),
+    z.object({ ...fields, state: z.literal("completed"), result }),
+    z.object({ ...fields, state: z.literal("failed"), error: z.string() }),
+  ]);
+}
 
-export const pluginUpdateJobSchema = z.discriminatedUnion("state", [
-  z.object({ ...pluginUpdateJobFields, state: z.literal("queued") }),
-  z.object({
-    ...pluginUpdateJobFields,
-    state: z.literal("running"),
-    phase: pluginUpdatePhaseSchema,
-  }),
-  z.object({
-    ...pluginUpdateJobFields,
-    state: z.literal("completed"),
-    result: pluginApplyUpdateResultSchema,
-  }),
-  z.object({
-    ...pluginUpdateJobFields,
-    state: z.literal("failed"),
-    error: z.string(),
-  }),
+export const pluginUpdateJobSchema = z.discriminatedUnion("kind", [
+  pluginUpdateJobStates(
+    z.literal("update").default("update"),
+    pluginApplyUpdateResultSchema,
+  ),
+  pluginUpdateJobStates(z.literal("rollback"), pluginRollbackResultSchema),
 ]);
 export type PluginUpdateJob = z.infer<typeof pluginUpdateJobSchema>;
 export const pluginUpdateJobResponseSchema = z.object({

@@ -26,7 +26,7 @@ import {
 } from "./plugin-artifact-gc.js";
 import type { SafeModeActivationRefusalArgs } from "./plugin-runtime.js";
 import type {
-  PluginApplyUpdateOutcome,
+  PluginRollbackOutcome,
   PluginServiceDeps,
 } from "./plugin-service-internal.js";
 import {
@@ -423,7 +423,7 @@ export function createPluginRollback(context: PluginRollbackContext) {
   async function rollbackUpdate(
     id: string,
     request: PluginRollbackRequest = {},
-  ): Promise<PluginApplyUpdateOutcome> {
+  ): Promise<PluginRollbackOutcome> {
     return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {
       const row = getInstalledPlugin(deps.db, id);
       if (row === undefined) {

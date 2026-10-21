@@ -3178,10 +3178,16 @@ reviewed release is no longer the candidate.
 `POST /api/v1/plugins/:id/rollback` with `{ expectedVersion? }` returns a
 git or npm plugin to the release its most recent successful update replaced,
 while that update's state snapshot is retained (7 days).
-`experimental_rollbackUpdate` waits for the job and returns the
-`PluginApplyUpdateResult`; `experimental_startRollbackUpdate` returns the
-job, which runs in the update job registry with `kind: "rollback"` and joins
-only an active rollback for the same plugin and expected version. The server
+`experimental_rollbackUpdate` waits for the job and returns a
+`PluginRollbackUpdateResult` (`applied`, `from`, `to`, `outcome` `reverted`
+or `rolled-back`, `detail?`), a type of its own so the stable
+`applyUpdate` result keeps its three outcomes; `experimental_startRollbackUpdate`
+returns the job, which runs in the update job registry with
+`kind: "rollback"` and joins only an active rollback for the same plugin and
+expected version. `PluginUpdateJob` is a union keyed by `kind`: a completed
+`update` job carries a `PluginApplyUpdateResult` and a completed `rollback`
+job a `PluginRollbackUpdateResult`, and a job without `kind`, from a server
+that predates rollback, reads as an update. The server
 first snapshots the current state, then restores the pre-update
 registration (resolved tag, commit or npm version, and artifact) and the
 snapshot's data.db, KV, settings, secrets, and schedules, and activates the
@@ -3219,9 +3225,10 @@ retained. Core callers: `bb plugin rollback`
 (`apps/app/src/components/plugin/management/RollbackPluginDialog.tsx`, through
 `startPluginRollback`).
 
-Version skew: `reverted` is a new outcome, so an older CLI or SDK talking to a
-newer server cannot parse the update-jobs list for about ten minutes after a
-rollback, until the finished job drops out of the list.
+Version skew: a completed rollback job carries the outcome `reverted`, which
+an older CLI or SDK does not know, so one talking to a newer server cannot
+parse the update-jobs list for about ten minutes after a rollback, until the
+finished job drops out of the list.
 
 Stabilization requires rollback of a monorepo subdirectory install and of an
 npm dist-tag install, a decision on whether more than the most recent update

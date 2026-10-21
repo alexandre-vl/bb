@@ -54,6 +54,7 @@ import {
   type PluginCatalogStatus as PluginCatalogStatusContract,
   type PluginInstallJob as PluginInstallJobContract,
   type PluginApplyUpdateResult as PluginApplyUpdateContract,
+  type PluginRollbackResult as PluginRollbackContract,
   type PluginCachePruneResponse,
   type PluginListResponse,
   type PluginReloadResponse,
@@ -262,6 +263,7 @@ export type PluginUpdateSettingsResult = PluginSettingsResponse;
 export type PluginGetSourceResult = PluginSourceDetail;
 export type PluginCheckUpdatesResult = PluginUpdateCheckEntry[];
 export type PluginApplyUpdateResult = PluginApplyUpdateContract;
+export type PluginRollbackUpdateResult = PluginRollbackContract;
 
 export type PluginCatalogStatusResult = PluginCatalogStatusContract;
 export type PluginCatalogSearchEntry = PluginCatalogSearchContract;
@@ -330,7 +332,7 @@ export interface PluginsArea {
   experimental_updateJobs: PluginUpdateJobsArea;
   experimental_rollbackUpdate(
     args: PluginRollbackUpdateArgs,
-  ): Promise<PluginApplyUpdateResult>;
+  ): Promise<PluginRollbackUpdateResult>;
   experimental_startRollbackUpdate(
     args: PluginRollbackUpdateArgs,
   ): Promise<PluginUpdateJob>;
@@ -513,7 +515,7 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
 
   async function settleUpdateJob(
     started: PluginUpdateJob,
-  ): Promise<PluginApplyUpdateResult> {
+  ): Promise<Extract<PluginUpdateJob, { state: "completed" }>> {
     let job = started;
     while (job.state === "queued" || job.state === "running") {
       await new Promise((resolve) =>
@@ -521,8 +523,14 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       );
       job = await updateJobs.get({ jobId: job.id });
     }
-    if (job.state === "completed") return job.result;
+    if (job.state === "completed") return job;
     throw new Error(job.error);
+  }
+
+  function unexpectedJobKind(job: PluginUpdateJob, expected: string): Error {
+    return new Error(
+      `${expected} job ${job.id} finished as a ${job.kind} job on the BB server`,
+    );
   }
 
   const installJobs: PluginInstallJobsArea = {
@@ -702,7 +710,9 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     async applyUpdate(input) {
       const response = await requestUpdate(input);
       if (!("job" in response)) return response;
-      return settleUpdateJob(response.job);
+      const job = await settleUpdateJob(response.job);
+      if (job.kind === "update") return job.result;
+      throw unexpectedJobKind(job, "Update");
     },
     async experimental_startUpdate(input) {
       const response = await requestUpdate(input);
@@ -713,7 +723,9 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     },
     experimental_updateJobs: updateJobs,
     async experimental_rollbackUpdate(input) {
-      return settleUpdateJob(await startRollback(input));
+      const job = await settleUpdateJob(await startRollback(input));
+      if (job.kind === "rollback") return job.result;
+      throw unexpectedJobKind(job, "Rollback");
     },
     experimental_startRollbackUpdate: startRollback,
     async experimental_discoverRpc(input = {}) {

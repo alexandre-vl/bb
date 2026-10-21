@@ -1707,7 +1707,7 @@ export function registerPluginCommands(
             return;
           }
           console.log(
-            `${id}: rolled back ${result.from.display} → ${result.to?.display ?? point.display}; its settings, KV entries, data.db, secrets, and schedules are back to their values from before the update.`,
+            `${id}: rolled back ${result.from.display} → ${result.to.display}; its settings, KV entries, data.db, secrets, and schedules are back to their values from before the update.`,
           );
           console.log(
             `${id}: its tracked source is unchanged, so \`bb plugin update ${id}\` can offer ${result.from.display} again.`,

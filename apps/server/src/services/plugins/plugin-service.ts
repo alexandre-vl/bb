@@ -189,6 +189,7 @@ import type {
   LoadedPlugin,
   PluginAgentToolContribution,
   PluginApplyUpdateOutcome,
+  PluginRollbackOutcome,
   PluginInstructionContribution,
   PluginMentionProviderContribution,
   PluginMentionResolveResult,
@@ -319,7 +320,7 @@ export interface PluginService {
   rollbackUpdate(
     id: string,
     request?: PluginRollbackRequest,
-  ): Promise<PluginApplyUpdateOutcome>;
+  ): Promise<PluginRollbackOutcome>;
   setEnabled(
     id: string,
     enabled: boolean,
