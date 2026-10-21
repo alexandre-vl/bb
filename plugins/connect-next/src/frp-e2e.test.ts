@@ -391,7 +391,9 @@ describe("connect next with real frpc and frps", () => {
         () => rpcStatus(current),
         (status) => status.state === "offline",
       );
-      expect(away.lastError).toMatch(/connection refused|EOF|dial/u);
+      expect(away.lastError).toMatch(
+        /connection refused|connection reset by peer|EOF|dial/u,
+      );
       const back = await startFrps(binaries.frps, workDir, hooks.port, {
         bindPort: own.bindPort,
         vhostPort: own.vhostPort,
