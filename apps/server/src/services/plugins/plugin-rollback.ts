@@ -66,6 +66,8 @@ function rollbackRegistration(
     sourceGitRange: current.sourceGitRange,
     sourceNpmRequestedSpec: current.sourceNpmRequestedSpec,
     sourceNpmSpecKind: current.sourceNpmSpecKind,
+    enabled: current.enabled,
+    enabledFollowsDefault: current.enabledFollowsDefault,
   };
 }
 

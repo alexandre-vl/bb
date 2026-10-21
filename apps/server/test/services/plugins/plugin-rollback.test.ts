@@ -388,6 +388,36 @@ describe("plugin update rollback", () => {
     });
   }, 60_000);
 
+  it("leaves the plugin enabled or disabled the way the user last set it", async () => {
+    await service.setEnabled(PLUGIN_ID, false);
+    const { previousCommit, nextCommit } = await updateToNextRelease();
+    expect(installed()).toMatchObject({ version: "1.1.0", status: "disabled" });
+    await service.setEnabled(PLUGIN_ID, true);
+
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: previousCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "reverted" } });
+    expect(registration()).toMatchObject({
+      version: "1.0.0",
+      enabled: true,
+      enabledFollowsDefault: false,
+    });
+    expect(installed()).toMatchObject({ version: "1.0.0", status: "running" });
+
+    await applyCandidate(PLUGIN_ID, nextCommit);
+    await service.setEnabled(PLUGIN_ID, false);
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: previousCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "reverted" } });
+    expect(registration()).toMatchObject({
+      version: "1.0.0",
+      enabled: false,
+      enabledFollowsDefault: false,
+    });
+    expect(installed()).toMatchObject({ version: "1.0.0", status: "disabled" });
+    expect(service.getApi(PLUGIN_ID)).toBeUndefined();
+  }, 90_000);
+
   it("brings back the updated release and its data when the previous one fails to start", async () => {
     await writeState("v1", "ok");
     const { previousCommit, nextCommit } = await updateToNextRelease();

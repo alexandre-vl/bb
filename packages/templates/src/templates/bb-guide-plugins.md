@@ -68,12 +68,13 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
   bb plugin rollback <id>        Return a git:/npm: plugin to the release its
                                  most recent update replaced, for 7 days
                                  after that update. Its settings, KV
-                                 entries, data.db, secrets, schedules, and
-                                 enabled state go back to their values from
-                                 before the update; changes made since are
-                                 discarded. The tracked source range stays.
-                                 Same confirmation as update; --json prints
-                                 the result
+                                 entries, data.db, secrets, and schedules go
+                                 back to their values from before the
+                                 update; changes made since are discarded.
+                                 The tracked source range and whether the
+                                 plugin is enabled stay as they are. Same
+                                 confirmation as update; --json prints the
+                                 result
   bb plugin list                 Status, services, schedules, handler timings,
                                  and contributed CLI commands. `bb status`
                                  also names enabled plugins that are
