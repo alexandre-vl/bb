@@ -66,9 +66,9 @@ printf '%s\n' "$npm_cli" >"$root/npm-cli"
 install -m 755 "$here/update.sh" "$HOME/.local/bin/bb-alex-update"
 cat >"$HOME/.local/bin/bb-alex" <<EOF
 #!/usr/bin/env bash
-export BB_SERVER_URL=http://127.0.0.1:$port
-export BB_HOST_DAEMON_PORT=$daemon_port
-exec "$node" "$root/current/bin/bb" "\$@"
+exec env -u BB_CLI -u BB_DATA_DIR -u BB_PROJECT_ID -u BB_THREAD_ID -u BB_ENVIRONMENT_ID \\
+  BB_SERVER_URL=http://127.0.0.1:$port BB_HOST_DAEMON_PORT=$daemon_port \\
+  "$node" "$root/current/bin/bb" "\$@"
 EOF
 chmod 755 "$HOME/.local/bin/bb-alex"
 

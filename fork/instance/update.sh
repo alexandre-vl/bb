@@ -34,6 +34,7 @@ npm_cli=$(cat "$root/npm-cli")
 base=https://github.com/$repo/releases/latest/download
 url=http://127.0.0.1:$port
 export PATH="$(dirname "$node"):$PATH"
+unset BB_CLI BB_DATA_DIR BB_PROJECT_ID BB_THREAD_ID BB_ENVIRONMENT_ID BB_SERVER_URL BB_HOST_DAEMON_PORT
 
 exec 9>"$root/update.lock"
 if ! flock -n 9; then
