@@ -1354,6 +1354,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginBbSdk.plugins.experimental_setTrackingRange",
           "PluginBbSdk.plugins.experimental_startUpdate",
           "PluginBbSdk.plugins.experimental_updateJobs",
+          "PluginBbSdk.plugins.experimental_getRollbackPoint",
           "PluginBbSdk.plugins.experimental_rollbackUpdate",
           "PluginBbSdk.plugins.experimental_startRollbackUpdate",
           "PluginBbSdk.threads.queuedMessages.experimental_holdForEdit",

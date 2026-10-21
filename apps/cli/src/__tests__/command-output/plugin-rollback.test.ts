@@ -17,38 +17,11 @@ const reverted = {
   outcome: "reverted",
 };
 
-function pluginList(updateState: object) {
-  return {
-    plugins: [
-      {
-        id: "notes",
-        source: "npm:notes@^1.0.0",
-        rootDir: "/plugins/notes",
-        version: "1.1.0",
-        provenance: "direct",
-        publisherLabel: null,
-        isOrphanedBuiltin: false,
-        sourceDisplay: "npm · notes · tracks compatible",
-        updateState,
-        enabled: true,
-        description: null,
-        name: null,
-        icon: null,
-        iconUrl: null,
-        status: "running",
-        statusDetail: null,
-        handlerStats: { count: 0, totalMs: 0, maxMs: 0, errorCount: 0 },
-        services: [],
-        schedules: [],
-        cliCommand: null,
-        hasSettings: false,
-        app: { hasApp: false, bundle: null },
-        logoUrl: null,
-        logoDarkUrl: null,
-      },
-    ],
-  };
-}
+const available = {
+  outcome: "rollback-available",
+  from: { version: "1.1.0", display: "notes@1.1.0" },
+  point: rollback,
+};
 
 function rollbackJob(fields: object) {
   return {
@@ -71,7 +44,7 @@ describe("bb plugin rollback", () => {
   it("names the kept release, warns about restored state, and rolls back only that release", async () => {
     readlineMocks.question.mockResolvedValueOnce("y");
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json(pluginList({ rollback })))
+      .mockResolvedValueOnce(Response.json(available))
       .mockResolvedValueOnce(
         Response.json(rollbackJob({ state: "completed", result: reverted }), {
           status: 202,
@@ -88,8 +61,12 @@ describe("bb plugin rollback", () => {
     expect(JSON.parse(String(request?.body))).toEqual({
       expectedVersion: "1.0.0",
     });
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toBe(
+      "http://server/api/v1/plugins/notes/rollback",
+    );
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.method).toBeUndefined();
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      "notes: roll back 1.1.0 to notes@1.0.0, the release its last update replaced (kept until 2026-10-28T09:30:00.000Z).",
+      "notes: roll back notes@1.1.0 to notes@1.0.0, the release its last update replaced (kept until 2026-10-28T09:30:00.000Z).",
       "notes: settings, KV entries, data.db, secrets, and schedules return to their values from before the update; changes made since then are discarded.",
       "notes: rolled back notes@1.1.0 → notes@1.0.0; its settings, KV entries, data.db, secrets, and schedules are back to their values from before the update.",
       "notes: its tracked source is unchanged, so `bb plugin update notes` can offer notes@1.1.0 again.",
@@ -98,7 +75,7 @@ describe("bb plugin rollback", () => {
 
   it("prints only the result with --json", async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json(pluginList({ rollback })))
+      .mockResolvedValueOnce(Response.json(available))
       .mockResolvedValueOnce(
         Response.json(rollbackJob({ state: "completed", result: reverted }), {
           status: 202,
@@ -115,16 +92,34 @@ describe("bb plugin rollback", () => {
     ]);
   });
 
-  it("refuses a plugin without a rollback point before asking anything", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json(pluginList({})));
+  it.each([
+    {
+      name: "a plugin without a rollback point",
+      response: Response.json({
+        outcome: "unavailable",
+        detail:
+          'plugin "notes" has no rollback point: no update to its current version is still within the rollback window',
+      }),
+      message:
+        'Error: plugin "notes" has no rollback point: no update to its current version is still within the rollback window',
+    },
+    {
+      name: "a bb server that predates plugin rollback",
+      response: Response.json(
+        { code: "not_found", message: "Not found" },
+        { status: 404 },
+      ),
+      message:
+        "notes: not rolled back — the bb server is older than this bb CLI and predates plugin rollback. Upgrade bb on the server, then run `bb plugin rollback notes` again.",
+    },
+  ])("refuses $name before asking anything", async ({ response, message }) => {
+    vi.mocked(fetch).mockResolvedValueOnce(response);
 
     await expect(
       runCommand(["plugin", "rollback", "notes", "--yes"], register),
     ).rejects.toThrow("process.exit:1");
 
-    expect(vi.mocked(console.error)).toHaveBeenCalledWith(
-      'Error: plugin "notes" has no rollback point; bb rolls back only the most recent update of a git or npm plugin, while it keeps the release that update replaced',
-    );
+    expect(vi.mocked(console.error)).toHaveBeenCalledWith(message);
     expect(readlineMocks.question).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
@@ -134,9 +129,7 @@ describe("bb plugin rollback", () => {
       value: false,
       configurable: true,
     });
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json(pluginList({ rollback })),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(available));
 
     await expect(
       runCommand(["plugin", "rollback", "notes"], register),
@@ -176,7 +169,7 @@ describe("bb plugin rollback", () => {
     },
   ])("exits with an error for $name", async ({ job, message }) => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json(pluginList({ rollback })))
+      .mockResolvedValueOnce(Response.json(available))
       .mockResolvedValueOnce(Response.json(rollbackJob(job), { status: 202 }));
 
     await expect(

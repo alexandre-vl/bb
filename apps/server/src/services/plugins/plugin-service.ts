@@ -57,6 +57,7 @@ import {
   type PluginApplyUpdateRequest,
   type PluginCapabilitySummary,
   type PluginCachePruneResponse,
+  type PluginRollbackPointResponse,
   type PluginRollbackRequest,
   type PluginSafeModeUpdateResponse,
   type PluginSourceDetail,
@@ -317,6 +318,7 @@ export interface PluginService {
   ): Promise<PluginTrackingRangeOutcome>;
   remove(id: string): Promise<boolean>;
   pruneCache(args: { dryRun: boolean }): Promise<PluginCachePruneResponse>;
+  getRollbackPoint(id: string): Promise<PluginRollbackPointResponse>;
   rollbackUpdate(
     id: string,
     request?: PluginRollbackRequest,
@@ -1870,6 +1872,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       );
     },
 
+    getRollbackPoint: pluginRollback.getRollbackPoint,
     rollbackUpdate: pluginRollback.rollbackUpdate,
 
     async setEnabled(id, enabled) {

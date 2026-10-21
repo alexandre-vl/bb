@@ -713,6 +713,10 @@ export function registerPluginRoutes(
     return respondWithUpdateJob(context, updateJobs, job);
   });
 
+  app.get("/plugins/:id/rollback", async (context) =>
+    context.json(await plugins.getRollbackPoint(context.req.param("id"))),
+  );
+
   app.post("/plugins/:id/rollback", async (context) => {
     const json: unknown = await context.req.json().catch(() => null);
     const body = pluginRollbackRequestSchema.safeParse(json);

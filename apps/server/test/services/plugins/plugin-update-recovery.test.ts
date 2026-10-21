@@ -724,6 +724,10 @@ describe("plugin update recovery", () => {
       ok: false,
       error: expect.stringContaining(refused("rollback")),
     });
+    await expect(service.getRollbackPoint(PLUGIN_ID)).resolves.toMatchObject({
+      outcome: "unavailable",
+      detail: expect.stringContaining(refused("rollback")),
+    });
 
     expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
       version: "1.0.0",
@@ -733,6 +737,44 @@ describe("plugin update recovery", () => {
       listPluginStateSnapshots(db, PLUGIN_ID).map(({ status }) => status),
     ).toEqual(["restoring"]);
     expectHeld();
+  }, 60_000);
+
+  it("answers a rollback point lookup made during a rollback once that rollback finishes", async () => {
+    const previousCommit =
+      getInstalledPluginRegistration(db, PLUGIN_ID)?.gitResolvedCommit ?? "";
+    const nextCommit = await offered("1.1.0");
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: nextCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
+    let windowReached!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      windowReached = resolve;
+    });
+    let elapse = () => {};
+    await restart({
+      stabilizationWindowMs: 1,
+      scheduleStabilizationWindow: (_durationMs, onElapsed) => {
+        elapse = onElapsed;
+        windowReached();
+        return () => {};
+      },
+    });
+
+    const rollback = service.rollbackUpdate(PLUGIN_ID, {
+      expectedVersion: previousCommit,
+    });
+    await reached;
+    const lookup = service.getRollbackPoint(PLUGIN_ID);
+    elapse();
+
+    await expect(rollback).resolves.toMatchObject({
+      ok: true,
+      result: { outcome: "reverted" },
+    });
+    await expect(lookup).resolves.toEqual({
+      outcome: "unavailable",
+      detail: expect.not.stringContaining("held until"),
+    });
   }, 60_000);
 
   it("offers no update or rollback for a held plugin until its restore finishes", async () => {

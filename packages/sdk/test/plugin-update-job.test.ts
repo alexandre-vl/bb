@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createBbSdk } from "../src/core.js";
-import { PluginUpdateExpectedVersionUnsupportedError } from "../src/areas/plugins.js";
+import {
+  PluginRollbackUnsupportedError,
+  PluginUpdateExpectedVersionUnsupportedError,
+} from "../src/areas/plugins.js";
 import { createHttpTransport } from "../src/transport-http.js";
 
 const base = { id: "update-1", pluginId: "notes", displayName: "Notes" };
@@ -220,18 +223,28 @@ describe("plugin rollback", () => {
     ).rejects.toThrow('plugin "notes" has no rollback point');
   });
 
-  it("explains that a server without the rollback route cannot roll back", async () => {
-    const sdk = createBbSdk({
-      transport: createHttpTransport({
-        baseUrl: "http://bb.test",
-        runtime: "node",
-        fetch: async () => new Response("404 Not Found", { status: 404 }),
-      }),
-    });
-    await expect(
-      sdk.plugins.experimental_startRollbackUpdate({ pluginId: "notes" }),
-    ).rejects.toThrow(
-      "Rollback not started; this BB server predates plugin rollback. Upgrade the BB server to roll back an update",
-    );
-  });
+  it.each([
+    "experimental_getRollbackPoint",
+    "experimental_startRollbackUpdate",
+  ] as const)(
+    "reports a server without the rollback route as predating rollback from %s",
+    async (member) => {
+      const sdk = createBbSdk({
+        transport: createHttpTransport({
+          baseUrl: "http://bb.test",
+          runtime: "node",
+          fetch: async () => new Response("404 Not Found", { status: 404 }),
+        }),
+      });
+      const error: unknown = await sdk.plugins[member]({
+        pluginId: "notes",
+      }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(PluginRollbackUnsupportedError);
+      expect(error).toMatchObject({
+        pluginId: "notes",
+        message:
+          "Rollback not started; this BB server predates plugin rollback. Upgrade the BB server to roll back an update",
+      });
+    },
+  );
 });

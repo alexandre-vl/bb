@@ -11,6 +11,7 @@ import {
 } from "@bb/db";
 import type {
   PluginRollbackPoint,
+  PluginRollbackPointResponse,
   PluginRollbackRequest,
   PluginUpdateCheckEntry,
 } from "@bb/server-contract";
@@ -420,6 +421,36 @@ export function createPluginRollback(context: PluginRollbackContext) {
     return { manifest };
   }
 
+  function getRollbackPoint(id: string): Promise<PluginRollbackPointResponse> {
+    return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {
+      const row = getInstalledPlugin(deps.db, id);
+      if (row === undefined) {
+        return { outcome: "unavailable", detail: `unknown plugin "${id}"` };
+      }
+      const sourceRefusal = rollbackSourceRefusal(row);
+      if (sourceRefusal !== null) {
+        return { outcome: "unavailable", detail: sourceRefusal };
+      }
+      const holdRefusal = pluginRestoreHoldRefusal(deps.db, id, "rollback");
+      if (holdRefusal !== null) {
+        return { outcome: "unavailable", detail: holdRefusal };
+      }
+      const lookup = await rollbackPoints.resolve(row);
+      if (lookup.outcome === "none") {
+        return { outcome: "unavailable", detail: lookup.detail };
+      }
+      return {
+        outcome: "rollback-available",
+        from: installedUpdateVersion(row),
+        point: {
+          version: lookup.point.target.version,
+          display: lookup.point.target.display,
+          until: lookup.point.snapshot.retainedUntil,
+        },
+      };
+    });
+  }
+
   async function rollbackUpdate(
     id: string,
     request: PluginRollbackRequest = {},
@@ -507,5 +538,5 @@ export function createPluginRollback(context: PluginRollbackContext) {
     });
   }
 
-  return { rollbackUpdate };
+  return { getRollbackPoint, rollbackUpdate };
 }

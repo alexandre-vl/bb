@@ -18,6 +18,7 @@ import type {
   PluginCatalogInstallPlan,
   PluginCatalogResolvedSource,
   PluginCatalogSearchResult,
+  PluginRollbackPointResponse,
   PluginTrackingRangeResult,
   PluginUpdateCheckEntry as PluginUpdateResult,
   PluginUpdateJob,
@@ -26,6 +27,7 @@ import { PLUGIN_SDK_VERSION } from "@bb/domain";
 import {
   BbHttpError,
   pluginMutationResponseSchema,
+  PluginRollbackUnsupportedError,
   PluginUpdateExpectedVersionUnsupportedError,
 } from "@bb/sdk";
 import { parseDataDirEnvValue, resolveProdDataDir } from "@bb/config/runtime";
@@ -796,6 +798,11 @@ function olderServerUpdateMessage(error: unknown): string | null {
     return null;
   }
   return `${error.pluginId}: not updated — the bb server is older than this bb CLI and cannot guarantee that it installs ${error.expectedVersion}, the release this check showed. Upgrade bb on the server, then run \`bb plugin update ${error.pluginId}\` again.`;
+}
+
+function olderServerRollbackMessage(error: unknown): string | null {
+  if (!(error instanceof PluginRollbackUnsupportedError)) return null;
+  return `${error.pluginId}: not rolled back — the bb server is older than this bb CLI and predates plugin rollback. Upgrade bb on the server, then run \`bb plugin rollback ${error.pluginId}\` again.`;
 }
 
 function printSettings(result: PluginSettingsResult): void {
@@ -1671,20 +1678,23 @@ export function registerPluginCommands(
       action(
         async (id: string, opts: JsonOutputOptions & { yes?: boolean }) => {
           const sdk = createCliBbSdk(getUrl());
-          const { plugins } = await sdk.plugins.list();
-          const installed = plugins.find((entry) => entry.id === id);
-          if (installed === undefined) {
-            throw new Error(`unknown plugin "${id}"`);
+          let availability: PluginRollbackPointResponse;
+          try {
+            availability = await sdk.plugins.experimental_getRollbackPoint({
+              pluginId: id,
+            });
+          } catch (error) {
+            const message = olderServerRollbackMessage(error);
+            if (message === null) throw error;
+            exitWithError({ error: message });
           }
-          const point = installed.updateState.rollback;
-          if (point === undefined) {
-            throw new Error(
-              `plugin "${id}" has no rollback point; bb rolls back only the most recent update of a git or npm plugin, while it keeps the release that update replaced`,
-            );
+          if (availability.outcome === "unavailable") {
+            throw new Error(availability.detail);
           }
+          const { from, point } = availability;
           if (!opts.json) {
             console.log(
-              `${id}: roll back ${installed.version} to ${point.display}, the release its last update replaced (kept until ${formatAbsoluteDate(point.until)}).`,
+              `${id}: roll back ${from.display} to ${point.display}, the release its last update replaced (kept until ${formatAbsoluteDate(point.until)}).`,
             );
             console.log(
               `${id}: settings, KV entries, data.db, secrets, and schedules return to their values from before the update; changes made since then are discarded.`,

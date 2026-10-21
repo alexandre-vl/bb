@@ -207,6 +207,21 @@ export const pluginRollbackPointSchema = z.object({
 });
 export type PluginRollbackPoint = z.infer<typeof pluginRollbackPointSchema>;
 
+export const pluginRollbackPointResponseSchema = z.discriminatedUnion(
+  "outcome",
+  [
+    z.object({
+      outcome: z.literal("rollback-available"),
+      from: pluginResolvedVersionSchema,
+      point: pluginRollbackPointSchema,
+    }),
+    z.object({ outcome: z.literal("unavailable"), detail: z.string() }),
+  ],
+);
+export type PluginRollbackPointResponse = z.infer<
+  typeof pluginRollbackPointResponseSchema
+>;
+
 export const pluginUpdateStateSchema = z.object({
   outcome: pluginUpdateOutcomeSchema.optional(),
   detail: z.string().optional(),

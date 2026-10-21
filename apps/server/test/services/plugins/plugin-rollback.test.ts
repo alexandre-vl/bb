@@ -31,7 +31,10 @@ import {
 } from "@bb/db";
 import { createMigratedConnection } from "@bb/db/testing";
 import type { Logger } from "@bb/logger";
-import { pluginUpdateJobResponseSchema } from "@bb/server-contract";
+import {
+  pluginRollbackPointResponseSchema,
+  pluginUpdateJobResponseSchema,
+} from "@bb/server-contract";
 import { registerPluginUpdateJobRoutes } from "../../../src/routes/plugin-update-jobs.js";
 import { registerPluginRoutes } from "../../../src/routes/plugins.js";
 import { createAiServiceRegistry } from "../../../src/services/ai/ai-service-registry.js";
@@ -249,6 +252,12 @@ describe("plugin update rollback", () => {
     return { previousCommit, nextCommit };
   }
 
+  async function rollbackPointOverHttp(pluginId = PLUGIN_ID) {
+    const response = await app.request(`/plugins/${pluginId}/rollback`);
+    expect(response.status).toBe(200);
+    return pluginRollbackPointResponseSchema.parse(await response.json());
+  }
+
   async function rollbackOverHttp(body: unknown): Promise<Response> {
     return app.request(`/plugins/${PLUGIN_ID}/rollback`, {
       method: "POST",
@@ -304,6 +313,14 @@ describe("plugin update rollback", () => {
     expect(installed().updateState.rollback).toEqual({
       ...target,
       until: snapshot?.retainedUntil,
+    });
+    expect(await rollbackPointOverHttp()).toEqual({
+      outcome: "rollback-available",
+      from: {
+        version: nextCommit,
+        display: `${repo}@v1.1.0 (${nextCommit.slice(0, 12)})`,
+      },
+      point: { ...target, until: snapshot?.retainedUntil },
     });
     expect((snapshot?.retainedUntil ?? 0) - (snapshot?.createdAt ?? 0)).toBe(
       RETENTION_MS,
@@ -377,6 +394,10 @@ describe("plugin update rollback", () => {
     await expect(service.rollbackUpdate(PLUGIN_ID)).resolves.toEqual({
       ok: false,
       error: `plugin "${PLUGIN_ID}" has no rollback point: no update to its current version is still within the rollback window`,
+    });
+    expect(await rollbackPointOverHttp()).toEqual({
+      outcome: "unavailable",
+      detail: `plugin "${PLUGIN_ID}" has no rollback point: no update to its current version is still within the rollback window`,
     });
   }, 60_000);
 
@@ -671,6 +692,14 @@ describe("plugin update rollback", () => {
       ok: false,
       error: 'unknown plugin "missing"',
     });
+    expect(await rollbackPointOverHttp("missing")).toEqual({
+      outcome: "unavailable",
+      detail: 'unknown plugin "missing"',
+    });
+    expect(await rollbackPointOverHttp("local-rollback")).toMatchObject({
+      outcome: "unavailable",
+      detail: expect.stringContaining("is a local path source"),
+    });
 
     const { previousCommit } = await updateToNextRelease();
     const updated = registration();
@@ -738,12 +767,15 @@ describe("plugin update rollback", () => {
 
     expect(installed()).toMatchObject({ version: "1.2.0", status: "running" });
     expect(installed().updateState).not.toHaveProperty("rollback");
+    const incompatible = `plugin "${PLUGIN_ID}" has no rollback point: ${repo}@v1.1.0 (${keptCommit.slice(0, 12)}) is incompatible with this bb: requires bb <2.0.0, running bb is 2.0.0`;
+    mountRoutes();
+    expect(await rollbackPointOverHttp()).toEqual({
+      outcome: "unavailable",
+      detail: incompatible,
+    });
     await expect(
       service.rollbackUpdate(PLUGIN_ID, { expectedVersion: keptCommit }),
-    ).resolves.toEqual({
-      ok: false,
-      error: `plugin "${PLUGIN_ID}" has no rollback point: ${repo}@v1.1.0 (${keptCommit.slice(0, 12)}) is incompatible with this bb: requires bb <2.0.0, running bb is 2.0.0`,
-    });
+    ).resolves.toEqual({ ok: false, error: incompatible });
     expect(registration()).toMatchObject({ version: "1.2.0" });
   }, 90_000);
 

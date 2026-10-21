@@ -311,6 +311,7 @@ type ExpectedPluginsKey =
   | "applyUpdate"
   | "experimental_startUpdate"
   | "experimental_updateJobs"
+  | "experimental_getRollbackPoint"
   | "experimental_rollbackUpdate"
   | "experimental_startRollbackUpdate"
   | "callRpc"

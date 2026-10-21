@@ -31,6 +31,7 @@ import {
   pluginCachePruneResponseSchema,
   pluginInstallRequestSchema,
   pluginRemoveResponseSchema,
+  pluginRollbackPointResponseSchema,
   pluginRollbackRequestSchema,
   pluginSafeModeRequestSchema,
   pluginSafeModeResponseSchema,
@@ -54,6 +55,7 @@ import {
   type PluginCatalogStatus as PluginCatalogStatusContract,
   type PluginInstallJob as PluginInstallJobContract,
   type PluginApplyUpdateResult as PluginApplyUpdateContract,
+  type PluginRollbackPointResponse,
   type PluginRollbackResult as PluginRollbackContract,
   type PluginCachePruneResponse,
   type PluginListResponse,
@@ -128,6 +130,10 @@ export interface PluginApplyUpdateArgs extends PluginIdArgs {
 
 export interface PluginRollbackUpdateArgs extends PluginIdArgs {
   expectedVersion?: string;
+}
+
+export interface PluginGetRollbackPointArgs extends PluginIdArgs {
+  signal?: AbortSignal;
 }
 
 export interface PluginInstallArgs {
@@ -264,6 +270,7 @@ export type PluginGetSourceResult = PluginSourceDetail;
 export type PluginCheckUpdatesResult = PluginUpdateCheckEntry[];
 export type PluginApplyUpdateResult = PluginApplyUpdateContract;
 export type PluginRollbackUpdateResult = PluginRollbackContract;
+export type PluginGetRollbackPointResult = PluginRollbackPointResponse;
 
 export type PluginCatalogStatusResult = PluginCatalogStatusContract;
 export type PluginCatalogSearchEntry = PluginCatalogSearchContract;
@@ -330,6 +337,9 @@ export interface PluginsArea {
     args: PluginApplyUpdateArgs,
   ): Promise<PluginUpdateJob>;
   experimental_updateJobs: PluginUpdateJobsArea;
+  experimental_getRollbackPoint(
+    args: PluginGetRollbackPointArgs,
+  ): Promise<PluginGetRollbackPointResult>;
   experimental_rollbackUpdate(
     args: PluginRollbackUpdateArgs,
   ): Promise<PluginRollbackUpdateResult>;
@@ -383,6 +393,22 @@ export class PluginUpdateExpectedVersionUnsupportedError extends Error {
     this.expectedVersion = args.expectedVersion;
     this.pluginId = args.pluginId;
   }
+}
+
+export class PluginRollbackUnsupportedError extends Error {
+  readonly pluginId: string;
+
+  constructor(args: { pluginId: string }) {
+    super(
+      "Rollback not started; this BB server predates plugin rollback. Upgrade the BB server to roll back an update",
+    );
+    this.name = "PluginRollbackUnsupportedError";
+    this.pluginId = args.pluginId;
+  }
+}
+
+function missingRollbackRoute(error: unknown): boolean {
+  return error instanceof BbHttpError && error.status === 404;
 }
 
 function rejectedUpdateRequestFields(error: unknown): boolean {
@@ -504,10 +530,8 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       );
       return response.job;
     } catch (error) {
-      if (error instanceof BbHttpError && error.status === 404) {
-        throw new Error(
-          "Rollback not started; this BB server predates plugin rollback. Upgrade the BB server to roll back an update",
-        );
+      if (missingRollbackRoute(error)) {
+        throw new PluginRollbackUnsupportedError({ pluginId: input.pluginId });
       }
       throw error;
     }
@@ -722,6 +746,22 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       );
     },
     experimental_updateJobs: updateJobs,
+    async experimental_getRollbackPoint(input) {
+      try {
+        return await requestParsed(
+          pluginPath(input.pluginId, "/rollback"),
+          pluginRollbackPointResponseSchema,
+          { signal: input.signal },
+        );
+      } catch (error) {
+        if (missingRollbackRoute(error)) {
+          throw new PluginRollbackUnsupportedError({
+            pluginId: input.pluginId,
+          });
+        }
+        throw error;
+      }
+    },
     async experimental_rollbackUpdate(input) {
       const job = await settleUpdateJob(await startRollback(input));
       if (job.kind === "rollback") return job.result;
