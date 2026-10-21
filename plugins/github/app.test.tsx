@@ -1186,6 +1186,45 @@ describe("GitHub pull request detail", () => {
     ]);
     await toasts.findByText("Copied the branch name");
   });
+
+  it("shapes the loading card from the listed row, so loading doesn't move the tabs", async () => {
+    let finish = () => {};
+    const slot = renderPanel("pulls/get-bb/bb/2", {
+      getPull: () =>
+        new Promise<unknown>((resolve) => {
+          finish = () =>
+            resolve({
+              pull: pullDetail({
+                number: 2,
+                title: "Fix the flaky shard",
+                author: "hubot",
+                mergeStateStatus: "UNSTABLE",
+                checks: [
+                  check("lint", "failure"),
+                  check("unit", "failure"),
+                  check("build", "success"),
+                ],
+              }),
+            });
+        }),
+    });
+
+    await waitFor(() =>
+      expect(
+        slot.getByRole("region", { name: "Next step" }).querySelectorAll("li"),
+      ).toHaveLength(2),
+    );
+    const placeholders = slot.getByRole("region", { name: "Next step" })
+      .lastElementChild?.childElementCount;
+
+    await act(async () => finish());
+    const card = await nextStepCard(slot, "2 checks failing");
+    expect(card.querySelectorAll("li")).toHaveLength(2);
+    expect(
+      slot.getByRole("button", { name: "Re-run failed checks" }).parentElement
+        ?.childElementCount,
+    ).toBe(placeholders);
+  });
 });
 
 describe("GitHub pull request status pill", () => {

@@ -85,6 +85,7 @@ import {
   TriggerTip,
   useAgents,
   useNow,
+  useRepoSettings,
   type PullDetail,
 } from "./shared.js";
 
@@ -383,6 +384,7 @@ export function PullDetailView({
   const key = itemKey({ repo, number });
   const { pull, fresh, error, load } = useDetail(repo, number);
   const agent = useAgents().get(`pr:${key}`) ?? null;
+  const settings = useRepoSettings();
   const activity = useActivities().get(key) ?? null;
   const changeState = useChangePullState();
   const { snooze, unsnooze } = useSnooze();
@@ -747,7 +749,12 @@ export function PullDetailView({
                       onRetry={load}
                     />
                   ) : (
-                    <NextStepSkeleton />
+                    <NextStepSkeleton
+                      status={status}
+                      viewer={viewer}
+                      agent={live ? agent : null}
+                      canMerge={settings?.[repo]?.viewerCanWrite ?? true}
+                    />
                   )
                 ) : (
                   <NextStepCard

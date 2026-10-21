@@ -9,6 +9,7 @@ import { COARSE_POINTER_PROMPT_ACTION_BUTTON_CLASS } from "@/components/ui/coars
 import { Skeleton } from "@/components/ui/skeleton";
 import { checkCounts, stateNameOf } from "../app-logic.js";
 import {
+  hardMergeBlock,
   isViewerReviewRequested,
   mergeBlockedReason,
   type PullStatus,
@@ -80,7 +81,7 @@ function CardHead({
           {title}
         </p>
         {detail === null ? null : (
-          <p className="text-xs text-subtle-foreground">{detail}</p>
+          <p className="text-xs text-pretty text-subtle-foreground">{detail}</p>
         )}
       </div>
     </div>
@@ -227,27 +228,137 @@ export function AgentLine({
   );
 }
 
-export function NextStepSkeleton() {
+interface CardShape {
+  rows: number;
+  more: boolean;
+  bar: boolean;
+  actions: number;
+  agent: boolean;
+}
+
+function cardShape(
+  status: PullStatus | null,
+  viewer: string | null,
+  agent: AgentInfo | null,
+  canMerge: boolean,
+): CardShape {
+  const shape = { rows: 0, more: false, bar: false, actions: 2, agent: false };
+  if (status === null) return shape;
+  if (status.state === "merged") return { ...shape, actions: 0 };
+  if (status.state === "closed") return { ...shape, actions: 1 };
+  const open = { ...shape, agent: agent !== null };
+  const startAgent = agent !== null && agent.state !== "idle" ? 0 : 1;
+  const merge = canMerge && hardMergeBlock(status) === null ? 1 : 0;
+  const mine = isViewerReviewRequested(status, viewer);
+  switch (
+    mine && status.attention !== "changes_requested"
+      ? "review_requested"
+      : status.attention
+  ) {
+    case "queued":
+      return { ...open, actions: 0 };
+    case "checks_failed": {
+      const failed = Math.max(status.checks.failed, 1);
+      return {
+        ...open,
+        rows: Math.min(failed, FAILING_SHOWN),
+        more: failed > FAILING_SHOWN,
+        actions: 1 + merge + startAgent,
+      };
+    }
+    case "conflicts":
+    case "draft":
+    case "ready_to_merge":
+      return { ...open, actions: 1 + startAgent };
+    case "changes_requested":
+      return { ...open, actions: merge + startAgent };
+    case "review_requested":
+      return { ...open, actions: mine ? 1 + merge + startAgent : merge };
+    case "checks_pending":
+      return { ...open, bar: true, actions: merge };
+    default:
+      return { ...open, actions: merge };
+  }
+}
+
+export function NextStepSkeleton({
+  status = null,
+  viewer = null,
+  agent = null,
+  canMerge = true,
+}: {
+  status?: PullStatus | null;
+  viewer?: string | null;
+  agent?: AgentInfo | null;
+  canMerge?: boolean;
+}) {
+  const shape = cardShape(status, viewer, agent, canMerge);
   return (
     <Card>
       <div aria-hidden className="flex items-start gap-2">
-        <Skeleton className="mt-0.5 size-4 rounded-full" />
-        <div className="flex flex-1 flex-col gap-2 pt-0.5">
-          <Skeleton className="h-3 w-2/5" />
-          <Skeleton className="h-2.5 w-3/5" />
+        <span className="flex h-5 w-4 shrink-0 items-center justify-center">
+          <Skeleton className="size-4 rounded-full" />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="flex h-5 items-center">
+            <Skeleton className="h-3 w-2/5" />
+          </span>
+          <span className="flex h-4 items-center max-md:pointer-coarse:h-5">
+            <Skeleton className="h-2.5 w-3/5" />
+          </span>
         </div>
       </div>
-      <div aria-hidden className="ml-6 flex flex-col gap-1.5">
-        <Skeleton className="h-2.5 w-1/2" />
-        <Skeleton className="h-2.5 w-1/3" />
-      </div>
-      <div
-        aria-hidden
-        className="ml-6 flex gap-2 @max-[35rem]/github:ml-0 @max-[35rem]/github:flex-col"
-      >
-        <Skeleton className="h-8 w-32 @max-[35rem]/github:h-10 @max-[35rem]/github:w-full" />
-        <Skeleton className="h-8 w-36 @max-[35rem]/github:h-10 @max-[35rem]/github:w-full" />
-      </div>
+      {shape.rows > 0 ? (
+        <CardBody>
+          <ul aria-hidden className="flex flex-col">
+            {Array.from({ length: shape.rows }, (_, index) => (
+              <li
+                key={index}
+                className="flex h-7 items-center gap-2 max-md:pointer-coarse:h-9"
+              >
+                <Skeleton className="size-3.5 shrink-0 rounded-full" />
+                <Skeleton
+                  className={`h-2.5 ${index % 2 ? "w-1/3" : "w-2/5"}`}
+                />
+              </li>
+            ))}
+          </ul>
+          {shape.more ? (
+            <span
+              aria-hidden
+              className="flex h-7 items-center max-md:pointer-coarse:h-10"
+            >
+              <Skeleton className="h-2.5 w-24" />
+            </span>
+          ) : null}
+        </CardBody>
+      ) : null}
+      {shape.bar ? (
+        <CardBody>
+          <Skeleton aria-hidden className="h-1 rounded-full" />
+        </CardBody>
+      ) : null}
+      {shape.actions > 0 ? (
+        <CardActions>
+          {Array.from({ length: shape.actions }, (_, index) => (
+            <Skeleton
+              key={index}
+              aria-hidden
+              className={`h-8 max-md:pointer-coarse:h-10 @max-[35rem]/github:w-full ${index ? "w-36" : "w-32"}`}
+            />
+          ))}
+        </CardActions>
+      ) : null}
+      {shape.agent ? (
+        <div
+          aria-hidden
+          className="ml-6 flex min-h-8 items-center gap-2 border-t border-border pt-3 @max-[35rem]/github:ml-0"
+        >
+          <Skeleton className="size-4 shrink-0 rounded-full" />
+          <Skeleton className="h-2.5 flex-1" />
+          <Skeleton className="-my-1 h-7 w-20 shrink-0 max-md:pointer-coarse:h-10" />
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -541,21 +652,23 @@ export function NextStepCard({
                   : "No checks have run yet"
             }
           />
-          <CardActions>
-            {pull.viewerCanUpdate ? (
-              <Button
-                type="button"
-                size="sm"
-                className={ACTION_CLASS}
-                aria-keyshortcuts="R"
-                onClick={handlers.onReady}
-              >
-                <Icon name="GitPullRequestArrow" />
-                Mark ready
-              </Button>
-            ) : null}
-            {startAgent}
-          </CardActions>
+          {pull.viewerCanUpdate || startAgent !== null ? (
+            <CardActions>
+              {pull.viewerCanUpdate ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className={ACTION_CLASS}
+                  aria-keyshortcuts="R"
+                  onClick={handlers.onReady}
+                >
+                  <Icon name="GitPullRequestArrow" />
+                  Mark ready
+                </Button>
+              ) : null}
+              {startAgent}
+            </CardActions>
+          ) : null}
           {agentLine}
         </Card>
       );
@@ -589,13 +702,18 @@ export function NextStepCard({
                   : "A review is required before merging"
             }
           />
-          <CardActions>
-            {mine ? (
-              <GitHubLink url={`${pull.url}/files`} label="Review on GitHub" />
-            ) : null}
-            {merge(false)}
-            {mine ? startAgent : null}
-          </CardActions>
+          {mine || mergeable ? (
+            <CardActions>
+              {mine ? (
+                <GitHubLink
+                  url={`${pull.url}/files`}
+                  label="Review on GitHub"
+                />
+              ) : null}
+              {merge(false)}
+              {mine ? startAgent : null}
+            </CardActions>
+          ) : null}
           {agentLine}
         </Card>
       );
