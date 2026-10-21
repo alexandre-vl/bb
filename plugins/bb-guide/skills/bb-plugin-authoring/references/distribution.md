@@ -111,9 +111,12 @@ For 7 days after a successful update, a user can run `bb plugin rollback <id>`
 (or use Roll back on the plugin's page) to return to the release it replaced.
 Rollback restores the plugin's data.db, KV entries, settings, secrets, and
 schedules from before the update, so anything the new release wrote, including
-data migrations, is discarded. Keep the previous release able to start from its
-own data, and do not assume a migration runs only once: after a rollback the
-next update applies it again.
+data migrations, is discarded. It does not restore thread plugin metadata or
+files your plugin keeps outside data.db and its secrets directory: those keep
+what the newer release wrote, so keep state that must match the running
+release in data.db, KV, or settings. Keep the previous release able to start
+from its own data, and do not assume a migration runs only once: after a
+rollback the next update applies it again.
 
 ### Releasing a git plugin with semver tags
 
