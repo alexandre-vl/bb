@@ -26,7 +26,7 @@ alex_ref=${FORK_ALEX_REF:-origin/alex}
 gh pr list --repo "$upstream" --author "$author" --state open --limit 100 \
   --json number,title,url,headRefName,headRefOid,isDraft,mergeable,reviewDecision,createdAt,additions,deletions,statusCheckRollup >"$report.json"
 
-if [[ $(cat "$report.json") == "[]" ]] && [[ $(gh api "search/issues?q=repo:$upstream+is:pr+is:open+author:$author" --jq .total_count) != 0 ]]; then
+if [[ $(cat "$report.json") == "[]" ]] && [[ $(curl -fsS "https://api.github.com/search/issues?q=repo:$upstream+is:pr+is:open+author:$author&per_page=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total_count"])') != 0 ]]; then
   echo "gh pr list sees no pull requests that search finds: the token cannot read $upstream." >&2
   exit 1
 fi
