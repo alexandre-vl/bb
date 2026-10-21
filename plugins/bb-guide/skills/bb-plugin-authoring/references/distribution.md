@@ -107,6 +107,14 @@ the range to track in your release notes, in double quotes, which protect
 `<`, `>`, and `|` in POSIX shells, PowerShell, and cmd.exe:
 `bb plugin track <id> ">=0.2.0 <1.0.0"`.
 
+For 7 days after a successful update, a user can run `bb plugin rollback <id>`
+(or use Roll back on the plugin's page) to return to the release it replaced.
+Rollback restores the plugin's data.db, KV entries, settings, secrets, and
+schedules from before the update, so anything the new release wrote, including
+data migrations, is discarded. Keep the previous release able to start from its
+own data, and do not assume a migration runs only once: after a rollback the
+next update applies it again.
+
 ### Releasing a git plugin with semver tags
 
 Tag each release `vX.Y.Z` and users can install a range instead of a ref:

@@ -136,12 +136,16 @@ under `<data>/plugins/cache` that no installed plugin uses and returns
 unrecorded directory), `version`, `path`, and `bytes`, counting a shared
 monorepo checkout once. It removes every non-active version regardless of
 age and keeps active versions, versions a pending or restoring rollback
-needs, directories containing or inside an installed plugin's root, and
-in-flight staging directories. It runs under the plugin registration lock.
-Removing a plugin deletes its cached versions at once, and a successful update
-deletes replaced versions once activation stabilizes (its state snapshot
-stays for the 7-day retention window). It backs `bb plugin prune [--dry-run]`
-and the palette's Clean up plugin cache.
+needs, the version a retained rollback point returns to, directories
+containing or inside an installed plugin's root, and in-flight staging
+directories. It runs under the plugin registration lock. Removing a plugin
+deletes its cached versions and state snapshots at once. A successful update
+keeps the version it replaced for as long as its state snapshot is retained
+(7 days) so `experimental_rollbackUpdate` can return to it. Nothing collects
+it on a timer: the first collection after the snapshot expires deletes it,
+and collection runs only when the server starts and after each successful
+update or rollback. It backs `bb plugin prune [--dry-run]` and the palette's
+Clean up plugin cache.
 
 Before stabilization, audit whether the response should report
 retained-but-unused sizes so a UI can show reclaimable space without a dry
@@ -3145,9 +3149,11 @@ should remain alongside it.
 
 Starts a server-owned plugin update and returns its job at once;
 `experimental_updateJobs.list/get` report queued/running phases and the
-terminal update, rollback, or failure. Jobs survive client disconnects, stay
-ten minutes after finishing, and live in memory only. `applyUpdate` keeps its
-result contract by polling the job; raw callers without
+terminal update, rollback, or failure. Each job has `kind: "update"` or
+`"rollback"`; the SDK reads a job from a server that predates rollback as an
+update. Jobs survive client disconnects, stay ten minutes after finishing, and
+live in memory only. `applyUpdate` keeps its result contract by polling the
+job; raw callers without
 `Prefer: respond-async` keep the synchronous response. Running updates cannot
 be cancelled during activation or rollback.
 
@@ -3166,6 +3172,43 @@ Stabilization requires exercising reconnect/reload, concurrent deduplication,
 rollback delivery, missing jobs after restart, and CLI/SDK parity, and, for
 `applyUpdate.expectedVersion`, a plugin caller receiving the refusal when the
 reviewed release is no longer the candidate.
+
+## `PluginBbSdk.plugins.experimental_rollbackUpdate` and `experimental_startRollbackUpdate`
+
+`POST /api/v1/plugins/:id/rollback` with `{ expectedVersion? }` returns a
+git or npm plugin to the release its most recent successful update replaced,
+while that update's state snapshot is retained (7 days).
+`experimental_rollbackUpdate` waits for the job and returns the
+`PluginApplyUpdateResult`; `experimental_startRollbackUpdate` returns the
+job, which runs in the update job registry with `kind: "rollback"` and joins
+only an active rollback for the same plugin and expected version. The server
+first snapshots the current state, then restores the pre-update
+registration (resolved tag, commit or npm version, artifact, enabled state,
+and update-check state) and the snapshot's data.db, KV, settings, secrets, and
+schedules, and activates the kept artifact through the update activation
+path, under the same registration, lifecycle, and artifact locks. The
+tracking-range columns (`source`, git range, npm requested spec and spec kind)
+keep their current values, so a range changed after the update survives. If
+the old release fails to start, bb restores the post-update snapshot and the
+result is `rolled-back`; success is `reverted`. A rollback interrupted by a
+crash is undone on the next start, which restores the updated release and its
+data the way it recovers an interrupted update. The server refuses,
+changing nothing, without a rollback point, for path and builtin sources, in
+safe mode, when the kept artifact no longer matches its recorded hash or is
+incompatible with this bb, and when `expectedVersion` differs from
+`updateState.rollback.version`. A server without the route answers 404, which
+the SDK reports as "predates plugin rollback". `updateState.rollback`
+(`version`, `display`, `until`) on each installed plugin names the target and
+deadline. Core callers: `bb plugin rollback` (`apps/cli/src/commands/plugin.ts`)
+and the plugin details Roll back control
+(`apps/app/src/components/plugin/management/RollbackPluginDialog.tsx`, through
+`startPluginRollback`).
+
+Stabilization requires rollback of a monorepo subdirectory install and of an
+npm dist-tag install, a decision on whether more than the most recent update
+should be reversible, a decision on whether rollback should restore state
+written since the update selectively, and exercising rollback across a bb
+upgrade that changes the snapshot format.
 
 ## `PluginBbSdk.system.experimental_recordTelemetryEvent`
 

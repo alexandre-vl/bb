@@ -64,6 +64,7 @@ signatures (see "Looking up the exact API" in distribution.md).
 - `plugins`: `list` `install` `remove` `enable` `disable` `reload` `token`
   `callRpc` `getSource` `getSettings` `updateSettings` `checkUpdates`
   `listUpdateResults` `applyUpdate` `experimental_startUpdate`
+  `experimental_rollbackUpdate` `experimental_startRollbackUpdate`
   `experimental_discoverRpc` `experimental_getSafeMode`
   `experimental_setSafeMode` `experimental_pruneCache`
   `experimental_setTrackingRange`; sub-areas `catalog`
