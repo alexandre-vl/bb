@@ -63,6 +63,19 @@ const hasNpm = await run("npm", ["--version"]).then(
   () => false,
 );
 
+async function checkedAfterRollback(
+  db: DbConnection,
+  pluginId: string,
+): Promise<void> {
+  await vi.waitFor(
+    () =>
+      expect(
+        getInstalledPluginRegistration(db, pluginId)?.lastUpdateCheckAt,
+      ).toEqual(expect.any(Number)),
+    { timeout: 20_000 },
+  );
+}
+
 describe("plugin update rollback", () => {
   let db: DbConnection;
   let workDir: string;
@@ -387,6 +400,7 @@ describe("plugin update rollback", () => {
     ]);
     await expect(stat(updatedRoot)).rejects.toMatchObject({ code: "ENOENT" });
     expect(installed().updateState).not.toHaveProperty("rollback");
+    await checkedAfterRollback(db, PLUGIN_ID);
     expect(installed().updateState).toMatchObject({
       outcome: "update-available",
       availableVersion: nextCommit,
@@ -422,6 +436,7 @@ describe("plugin update rollback", () => {
       gitResolvedCommit: previousCommit,
       version: "1.0.0",
     });
+    await checkedAfterRollback(db, PLUGIN_ID);
     expect(installed().updateState).toMatchObject({
       outcome: "update-available",
       availableVersion: majorCommit,
@@ -967,6 +982,40 @@ describe("plugin update rollback", () => {
       code: "ENOENT",
     });
   }, 90_000);
+
+  it("starts no update check for a rollback that finishes while bb stops", async () => {
+    const { previousCommit } = await updateToNextRelease();
+    let windowReached!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      windowReached = resolve;
+    });
+    let elapse = () => {};
+    await service.stop();
+    service = createService({
+      stabilizationWindowMs: 1,
+      scheduleStabilizationWindow: (_durationMs, onElapsed) => {
+        elapse = onElapsed;
+        windowReached();
+        return () => {};
+      },
+    });
+    await service.start();
+
+    const rollback = service.rollbackUpdate(PLUGIN_ID, {
+      expectedVersion: previousCommit,
+    });
+    await reached;
+    const stopping = service.stop();
+    elapse();
+
+    await expect(rollback).resolves.toMatchObject({
+      ok: true,
+      result: { outcome: "reverted" },
+    });
+    await stopping;
+    await service.stopPeriodicUpdateChecks();
+    expect(registration().lastUpdateCheckAt).toBeNull();
+  }, 60_000);
 });
 
 describe.skipIf(!hasNpm)("npm plugin update rollback", () => {
@@ -975,6 +1024,7 @@ describe.skipIf(!hasNpm)("npm plugin update rollback", () => {
   let workDir: string;
   let service: PluginService;
   let registry: Server;
+  let holdMetadata: (() => Promise<void>) | undefined;
   const tarballs = new Map<string, Buffer>();
   const savedEnv = new Map<string, string | undefined>();
 
@@ -1017,6 +1067,7 @@ describe.skipIf(!hasNpm)("npm plugin update rollback", () => {
     db = createMigratedConnection();
     workDir = await mkdtemp(join(tmpdir(), "bb-plugin-npm-rollback-"));
     tarballs.clear();
+    holdMetadata = undefined;
     registry = await new Promise<Server>((resolvePromise) => {
       let origin = "";
       const server = createServer((request, response) => {
@@ -1034,28 +1085,30 @@ describe.skipIf(!hasNpm)("npm plugin update rollback", () => {
           response.end();
           return;
         }
-        const versions = Object.fromEntries(
-          [...tarballs].map(([version, bytes]) => [
-            version,
-            {
-              name: packageName,
+        void (holdMetadata?.() ?? Promise.resolve()).then(() => {
+          const versions = Object.fromEntries(
+            [...tarballs].map(([version, bytes]) => [
               version,
-              dist: {
-                tarball: `${origin}/package-${version}.tgz`,
-                shasum: createHash("sha1").update(bytes).digest("hex"),
-                integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+              {
+                name: packageName,
+                version,
+                dist: {
+                  tarball: `${origin}/package-${version}.tgz`,
+                  shasum: createHash("sha1").update(bytes).digest("hex"),
+                  integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+                },
               },
-            },
-          ]),
-        );
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(
-          JSON.stringify({
-            name: packageName,
-            "dist-tags": { latest: [...tarballs.keys()].at(-1) },
-            versions,
-          }),
-        );
+            ]),
+          );
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              name: packageName,
+              "dist-tags": { latest: [...tarballs.keys()].at(-1) },
+              versions,
+            }),
+          );
+        });
       });
       server.listen(0, "127.0.0.1", () => {
         origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -1156,5 +1209,105 @@ describe.skipIf(!hasNpm)("npm plugin update rollback", () => {
     expect(
       service.list().find((entry) => entry.id === "npmrollback"),
     ).toMatchObject({ version: "1.0.0", status: "running" });
+  }, 120_000);
+
+  it("finishes a rollback without waiting for the update check that follows it", async () => {
+    await publish("1.0.0");
+    await service.install(`npm:${packageName}@^1.0.0`, { kind: "root" });
+    await publish("1.1.0");
+    expect(await service.checkForUpdates("npmrollback")).toMatchObject([
+      { outcome: "update-available", candidate: { version: "1.1.0" } },
+    ]);
+    await expect(
+      service.applyUpdate("npmrollback", { expectedVersion: "1.1.0" }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
+    let reportCheck!: () => void;
+    const checkReached = new Promise<void>((resolve) => {
+      reportCheck = resolve;
+    });
+    let releaseCheck!: () => void;
+    const heldCheck = new Promise<void>((resolve) => {
+      releaseCheck = resolve;
+    });
+    holdMetadata = async () => {
+      reportCheck();
+      await heldCheck;
+    };
+
+    let rollbackSettled = false;
+    const rollback = service
+      .rollbackUpdate("npmrollback", { expectedVersion: "1.0.0" })
+      .finally(() => {
+        rollbackSettled = true;
+      });
+    try {
+      await checkReached;
+      expect(rollbackSettled).toBe(true);
+      expect(getInstalledPluginRegistration(db, "npmrollback")).toMatchObject({
+        version: "1.0.0",
+        lastUpdateCheckAt: null,
+      });
+      await expect(service.pruneCache({ dryRun: true })).resolves.toMatchObject(
+        { dryRun: true },
+      );
+    } finally {
+      holdMetadata = undefined;
+      releaseCheck();
+    }
+    await expect(rollback).resolves.toMatchObject({
+      ok: true,
+      result: { outcome: "reverted", to: { version: "1.0.0" } },
+    });
+    await checkedAfterRollback(db, "npmrollback");
+    expect(
+      service.list().find((entry) => entry.id === "npmrollback")?.updateState,
+    ).toMatchObject({ outcome: "update-available", availableVersion: "1.1.0" });
+  }, 120_000);
+
+  it("waits for the update check that follows a rollback before it stops", async () => {
+    await publish("1.0.0");
+    await service.install(`npm:${packageName}@^1.0.0`, { kind: "root" });
+    await publish("1.1.0");
+    expect(await service.checkForUpdates("npmrollback")).toMatchObject([
+      { outcome: "update-available", candidate: { version: "1.1.0" } },
+    ]);
+    await expect(
+      service.applyUpdate("npmrollback", { expectedVersion: "1.1.0" }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
+    await service.setEnabled("npmrollback", false);
+    let reportCheck!: () => void;
+    const checkReached = new Promise<void>((resolve) => {
+      reportCheck = resolve;
+    });
+    let releaseCheck!: () => void;
+    const heldCheck = new Promise<void>((resolve) => {
+      releaseCheck = resolve;
+    });
+    holdMetadata = async () => {
+      reportCheck();
+      await heldCheck;
+    };
+
+    try {
+      await expect(
+        service.rollbackUpdate("npmrollback", { expectedVersion: "1.0.0" }),
+      ).resolves.toMatchObject({ ok: true, result: { outcome: "reverted" } });
+      await checkReached;
+      const stopping = service.stop().then(() => "stopped");
+      await expect(
+        Promise.race([
+          stopping,
+          new Promise((resolve) => setTimeout(resolve, 200, "stopping")),
+        ]),
+      ).resolves.toBe("stopping");
+      releaseCheck();
+      await expect(stopping).resolves.toBe("stopped");
+    } finally {
+      holdMetadata = undefined;
+      releaseCheck();
+    }
+    expect(
+      getInstalledPluginRegistration(db, "npmrollback")?.lastUpdateCheckAt,
+    ).toEqual(expect.any(Number));
   }, 120_000);
 });

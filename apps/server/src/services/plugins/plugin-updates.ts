@@ -92,6 +92,8 @@ function untrackableResolution(
 
 export interface PluginUpdates {
   checkForUpdates(id?: string): Promise<PluginUpdateCheckEntry[]>;
+  checkInBackground(rows: InstalledPluginRow[]): void;
+  stopBackgroundChecks(): Promise<void>;
   startPeriodicUpdateChecks(): void;
   stopPeriodicUpdateChecks(): Promise<void>;
   listUpdateResults(): PluginUpdateCheckEntry[];
@@ -467,6 +469,12 @@ export function createPluginUpdates(
   let cancelPeriodicCheck: (() => void) | null = null;
   let periodicChecksStopped = true;
   let inFlightSweep: Promise<PluginUpdateCheckEntry[]> | null = null;
+  const backgroundChecks = new Set<Promise<void>>();
+  let backgroundChecksStopped = false;
+
+  async function settleBackgroundChecks(): Promise<void> {
+    while (backgroundChecks.size > 0) await Promise.all(backgroundChecks);
+  }
 
   function periodicCheckDelay(): number {
     const stamps = listInstalledPlugins(deps.db)
@@ -572,6 +580,27 @@ export function createPluginUpdates(
   const updates: PluginUpdates = {
     setTrackingRange: trackingRange.setTrackingRange,
 
+    checkInBackground(rows) {
+      if (backgroundChecksStopped) return;
+      const check: Promise<void> = checkRows(rows)
+        .then(
+          () => undefined,
+          (error: unknown) => {
+            deps.logger.warn(
+              { err: error, pluginIds: rows.map(({ id }) => id) },
+              "background plugin update check failed",
+            );
+          },
+        )
+        .finally(() => backgroundChecks.delete(check));
+      backgroundChecks.add(check);
+    },
+
+    async stopBackgroundChecks() {
+      backgroundChecksStopped = true;
+      await settleBackgroundChecks();
+    },
+
     startPeriodicUpdateChecks() {
       if (!periodicChecksStopped) return;
       periodicChecksStopped = false;
@@ -586,6 +615,7 @@ export function createPluginUpdates(
       cancelPeriodicCheck?.();
       cancelPeriodicCheck = null;
       await inFlightSweep?.catch(() => undefined);
+      await settleBackgroundChecks();
     },
 
     checkForUpdates(id) {

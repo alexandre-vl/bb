@@ -855,7 +855,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     rollbackPoints,
     activateManagedUpdate,
     runArtifactGc,
-    checkForUpdates: (id) => pluginUpdates.checkForUpdates(id),
+    checkInBackground: pluginUpdates.checkInBackground,
   });
 
   function resolveAgentToolPresentation(
@@ -1695,6 +1695,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
 
     async stop() {
       for (const watcher of builtinSourceWatchers.splice(0)) watcher.close();
+      await pluginUpdates.stopBackgroundChecks();
       await disposeAll();
       await syncCliSkill();
       notifyPluginsChanged();

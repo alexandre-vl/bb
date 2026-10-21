@@ -13,7 +13,6 @@ import type {
   PluginRollbackPoint,
   PluginRollbackPointResponse,
   PluginRollbackRequest,
-  PluginUpdateCheckEntry,
 } from "@bb/server-contract";
 import { hashInstallDir, realPathInside } from "./install-sources.js";
 import { readPluginManifest, type PluginManifest } from "./manifest.js";
@@ -350,7 +349,7 @@ interface PluginRollbackContext {
     rollback?: PluginRollbackActivation;
   }) => Promise<void>;
   runArtifactGc: () => Promise<void>;
-  checkForUpdates: (id: string) => Promise<PluginUpdateCheckEntry[]>;
+  checkInBackground: (rows: InstalledPluginRow[]) => void;
 }
 
 function rollbackSourceRefusal(row: InstalledPluginRow): string | null {
@@ -383,7 +382,7 @@ export function createPluginRollback(context: PluginRollbackContext) {
     rollbackPoints,
     activateManagedUpdate,
     runArtifactGc,
-    checkForUpdates,
+    checkInBackground,
   } = context;
 
   async function readRollbackManifest(
@@ -451,9 +450,9 @@ export function createPluginRollback(context: PluginRollbackContext) {
     });
   }
 
-  async function rollbackUpdate(
+  async function revert(
     id: string,
-    request: PluginRollbackRequest = {},
+    request: PluginRollbackRequest,
   ): Promise<PluginRollbackOutcome> {
     return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {
       const row = getInstalledPlugin(deps.db, id);
@@ -530,12 +529,23 @@ export function createPluginRollback(context: PluginRollbackContext) {
         warn: (message) => deps.logger.warn(message),
       });
       await runArtifactGc();
-      await checkForUpdates(id);
       return {
         ok: true,
         result: { applied: true, from, to: point.target, outcome: "reverted" },
       };
     });
+  }
+
+  async function rollbackUpdate(
+    id: string,
+    request: PluginRollbackRequest = {},
+  ): Promise<PluginRollbackOutcome> {
+    const outcome = await revert(id, request);
+    if (outcome.ok && outcome.result.outcome === "reverted") {
+      const row = getInstalledPlugin(deps.db, id);
+      if (row !== undefined) checkInBackground([row]);
+    }
+    return outcome;
   }
 
   return { getRollbackPoint, rollbackUpdate };

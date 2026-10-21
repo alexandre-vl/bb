@@ -3202,8 +3202,11 @@ kept artifact through the update activation path, under the same
 registration, lifecycle, and artifact locks. It does not restore thread
 plugin metadata or files the plugin keeps outside data.db and its secrets
 directory; those keep what the updated release left. The update-check state
-starts empty and the job checks the tracked range again before it completes,
-so the plugin never offers the candidate recorded before the update. The
+starts empty, so the plugin never offers the candidate recorded before the
+update. The job completes when the rollback does; bb then checks the tracked
+range again in the background, outside the registration lock. Once the server
+starts to stop, it starts no such check, waits for the ones running, and a
+rollback that completes during shutdown checks nothing. The
 tracking-range columns (`source`, git range, npm requested spec and spec
 kind) keep their current values, so a range changed after the update with
 `experimental_setTrackingRange` survives, and so do `enabled` and
