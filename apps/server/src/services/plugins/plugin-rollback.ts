@@ -214,7 +214,25 @@ export function createPluginRollbackPoints(context: {
     return lookupFor(row, found, previous);
   }
 
-  return { find, load, remember, resolve };
+  function prune(): void {
+    const retained = new Set(
+      listRetainedPluginRollbackSnapshots(deps.db, now()).map(({ id }) => id),
+    );
+    for (const snapshotId of registrations.keys()) {
+      if (!retained.has(snapshotId)) registrations.delete(snapshotId);
+    }
+  }
+
+  return {
+    find,
+    load,
+    prune,
+    remember,
+    resolve,
+    get size() {
+      return registrations.size;
+    },
+  };
 }
 
 export type PluginRollbackPoints = ReturnType<

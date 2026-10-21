@@ -79,6 +79,7 @@ interface PluginActivationContext {
     snapshotId: string,
     registration: InstalledPluginRow,
   ) => void;
+  pruneSnapshotRegistrations: () => void;
   syncCliSkill: () => Promise<void>;
   notifyPluginsChanged: () => void;
 }
@@ -103,6 +104,7 @@ export function createPluginActivation(context: PluginActivationContext) {
     emptyPluginUpdateState,
     sourceFingerprint,
     rememberSnapshotRegistration,
+    pruneSnapshotRegistrations,
     syncCliSkill,
     notifyPluginsChanged,
   } = context;
@@ -181,6 +183,7 @@ export function createPluginActivation(context: PluginActivationContext) {
     if (!setPluginStateSnapshotStatus(deps.db, snapshotId, "restored", now())) {
       throw new Error(`plugin rollback snapshot disappeared: ${snapshotId}`);
     }
+    pruneSnapshotRegistrations();
   }
 
   async function recoverIncompletePluginRollbacks(): Promise<void> {
@@ -407,6 +410,7 @@ export function createPluginActivation(context: PluginActivationContext) {
         );
       } finally {
         stabilizingPluginIds.delete(args.row.id);
+        pruneSnapshotRegistrations();
       }
     });
     await syncCliSkill();
@@ -421,6 +425,7 @@ export function createPluginActivation(context: PluginActivationContext) {
       retentionMs: artifactRetentionMs,
       warn: (message) => logger.warn(message),
     });
+    pruneSnapshotRegistrations();
   }
 
   return {

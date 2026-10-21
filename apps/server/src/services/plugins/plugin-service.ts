@@ -785,6 +785,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     emptyPluginUpdateState,
     sourceFingerprint,
     rememberSnapshotRegistration: rollbackPoints.remember,
+    pruneSnapshotRegistrations: rollbackPoints.prune,
     syncCliSkill,
     notifyPluginsChanged,
   });
@@ -1818,6 +1819,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
             pluginId: id,
             warn: (message) => logger.warn(message),
           });
+          rollbackPoints.prune();
           await removeUnusedPluginArtifacts({
             db: deps.db,
             dataDir: deps.dataDir,
