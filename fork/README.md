@@ -98,3 +98,31 @@ Read and write** and **Workflows: Read and write**, then:
 ```bash
 gh secret set FORK_SYNC_TOKEN --repo alexandre-vl/bb
 ```
+
+## Run alex as my bb: bb-alex
+
+bb-alex is a second bb on a Linux machine, beside the official one, that runs
+the newest `fork-v*` release. Install or refresh it with:
+
+```bash
+fork/instance/install.sh
+```
+
+- Data in `~/.bb-alex`, server on `127.0.0.1:48886`, daemon on `48887`,
+  in-app updates off, so it can never install an official `bb-app`.
+- `bb-alex-update.timer` runs [`instance/update.sh`](instance/update.sh) every
+  30 minutes. It installs a new release only when no thread is running,
+  copies every SQLite file of the data dir to `~/.bb-alex/backups/` first
+  (keeps 10), switches `~/.bb-alex-app/current`, and waits for the new version
+  to answer. A release that does not come up is rolled back and never retried;
+  bb-alex then stays stopped until its backup is restored.
+- `bb-alex <command>` is the CLI for this instance. Sign it in once with
+  `bb-alex account login` to get its own getbb.app address
+  (`bb-alex connect servers` lists it).
+- Logs: `journalctl --user -u bb-alex -u bb-alex-update`. Stop it for good:
+  `systemctl --user disable --now bb-alex.service bb-alex-update.timer`
+  (the data stays).
+
+Never open `~/.bb-alex` with an official bb, never point an official build at
+it, and never seed it with `bb server import` from the official instance: a
+copy carries the official account and takes over or revokes its address.
