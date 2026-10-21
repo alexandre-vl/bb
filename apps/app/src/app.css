@@ -739,30 +739,26 @@
     }
   }
 
-  [data-vaul-drawer-direction] [data-sidebar="content"] {
+  [data-sidebar="content"] {
     scrollbar-color: transparent transparent;
   }
 
-  [data-vaul-drawer-direction]
-    [data-sidebar="content"]::-webkit-scrollbar-thumb,
-  [data-vaul-drawer-direction]
-    [data-sidebar="content"]::-webkit-scrollbar-thumb:hover {
+  [data-sidebar="content"]::-webkit-scrollbar-thumb,
+  [data-sidebar="content"]::-webkit-scrollbar-thumb:hover {
     background-color: transparent;
   }
 
   @media (hover: hover) and (pointer: fine) {
-    [data-vaul-drawer-direction] [data-sidebar="content"]:hover {
+    [data-sidebar="content"]:hover {
       scrollbar-color: color-mix(in oklab, var(--foreground) 20%, transparent)
         transparent;
     }
 
-    [data-vaul-drawer-direction]
-      [data-sidebar="content"]:hover::-webkit-scrollbar-thumb {
+    [data-sidebar="content"]:hover::-webkit-scrollbar-thumb {
       background-color: color-mix(in oklab, var(--foreground) 20%, transparent);
     }
 
-    [data-vaul-drawer-direction]
-      [data-sidebar="content"]:hover::-webkit-scrollbar-thumb:hover {
+    [data-sidebar="content"]:hover::-webkit-scrollbar-thumb:hover {
       background-color: color-mix(in oklab, var(--foreground) 40%, transparent);
     }
   }
