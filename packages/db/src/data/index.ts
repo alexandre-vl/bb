@@ -51,6 +51,7 @@ export {
   listProjectSourcesByProjectIds,
   listProjectSourcesByHost,
   getProjectSourceByHost,
+  getProjectSourceOnPersistentHost,
   projectSourceOwnsPath,
   updateProjectSource,
   deleteProjectSource,
