@@ -15,8 +15,9 @@ branch and every branch listed in fork/layers.txt, in order.
   --layers <file>     Read the layer list from <file>.
 
 A layer line is a branch name on the fork, optionally followed by
-allow-migrations. A layer that adds files under packages/db/drizzle is held
-back unless its line says allow-migrations.
+allow-migrations. A layer that adds files under packages/db/drizzle, or SQL
+DDL such as a new bb.storage.migrate statement, is held back unless its line
+says allow-migrations.
 
 The result is also kept locally as refs/fork/<target>.
 
@@ -110,10 +111,19 @@ while read -r branch options || [[ -n ${branch:-} ]]; do
     rows+=("| \`$branch\` | $short | already included |")
     continue
   fi
-  if [[ ${options:-} != *allow-migrations* && -n $(git diff --name-only "$upstream...$sha" -- "$migrations_path") ]]; then
-    rows+=("| \`$branch\` | $short | held back: adds migrations |")
-    held=$((held + 1))
-    continue
+  if [[ ${options:-} != *allow-migrations* ]]; then
+    if [[ -n $(git diff --name-only "$upstream...$sha" -- "$migrations_path") ]]; then
+      rows+=("| \`$branch\` | $short | held back: adds database migrations |")
+      held=$((held + 1))
+      continue
+    fi
+    ddl=$(git diff --unified=0 "$upstream...$sha" -- . ":(exclude)$migrations_path" ':(glob,exclude)**/__tests__/**' ':(glob,exclude)**/*.test.*' ':(glob,exclude)**/*.md' |
+      grep -m1 -oE "^\+[^+].*[\`\"'] *(CREATE|ALTER|DROP) +(TABLE|(UNIQUE +)?INDEX|VIEW|TRIGGER)" || true)
+    if [[ -n $ddl ]]; then
+      rows+=("| \`$branch\` | $short | held back: adds storage statements (\`${ddl:1:60}\`) |")
+      held=$((held + 1))
+      continue
+    fi
   fi
   if git -C "$work" -c merge.conflictStyle=diff3 merge --quiet --no-ff --no-edit -m "Merge $branch into $target" "$sha" >/dev/null 2>&1; then
     rows+=("| \`$branch\` | $short | merged |")
