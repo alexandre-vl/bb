@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0
       - name: Write the report
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
           FORK_ALEX_REF: origin/alex
         run: bash fork/pr-health.sh "$GITHUB_REPOSITORY_OWNER" "$RUNNER_TEMP/pr-health.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Update the issue
