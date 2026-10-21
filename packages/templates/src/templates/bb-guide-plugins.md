@@ -300,9 +300,9 @@ Updates are manual: `bb plugin outdated` checks tracking sources and
 `bb plugin update` applies compatible candidates. Reinstalling an installed
 managed plugin is refused; use `bb plugin update`. A failed activation restores
 the previous version and leaves the failure visible. For 7 days after a
-successful update, `bb plugin rollback <id>` returns to the release it replaced
-and restores the plugin's data from before the update; the plugin's page offers
-the same. `bb plugin list --json` shows the target and deadline as
+successful update, `bb plugin rollback <id>` returns to the release it replaced,
+restores the plugin's data from before the update, and checks for updates
+again; the plugin's page offers the same. `bb plugin list --json` shows the target and deadline as
 `updateState.rollback` (`version`, `display`, `until`). Each rollback undoes the
 latest update still inside its 7 days, so rolling back again steps back one
 more release.

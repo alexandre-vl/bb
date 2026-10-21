@@ -47,7 +47,6 @@ export class PluginActivationRolledBackError extends Error {
 
 export interface PluginRollbackActivation {
   snapshot: PluginStateSnapshotRow;
-  registration: InstalledPluginRow;
 }
 
 interface PluginRecovery {
@@ -416,7 +415,6 @@ export function createPluginActivation(context: PluginActivationContext) {
     rollback?: PluginRollbackActivation;
   }): Promise<void> {
     const provenance = provenanceForRow(args.row);
-    const registration = args.rollback?.registration ?? args.row;
     const candidateVersion =
       args.exactResolution.kind === "npm"
         ? args.exactResolution.version
@@ -509,22 +507,12 @@ export function createPluginActivation(context: PluginActivationContext) {
           provenance,
           sourceIntent: args.sourceIntent,
           exactResolution: args.exactResolution,
-          updateState:
-            args.rollback === undefined
-              ? emptyPluginUpdateState()
-              : {
-                  lastCheckAt: registration.lastUpdateCheckAt,
-                  availableCompatibleVersion:
-                    registration.availableCompatibleVersion,
-                  newestIncompatibleVersion:
-                    registration.newestIncompatibleVersion,
-                  statusDetail: registration.updateStatusDetail,
-                },
+          updateState: emptyPluginUpdateState(),
           activeArtifactId: args.artifactId,
           rootDir: args.rootDir,
           version: args.manifest.version,
-          enabled: registration.enabled,
-          enabledFollowsDefault: registration.enabledFollowsDefault,
+          enabled: args.row.enabled,
+          enabledFollowsDefault: args.row.enabledFollowsDefault,
         });
         pointerWritten = true;
         if (args.rollback !== undefined) {

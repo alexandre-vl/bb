@@ -796,21 +796,6 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     notifyPluginsChanged,
   });
 
-  const pluginRollback = createPluginRollback({
-    deps,
-    now,
-    registrationMutationKey: REGISTRATION_MUTATION_KEY,
-    withPluginOperationLock,
-    withArtifactLock,
-    safeModeActivationRefusal,
-    installedUpdateVersion,
-    sourceIntentForRow,
-    exactResolutionForRow,
-    rollbackPoints,
-    activateManagedUpdate,
-    runArtifactGc,
-  });
-
   async function retryRestore(id: string): Promise<string | null> {
     try {
       const recovery = await withPluginOperationLock(
@@ -852,6 +837,22 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     npmIntentForRow,
     managedArtifacts: managedPluginArtifacts,
     runArtifactGc,
+  });
+
+  const pluginRollback = createPluginRollback({
+    deps,
+    now,
+    registrationMutationKey: REGISTRATION_MUTATION_KEY,
+    withPluginOperationLock,
+    withArtifactLock,
+    safeModeActivationRefusal,
+    installedUpdateVersion,
+    sourceIntentForRow,
+    exactResolutionForRow,
+    rollbackPoints,
+    activateManagedUpdate,
+    runArtifactGc,
+    checkForUpdates: (id) => pluginUpdates.checkForUpdates(id),
   });
 
   function resolveAgentToolPresentation(

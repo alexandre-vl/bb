@@ -373,8 +373,9 @@ describe("plugin update rollback", () => {
     });
   }, 60_000);
 
-  it("keeps the tracking range the user chose after the update", async () => {
+  it("keeps the tracking range the user chose after the update and checks it again", async () => {
     const { previousCommit } = await updateToNextRelease();
+    const majorCommit = await release("2.0.0");
     db.$client
       .prepare(
         "UPDATE plugins SET source = ?, source_git_range = ? WHERE id = ?",
@@ -392,6 +393,10 @@ describe("plugin update rollback", () => {
       sourceGitResolvedTag: "v1.0.0",
       gitResolvedCommit: previousCommit,
       version: "1.0.0",
+    });
+    expect(installed().updateState).toMatchObject({
+      outcome: "update-available",
+      availableVersion: majorCommit,
     });
   }, 60_000);
 

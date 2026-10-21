@@ -11,6 +11,7 @@ import {
 import type {
   PluginRollbackPoint,
   PluginRollbackRequest,
+  PluginUpdateCheckEntry,
 } from "@bb/server-contract";
 import { hashInstallDir, realPathInside } from "./install-sources.js";
 import { readPluginManifest, type PluginManifest } from "./manifest.js";
@@ -261,6 +262,7 @@ interface PluginRollbackContext {
     rollback?: PluginRollbackActivation;
   }) => Promise<void>;
   runArtifactGc: () => Promise<void>;
+  checkForUpdates: (id: string) => Promise<PluginUpdateCheckEntry[]>;
 }
 
 function rollbackSourceRefusal(row: InstalledPluginRow): string | null {
@@ -293,6 +295,7 @@ export function createPluginRollback(context: PluginRollbackContext) {
     rollbackPoints,
     activateManagedUpdate,
     runArtifactGc,
+    checkForUpdates,
   } = context;
 
   async function readRollbackManifest(
@@ -397,10 +400,7 @@ export function createPluginRollback(context: PluginRollbackContext) {
               sourceIntent: sourceIntentForRow(point.registration),
               exactResolution: exactResolutionForRow(point.registration),
               artifactId: point.artifact.id,
-              rollback: {
-                snapshot: point.snapshot,
-                registration: point.registration,
-              },
+              rollback: { snapshot: point.snapshot },
             });
             return null;
           },
@@ -429,6 +429,7 @@ export function createPluginRollback(context: PluginRollbackContext) {
         warn: (message) => deps.logger.warn(message),
       });
       await runArtifactGc();
+      await checkForUpdates(id);
       return {
         ok: true,
         result: { applied: true, from, to: point.target, outcome: "reverted" },

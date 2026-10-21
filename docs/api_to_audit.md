@@ -3183,10 +3183,12 @@ while that update's state snapshot is retained (7 days).
 job, which runs in the update job registry with `kind: "rollback"` and joins
 only an active rollback for the same plugin and expected version. The server
 first snapshots the current state, then restores the pre-update
-registration (resolved tag, commit or npm version, artifact, and
-update-check state) and the snapshot's data.db, KV, settings, secrets, and
-schedules, and activates the kept artifact through the update activation
-path, under the same registration, lifecycle, and artifact locks. The
+registration (resolved tag, commit or npm version, and artifact) and the
+snapshot's data.db, KV, settings, secrets, and schedules, and activates the
+kept artifact through the update activation path, under the same
+registration, lifecycle, and artifact locks. The update-check state starts
+empty and the job checks the tracked range again before it completes, so
+the plugin never offers the candidate recorded before the update. The
 tracking-range columns (`source`, git range, npm requested spec and spec kind)
 keep their current values, so a range changed after the update survives, and
 so do `enabled` and `enabledFollowsDefault`: a plugin disabled after the
