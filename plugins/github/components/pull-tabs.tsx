@@ -430,10 +430,10 @@ function FileRow({
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border-t border-border first:border-t-0">
-      <div className="flex min-h-9 items-center gap-2 pr-3 pl-1.5 text-xs">
+      <div className="relative flex min-h-9 items-center gap-2 pr-3 pl-1.5 text-xs select-none">
         <button
           type="button"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground hover:bg-state-hover hover:text-foreground max-md:pointer-coarse:size-9"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground after:absolute after:inset-0 after:content-[''] hover:bg-state-hover hover:text-foreground max-md:pointer-coarse:size-9"
           aria-label={`${open ? "Collapse" : "Expand"} ${file.path}`}
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
@@ -447,7 +447,7 @@ function FileRow({
           <FileName path={file.path} />
         ) : (
           <FileLink
-            className="flex min-w-0 flex-1 hover:underline"
+            className="relative flex min-w-0 flex-1 hover:underline"
             target={{ kind: "workspace", environmentId, path: file.path }}
           >
             <FileName path={file.path} />
