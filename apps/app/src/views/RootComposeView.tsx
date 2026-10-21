@@ -24,6 +24,7 @@ import type {
   SidebarBootstrapResponse,
   TerminalSession,
 } from "@bb/server-contract";
+import { ComposerStarterRows } from "@/components/promptbox/ComposerStarterRows";
 import {
   NewThreadComposer,
   type NewThreadComposerState,
@@ -1519,6 +1520,16 @@ function RootComposeSurface({
     },
     onRequestMachineSetup: handleRequestMachineSetup,
   });
+  const starterRows = (
+    <ComposerStarterRows
+      promptDraft={promptDraft}
+      focus={pluginComposerHost.focus}
+      isProjectless={isProjectless}
+      isSubmitting={isSubmitting}
+      sidebarNavigation={sidebarNavigation}
+      className={isCompactViewport ? "pb-2" : "mt-3"}
+    />
+  );
 
   return (
     <PluginDetailPanelContext.Provider value={pluginDetails}>
@@ -1543,13 +1554,16 @@ function RootComposeSurface({
                   }
                   isCompactHomeLayout={isCompactViewport}
                   compactScrollContent={
-                    <RootComposeMobileRecents
-                      highlightedThreadId={lastCreatedThreadId}
-                      projectNamesById={mobileRecentProjectNamesById}
-                      providersById={mobileRecentProvidersById}
-                      showCreatingRow={isSubmitting}
-                      threads={mobileRecentThreads}
-                    />
+                    <>
+                      <RootComposeMobileRecents
+                        highlightedThreadId={lastCreatedThreadId}
+                        projectNamesById={mobileRecentProjectNamesById}
+                        providersById={mobileRecentProvidersById}
+                        showCreatingRow={isSubmitting}
+                        threads={mobileRecentThreads}
+                      />
+                      {starterRows}
+                    </>
                   }
                   isSecondaryPanelOpen={isSecondaryPanelOpen}
                   onToggleSecondaryPanel={handleToggleSecondaryPanel}
@@ -1579,6 +1593,7 @@ function RootComposeSurface({
                   }}
                 >
                   {promptBox}
+                  {isCompactViewport ? null : starterRows}
                 </RootComposeSecondaryContent>
               </PluginThreadPanelNavigationProvider>
             </AppNavigationHostProvider>
