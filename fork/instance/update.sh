@@ -14,7 +14,7 @@ previous one, marked failed and never retried.
 
 Environment: BB_ALEX_DATA_DIR (~/.bb-alex), BB_ALEX_APP_DIR (~/.bb-alex-app),
 BB_ALEX_REPO (alexandre-vl/bb), BB_ALEX_SERVER_PORT (48886),
-BB_ALEX_UNIT (bb-alex.service).
+BB_ALEX_DAEMON_PORT (48887), BB_ALEX_UNIT (bb-alex.service).
 USAGE
 }
 
@@ -27,6 +27,7 @@ data=${BB_ALEX_DATA_DIR:-$HOME/.bb-alex}
 root=${BB_ALEX_APP_DIR:-$HOME/.bb-alex-app}
 repo=${BB_ALEX_REPO:-alexandre-vl/bb}
 port=${BB_ALEX_SERVER_PORT:-48886}
+daemon_port=${BB_ALEX_DAEMON_PORT:-48887}
 unit=${BB_ALEX_UNIT:-bb-alex.service}
 node=$(cat "$root/node")
 npm_cli=$(cat "$root/npm-cli")
@@ -89,9 +90,13 @@ if [[ ! -e $prefix/bin/bb-app ]]; then
 fi
 
 if [[ -n $have ]] && curl -fsS "$url/health" >/dev/null 2>&1; then
-  running=$(BB_SERVER_URL=$url "$node" "$root/current/bin/bb" updates app status --json 2>/dev/null | json_field runningThreadCount)
+  running=$(BB_SERVER_URL=$url BB_HOST_DAEMON_PORT=$daemon_port "$node" "$root/current/bin/bb" updates app status --json 2>/dev/null | json_field runningThreadCount)
+  if [[ -z $running ]]; then
+    echo "Could not read bb-alex's running threads from $url; not updating." >&2
+    exit 1
+  fi
   if [[ $running != 0 ]]; then
-    echo "${running:-Some} thread(s) running on bb-alex; the next run updates it."
+    echo "$running thread(s) running on bb-alex; the next run updates it."
     exit 0
   fi
 fi

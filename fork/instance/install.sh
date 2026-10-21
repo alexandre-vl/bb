@@ -78,17 +78,17 @@ render() {
 }
 render "$here/bb-alex.service" >"$units/bb-alex.service"
 cp "$here/bb-alex-update.service" "$here/bb-alex-update.timer" "$units/"
-if [[ $repo != alexandre-vl/bb || -n ${BB_ALEX_DATA_DIR:-} || -n ${BB_ALEX_APP_DIR:-} || -n ${BB_ALEX_SERVER_PORT:-} ]]; then
+if [[ $repo != alexandre-vl/bb || -n ${BB_ALEX_DATA_DIR:-} || -n ${BB_ALEX_APP_DIR:-} || -n ${BB_ALEX_SERVER_PORT:-} || -n ${BB_ALEX_DAEMON_PORT:-} ]]; then
   mkdir -p "$units/bb-alex-update.service.d"
   cat >"$units/bb-alex-update.service.d/env.conf" <<EOF
 [Service]
-Environment=BB_ALEX_REPO=$repo BB_ALEX_DATA_DIR=$data BB_ALEX_APP_DIR=$root BB_ALEX_SERVER_PORT=$port
+Environment=BB_ALEX_REPO=$repo BB_ALEX_DATA_DIR=$data BB_ALEX_APP_DIR=$root BB_ALEX_SERVER_PORT=$port BB_ALEX_DAEMON_PORT=$daemon_port
 EOF
 fi
 systemctl --user daemon-reload
 systemctl --user enable bb-alex.service bb-alex-update.timer >/dev/null
 
-BB_ALEX_REPO=$repo BB_ALEX_DATA_DIR=$data BB_ALEX_APP_DIR=$root BB_ALEX_SERVER_PORT=$port "$HOME/.local/bin/bb-alex-update"
+BB_ALEX_REPO=$repo BB_ALEX_DATA_DIR=$data BB_ALEX_APP_DIR=$root BB_ALEX_SERVER_PORT=$port BB_ALEX_DAEMON_PORT=$daemon_port "$HOME/.local/bin/bb-alex-update"
 systemctl --user is-active --quiet bb-alex.service || systemctl --user start bb-alex.service
 systemctl --user start bb-alex-update.timer
 
