@@ -19,8 +19,9 @@ bb plugin install github
   (conflicts, failing checks, changes requested), or are in progress (checks
   running, merge queue); snoozed ones fold at the end. Mine, All, and Merged
   add Waiting for review, Open, Drafts, and Closed. Each row has one status
-  glyph and the reason in words, such as `#12 · Checks failing`; a linked
-  agent shows as its thread's status glyph.
+  glyph and the reason in words, such as `#12 · Checks failing`; when your
+  review or merge conflicts lead, failing checks add `· Checks failing` in
+  red. A linked agent shows as its thread's status glyph.
 - **Row actions**: hovering a row shows Merge (Mark ready on a draft) and a
   menu: Merge…, the status changes, Snooze…, Start an agent…, Open the
   agent's thread, Copy branch name, and Open on GitHub. Merge… and Snooze…
@@ -59,7 +60,8 @@ bb plugin install github
   holds, or that lives in a fork, is kept. Every merge runs `gh pr merge`
   with `--match-head-commit`, so a push that lands meanwhile stops it. While
   a merge runs the card and the row say so. When your review is requested,
-  the card leads with Review on GitHub, like the row. Start an agent… is
+  the card leads with Review on GitHub, like the row, and still lists the
+  failing checks, as the conflicts card does. Start an agent… is
   always the last, secondary action, and the card leaves it out while checks
   run or GitHub is still deciding; a linked agent shows as one line with
   Open thread.
