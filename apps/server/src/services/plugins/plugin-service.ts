@@ -219,8 +219,13 @@ export interface PluginSkillRootContribution {
 }
 
 export type PluginReloadOutcome =
-  | { ok: true; plugins: InstalledPlugin[] }
-  | { ok: false; error: string; plugins: InstalledPlugin[] };
+  | { ok: true; plugins: InstalledPlugin[]; warnings: string[] }
+  | {
+      ok: false;
+      error: string;
+      plugins: InstalledPlugin[];
+      warnings: string[];
+    };
 
 export function dispatchPluginSourceWatchChange(
   handleChange: (relativePath: string) => void,
@@ -799,18 +804,22 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     notifyPluginsChanged,
   });
 
-  async function retryRestore(id: string): Promise<string | null> {
+  async function retryRestore(
+    id: string,
+  ): Promise<{ problem: string | null; warnings: string[] }> {
     try {
       const recovery = await withPluginOperationLock(
         REGISTRATION_MUTATION_KEY,
         () => retryPluginRestore(id),
       );
-      return recovery.problem;
+      return { problem: recovery.problem, warnings: recovery.warnings };
     } catch (error) {
-      return (
-        pluginRestoreHold(deps.db, id) ??
-        (error instanceof Error ? error.message : String(error))
-      );
+      return {
+        problem:
+          pluginRestoreHold(deps.db, id) ??
+          (error instanceof Error ? error.message : String(error)),
+        warnings: [],
+      };
     }
   }
 
@@ -1017,6 +1026,12 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     return `git · ${row.sourceGitUrl ?? row.source}${range} · ${updateTrackingForRow(row)}`;
   }
 
+  function installedReleaseId(row: InstalledPluginRow): string | null {
+    if (row.sourceKind === "npm") return row.npmResolvedVersion;
+    if (row.sourceKind === "git") return row.gitResolvedCommit;
+    return row.version;
+  }
+
   function updateStateForRow(
     row: InstalledPluginRow,
   ): InstalledPlugin["updateState"] {
@@ -1038,6 +1053,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
             version: row.lastFailureVersion,
             at: row.lastFailureAt,
             detail: row.lastFailureDetail,
+            restored: row.lastFailureVersion !== installedReleaseId(row),
           }
         : undefined;
     const held = pluginRestoreHold(deps.db, row.id) !== null;
@@ -1952,11 +1968,18 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         (row) => id === undefined || row.id === id,
       );
       const failures: string[] = [];
+      const warnings: string[] = [];
       for (const row of rows.sort((a, b) => a.id.localeCompare(b.id))) {
-        const problem =
-          pluginRestoreHold(deps.db, row.id) === null
-            ? await withLifecycleLock(row.id, () => loadOne(row))
-            : await retryRestore(row.id);
+        let problem: string | null;
+        if (pluginRestoreHold(deps.db, row.id) === null) {
+          problem = await withLifecycleLock(row.id, () => loadOne(row));
+        } else {
+          const retried = await retryRestore(row.id);
+          problem = retried.problem;
+          for (const warning of retried.warnings) {
+            warnings.push(`plugin "${row.id}": ${warning}`);
+          }
+        }
         if (problem !== null) {
           failures.push(`plugin "${row.id}" reload failed: ${problem}`);
         } else if (isSuppressedBySafeMode(row)) {
@@ -1969,8 +1992,8 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       notifyPluginsChanged();
       const plugins = list();
       return failures.length === 0
-        ? { ok: true, plugins }
-        : { ok: false, error: failures.join("; "), plugins };
+        ? { ok: true, plugins, warnings }
+        : { ok: false, error: failures.join("; "), plugins, warnings };
     },
 
     getApi(id) {

@@ -76,9 +76,11 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  confirmation as update; --json prints the
                                  result
   bb plugin list                 Status, services, schedules, handler timings,
-                                 and contributed CLI commands. `bb status`
-                                 also names enabled plugins that are
-                                 incompatible, failed, or missing
+                                 contributed CLI commands, and the last
+                                 failed update with what bb restored or
+                                 kept. `bb status` also names enabled
+                                 plugins that are incompatible, failed, or
+                                 missing
   bb plugin source <id> [--json] Requested and resolved source, subdirectory,
                                  semver range and resolved tag, engine ranges,
                                  install time, and recent activation history
@@ -97,7 +99,8 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  Exits 1 when one does not come up (the
                                  previous instance is kept or degraded). For
                                  a plugin held by an unfinished restore, it
-                                 retries the restore instead
+                                 retries the restore instead, and warns when
+                                 bb gives up undoing the change
   bb plugin config <id> [set <key> <value> | unset <key>]
                                  Show or change a plugin's declared settings.
                                  Running plugins receive changes live; a
@@ -313,16 +316,16 @@ Each rollback undoes the latest update still inside its 7 days, so rolling back
 again steps back one more release.
 
 Before bb restores a plugin after a failed update or rollback, it checks the
-saved state, then restores the registration before any file. If a saved file
-is missing or damaged, or the release to restore is gone, before bb wrote
-anything, the plugin keeps its current release and data, and the failure says
-so. If bb cannot read the saved state for another reason, such as file
-permissions, or a write fails during the restore, for example on a disk
-error, bb holds the plugin stopped with the reason as its status and keeps the
-saved state. Update, track, and rollback refuse a held plugin, and bb offers
-it no update or rollback, until `bb plugin reload <id>` or the next start
-finishes the restore. Removing the plugin, which deletes its settings,
-secrets, and schedules, is the last resort.
+saved state, then restores the registration before any file. If a saved file is
+missing or damaged, or the release to restore is gone, before bb wrote anything,
+the plugin keeps its current release and data, and the failure says so in
+`bb plugin list` and on the plugin's page. If bb cannot read the saved state for
+another reason, such as file permissions, or a write fails during the restore,
+for example on a disk error, bb holds the plugin stopped with the reason as its
+status and keeps the saved state. Update, track, and rollback refuse a held
+plugin, and bb offers it no update or rollback, until `bb plugin reload <id>` or
+the next start finishes the restore. Removing the plugin, which deletes its
+settings, secrets, and schedules, is the last resort.
 
 Updates stay inside the range recorded at install and never move to a release
 older than the installed one. `bb plugin outdated`, `bb plugin update`, and

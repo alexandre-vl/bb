@@ -499,6 +499,7 @@ describe("PluginDetail official catalog lifecycle", () => {
           version: "1.5.0",
           at: null,
           detail: "The plugin failed to load.",
+          restored: true,
         },
       },
       expected: "Update failed",
@@ -1797,6 +1798,7 @@ describe("PluginDetail banner precedence", () => {
         version: "1.4.5",
         at: null,
         detail: "The plugin failed to load after the update.",
+        restored: true,
       },
     },
   };

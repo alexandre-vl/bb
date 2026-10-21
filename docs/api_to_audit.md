@@ -3244,7 +3244,14 @@ rules, or the release is no longer kept. The reason goes in
 `failure_detail`, the plugin starts on its current release and data, and
 `updateState.lastFailure`, for an update or a rollback, says "bb could not
 undo the <update|rollback> to <version>: its saved state is unusable
-(<reason>); the plugin keeps its current release and data". Anything else
+(<reason>); the plugin keeps its current release and data". The server
+derives `lastFailure.restored` from the registration: false while the
+plugin is still installed at the release that failed, which is what such a
+give-up leaves, and true once bb restored the release it replaced. The SDK reads a
+`lastFailure` without it, from an older server that always restored, as
+true. The plugin details and update dialog say bb kept the release instead
+of claiming a restore, and `bb plugin list` prints the failure with its
+date and outcome. Anything else
 holds the plugin for as long as it has a `rollback-pending` or `restoring`
 snapshot, whose `failure_detail` names the problem: a saved copy bb cannot
 read for another reason (such as EACCES, EIO, or EISDIR), a write that
@@ -3262,7 +3269,10 @@ no update and no rollback point, and the rollback point lookup answers
 `unavailable`. `bb plugin reload <id>` (`POST /plugins/reload`)
 and each start retry the restore under the registration, artifact, and
 lifecycle locks; success marks the snapshot `restored` and starts the plugin,
-which stays enabled or disabled the way it was set while held. A start
+which stays enabled or disabled the way it was set while held. The reload
+response carries `warnings`, one `plugin "<id>": <reason>` line for each
+restore bb gave up, which `bb plugin reload` prints; the SDK reads a response
+without it as no warnings, and a start logs them. A start
 restores each plugin on its own, oldest unfinished snapshot first, and
 discards a plugin's newer unfinished snapshots once an older one is
 restored. Removing the plugin is the last resort, since it deletes the

@@ -924,6 +924,7 @@ describe("plugin update service and routes", () => {
           version: candidateCommit,
           at: expect.any(Number),
           detail: expect.stringContaining("service unstable crashed"),
+          restored: true,
         },
       },
     });

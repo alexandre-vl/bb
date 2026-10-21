@@ -233,7 +233,12 @@ export const pluginUpdateStateSchema = z.object({
   blockedReasons: z.array(z.string()).optional(),
   lastCheckAt: z.number().optional(),
   lastFailure: z
-    .object({ version: z.string(), at: z.number(), detail: z.string() })
+    .object({
+      version: z.string(),
+      at: z.number(),
+      detail: z.string(),
+      restored: z.boolean(),
+    })
     .optional(),
   rollback: pluginRollbackPointSchema.optional(),
 });
@@ -447,6 +452,7 @@ export const pluginInstallJobListResponseSchema = z.object({
 export const pluginReloadResponseSchema = z.object({
   ok: z.literal(true),
   plugins: z.array(installedPluginSchema),
+  warnings: z.array(z.string()),
 });
 export type PluginReloadResponse = z.infer<typeof pluginReloadResponseSchema>;
 

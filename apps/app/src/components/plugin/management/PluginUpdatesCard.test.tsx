@@ -160,6 +160,7 @@ describe("PluginDetailReleaseControl", () => {
                 version: "1.9.0",
                 at: null,
                 detail: "The plugin failed to load.",
+                restored: true,
               },
             },
           })}
@@ -173,6 +174,7 @@ describe("PluginDetailReleaseControl", () => {
                 version: "1.9.0",
                 at: null,
                 detail: "The plugin failed to load.",
+                restored: true,
               },
             },
           })}
@@ -279,6 +281,23 @@ describe("PluginDetailReleaseStatus", () => {
       screen.getByRole("status", { name: "Update check note" }).textContent,
     ).toBe(
       'npm dist-tag "next" points to 1.0.0, older than the installed 1.6.2; bb does not downgrade',
+    );
+  });
+
+  it("says bb kept a release it could not undo instead of claiming a restore", () => {
+    renderStatus({
+      lastFailure: {
+        version: "1.6.2",
+        at: null,
+        detail: "its saved host state is missing",
+        restored: false,
+      },
+    });
+
+    expect(
+      screen.getByRole("status", { name: "Update failed" }).textContent,
+    ).toBe(
+      "bb couldn’t activate 1.6.2 or undo the change. It kept 1.6.2 and its data.",
     );
   });
 

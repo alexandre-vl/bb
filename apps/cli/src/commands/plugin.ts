@@ -747,11 +747,24 @@ function installPlanSummary(plan: PluginCatalogInstallPlan): string {
   ].join("\n");
 }
 
+function releaseLabel(version: string): string {
+  return /^[0-9a-f]{40}$/u.test(version) ? version.slice(0, 12) : version;
+}
+
 function printPlugin(plugin: PluginEntry): void {
   const state = plugin.enabled ? plugin.status : "disabled";
   const detail = plugin.statusDetail ? `  (${plugin.statusDetail})` : "";
   console.log(`${plugin.id}@${plugin.version}  ${state}${detail}`);
   console.log(`  source: ${plugin.source}`);
+  const failure = plugin.updateState.lastFailure;
+  if (failure !== undefined) {
+    const outcome = failure.restored
+      ? "restored the release before it"
+      : "kept it because it could not undo the change";
+    console.log(
+      `  update failed: bb couldn't activate ${releaseLabel(failure.version)} on ${formatAbsoluteDate(failure.at)} and ${outcome}: ${failure.detail}`,
+    );
+  }
   const stats = plugin.handlerStats;
   if (stats && stats.count > 0) {
     const errors = stats.errorCount > 0 ? `, ${stats.errorCount} errors` : "";
@@ -2048,6 +2061,9 @@ export function registerPluginCommands(
             : (result.plugins ?? []).filter((entry) => entry.id === id);
         for (const entry of reloaded) {
           printPlugin(entry);
+        }
+        for (const warning of response.warnings ?? []) {
+          console.warn(`Warning: ${warning}`);
         }
         if (!result.ok) exitWithError(result);
       }),

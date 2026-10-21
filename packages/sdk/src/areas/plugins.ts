@@ -75,17 +75,27 @@ import { BbHttpError } from "../response.js";
 import type { CreateSdkAreaArgs } from "./common.js";
 
 /**
- * A server older than `providerIds` (bb-app < 0.39) or `icons` answers with
- * the installed-plugin shape minus those fields. The contract keeps them
- * required — the server fills them once at its boundary — so the tolerance
- * lives here, on the response side only: the SDK never sends this shape, and a
- * default on the contract would leak into request bodies.
+ * A server older than `providerIds` (bb-app < 0.39), `icons`, or
+ * `updateState.lastFailure.restored` answers with the installed-plugin shape
+ * minus those fields; such a server always restored the release it replaced.
+ * The contract keeps them required — the server fills them once at its
+ * boundary — so the tolerance lives here, on the response side only: the SDK
+ * never sends this shape, and a default on the contract would leak into
+ * request bodies.
  */
+const updateStateResponseSchema =
+  installedPluginSchema.shape.updateState.extend({
+    lastFailure: installedPluginSchema.shape.updateState.shape.lastFailure
+      .unwrap()
+      .extend({ restored: z.boolean().default(true) })
+      .optional(),
+  });
 const installedPluginResponseSchema = installedPluginSchema.extend({
   screenshots: installedPluginSchema.shape.screenshots.default([]),
   collections: installedPluginSchema.shape.collections.default([]),
   providerIds: z.array(z.string()).default([]),
   icons: z.record(z.string(), z.string()).default({}),
+  updateState: updateStateResponseSchema,
 });
 const pluginListResponseSchema = z.object({
   plugins: z.array(installedPluginResponseSchema),
@@ -102,6 +112,7 @@ const INSTALL_JOB_POLL_INTERVAL_MS = 500;
 const pluginReloadResponseSchema = z.object({
   ok: z.literal(true),
   plugins: z.array(installedPluginResponseSchema),
+  warnings: z.array(z.string()).default([]),
 });
 const pluginCatalogSearchResponseCompatibilitySchema =
   pluginCatalogSearchResponseSchema.extend({
@@ -115,6 +126,7 @@ export const pluginMutationResponseSchema = z.object({
   error: z.string().optional(),
   plugin: installedPluginResponseSchema.optional(),
   plugins: z.array(installedPluginResponseSchema).optional(),
+  warnings: z.array(z.string()).optional(),
 });
 export type PluginMutationResponse = z.infer<
   typeof pluginMutationResponseSchema

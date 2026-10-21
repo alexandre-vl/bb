@@ -373,6 +373,7 @@ describe("plugin update recovery", () => {
       version: thirdCommit,
       at: expect.any(Number),
       detail: "release 1.2.0 failed to start",
+      restored: true,
     });
     failReleases("1.0.0", "1.2.0");
 
@@ -558,6 +559,52 @@ describe("plugin update recovery", () => {
     },
     60_000,
   );
+
+  it("reports through reload that bb gave up a held update once its saved host state is gone, and keeps the release it could not undo", async () => {
+    const commit = await offered("1.1.0");
+    failReleases("1.1.0");
+    let snapshot: PluginStateSnapshotRow | undefined;
+
+    await expect(
+      withPluginUpdateProgress(
+        (phase) => {
+          if (phase !== "rolling-back") return;
+          snapshot = listPluginStateSnapshots(db, PLUGIN_ID).at(-1);
+          setCursor("written-by-1.1.0");
+          rmSync(snapshot?.statePath ?? "");
+          mkdirSync(snapshot?.statePath ?? "");
+        },
+        () => service.applyUpdate(PLUGIN_ID, { expectedVersion: commit }),
+      ),
+    ).rejects.toThrow(
+      `plugin "${PLUGIN_ID}" is held until bb finishes undoing its update: its saved host state could not be read: EISDIR`,
+    );
+    vi.unstubAllGlobals();
+    if (snapshot === undefined) throw new Error("missing snapshot");
+    rmSync(snapshot.statePath, { recursive: true });
+    const gaveUp = `bb could not undo the update to ${commit.slice(0, 12)}: its saved state is unusable (its saved host state is missing); the plugin keeps its current release and data`;
+
+    await expect(service.reload(PLUGIN_ID)).resolves.toMatchObject({
+      ok: true,
+      warnings: [`plugin "${PLUGIN_ID}": ${gaveUp}`],
+    });
+
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+      status: "running",
+      updateState: {
+        lastFailure: {
+          version: commit,
+          detail: `release 1.1.0 failed to start; ${gaveUp}`,
+          restored: false,
+        },
+      },
+    });
+    expect(cursor()).toBe("written-by-1.1.0");
+    expect(listPluginStateSnapshots(db, PLUGIN_ID)).toMatchObject([
+      { id: snapshot.id, status: "failed" },
+    ]);
+  }, 60_000);
 
   it("keeps a plugin held across a restart when its restore failed after replacing the data, and finishes on reload once the saved state is back", async () => {
     await writeLiveSecret("v1-secret");
@@ -892,6 +939,7 @@ describe("plugin update recovery", () => {
         detail: expect.stringContaining(
           `release 1.1.0 failed to start; bb could not undo the update to ${commit.slice(0, 12)}: its saved state is unusable (${reason}`,
         ),
+        restored: false,
       });
       expect(pluginRestoreHold(db, PLUGIN_ID)).toBeNull();
       vi.unstubAllGlobals();
@@ -1114,6 +1162,7 @@ describe("plugin update recovery", () => {
       version: previousCommit,
       at: expect.any(Number),
       detail: gaveUp,
+      restored: false,
     });
     expect(pluginRestoreHold(db, PLUGIN_ID)).toBeNull();
   }, 60_000);

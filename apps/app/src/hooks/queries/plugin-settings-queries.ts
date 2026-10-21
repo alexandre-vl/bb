@@ -24,6 +24,7 @@ interface PluginUpdateFailure {
   version: string;
   at: number | null;
   detail: string;
+  restored: boolean;
 }
 
 export interface PluginUpdateState {
@@ -149,6 +150,7 @@ export function toPluginListItem(plugin: InstalledPlugin): PluginListItem {
               version: state.lastFailure.version,
               at: toEpochMs(state.lastFailure.at),
               detail: state.lastFailure.detail,
+              restored: state.lastFailure.restored,
             },
       rollback: state.rollback ?? null,
     },

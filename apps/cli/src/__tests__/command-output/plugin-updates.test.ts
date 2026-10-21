@@ -260,6 +260,54 @@ describe("bb plugin update commands", () => {
     expect(output).not.toContain("other@1.0.0");
   });
 
+  it.each([
+    {
+      server: "an older server",
+      restored: undefined,
+      outcome: "restored the release before it",
+    },
+    {
+      server: "a server that kept the release",
+      restored: false,
+      outcome: "kept it because it could not undo the change",
+    },
+  ])(
+    "reload prints the last failed update from $server and the warnings bb returned",
+    async ({ restored, outcome }) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const [notes] = pluginList("notes", "path:/notes").plugins;
+      const commit = "a985e1d5523398e9c7459d35679142cc4339771e";
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json({
+          ok: true,
+          plugins: [
+            {
+              ...notes,
+              updateState: {
+                lastFailure: {
+                  version: commit,
+                  at: Date.UTC(2026, 6, 22),
+                  detail: "release 1.1.0 failed to start",
+                  ...(restored === undefined ? {} : { restored }),
+                },
+              },
+            },
+          ],
+          warnings: ['plugin "notes": bb could not undo the update'],
+        }),
+      );
+
+      await runCommand(["plugin", "reload", "notes"], register);
+
+      expect(collectLogPayloads(vi.mocked(console.log))).toContain(
+        `  update failed: bb couldn't activate a985e1d55233 on 2026-07-22T00:00:00.000Z and ${outcome}: release 1.1.0 failed to start`,
+      );
+      expect(collectLogPayloads(warn)).toEqual([
+        'Warning: plugin "notes": bb could not undo the update',
+      ]);
+    },
+  );
+
   it("list annotates only CLI commands shadowed by core", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
