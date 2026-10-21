@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBbSdk } from "../src/core.js";
+import { PluginUpdateExpectedVersionUnsupportedError } from "../src/areas/plugins.js";
 import { createHttpTransport } from "../src/transport-http.js";
 
 const base = { id: "update-1", pluginId: "notes", displayName: "Notes" };
@@ -119,11 +120,17 @@ describe("background plugin updates", () => {
     "explains that a server predating reviewed-release updates cannot honor %s's expectedVersion",
     async (method) => {
       const sdk = rejectingServer("expected an empty JSON object");
-      await expect(
-        sdk.plugins[method]({ pluginId: "notes", expectedVersion: "1.1.0" }),
-      ).rejects.toThrow(
-        'Update not started; this BB server predates reviewed-release updates and cannot honor expectedVersion "1.1.0". Upgrade the BB server, or retry without expectedVersion',
-      );
+      const error: unknown = await sdk.plugins[method]({
+        pluginId: "notes",
+        expectedVersion: "1.1.0",
+      }).catch((rejection: unknown) => rejection);
+      expect(error).toBeInstanceOf(PluginUpdateExpectedVersionUnsupportedError);
+      expect(error).toMatchObject({
+        pluginId: "notes",
+        expectedVersion: "1.1.0",
+        message:
+          'Update not started; this BB server predates reviewed-release updates and cannot honor expectedVersion "1.1.0". Upgrade the BB server, or retry without expectedVersion',
+      });
     },
   );
 

@@ -345,6 +345,20 @@ function pluginSourceSelection(
   return undefined;
 }
 
+export class PluginUpdateExpectedVersionUnsupportedError extends Error {
+  readonly expectedVersion: string;
+  readonly pluginId: string;
+
+  constructor(args: { expectedVersion: string; pluginId: string }) {
+    super(
+      `Update not started; this BB server predates reviewed-release updates and cannot honor expectedVersion "${args.expectedVersion}". Upgrade the BB server, or retry without expectedVersion`,
+    );
+    this.name = "PluginUpdateExpectedVersionUnsupportedError";
+    this.expectedVersion = args.expectedVersion;
+    this.pluginId = args.pluginId;
+  }
+}
+
 function rejectedUpdateRequestFields(error: unknown): boolean {
   return (
     error instanceof BbHttpError &&
@@ -432,9 +446,10 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
         input.expectedVersion !== undefined &&
         rejectedUpdateRequestFields(error)
       ) {
-        throw new Error(
-          `Update not started; this BB server predates reviewed-release updates and cannot honor expectedVersion "${input.expectedVersion}". Upgrade the BB server, or retry without expectedVersion`,
-        );
+        throw new PluginUpdateExpectedVersionUnsupportedError({
+          expectedVersion: input.expectedVersion,
+          pluginId: input.pluginId,
+        });
       }
       throw error;
     }

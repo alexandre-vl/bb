@@ -463,6 +463,42 @@ describe("bb plugin update commands", () => {
     );
   });
 
+  it.each([[[]], [["--no-wait"]]])(
+    "tells the user to upgrade a bb server that cannot bind the update to the reviewed release (%j)",
+    async (flags) => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          Response.json({
+            results: [
+              {
+                id: "notes",
+                outcome: "update-available",
+                installed: version("1.0.0"),
+                candidate: version("1.1.0"),
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          Response.json(pluginList("notes", "npm:notes@^1")),
+        )
+        .mockResolvedValueOnce(
+          Response.json(
+            { error: "expected an empty JSON object" },
+            { status: 400 },
+          ),
+        );
+
+      await expect(
+        runCommand(["plugin", "update", "notes", "--yes", ...flags], register),
+      ).rejects.toThrow("process.exit:1");
+
+      expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+        "notes: not updated — the bb server is older than this bb CLI and cannot guarantee that it installs 1.1.0, the release this check showed. Upgrade bb on the server, then run `bb plugin update notes` again.",
+      );
+    },
+  );
+
   it("renders a rolled-back server result", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
