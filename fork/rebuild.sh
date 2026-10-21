@@ -18,6 +18,8 @@ A layer line is a branch name on the fork, optionally followed by
 allow-migrations. A layer that adds files under packages/db/drizzle is held
 back unless its line says allow-migrations.
 
+The result is also kept locally as refs/fork/<target>.
+
 Environment: FORK_REMOTE (origin), FORK_UPSTREAM_URL
 (https://github.com/get-bb/bb.git), FORK_TARGET (alex), FORK_INFRA_REF
 (<remote>/fork-infra), FORK_RERERE_BRANCH (fork-rerere), FORK_REPORT
@@ -142,6 +144,7 @@ EOF
   fi
 done <"$layers_file"
 
+git update-ref "refs/fork/$target" "$(git -C "$work" rev-parse HEAD)"
 new_tree=$(git -C "$work" rev-parse 'HEAD^{tree}')
 old=$(git rev-parse --verify --quiet "refs/remotes/$remote/$target" || true)
 state=unchanged
