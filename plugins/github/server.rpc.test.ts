@@ -15,6 +15,7 @@ import { installFakeGh } from "./testing/fake-gh";
 let binDir: string;
 let callLog: string;
 let restoreEnv: () => void;
+let lists: string;
 
 function ghCalls(): string[] {
   if (!existsSync(callLog)) return [];
@@ -51,6 +52,12 @@ beforeEach(() => {
       isDraft: true,
       headRefName: "normalize",
       baseRefName: "main",
+      headRefOid: "abc1234",
+      isCrossRepository: false,
+      headRepositoryOwner: { login: "acme" },
+      additions: 12,
+      deletions: 3,
+      changedFiles: 2,
       mergeable: "MERGEABLE",
       reviewDecision: null,
       isInMergeQueue: false,
@@ -74,7 +81,7 @@ beforeEach(() => {
       },
     },
   ];
-  const lists = JSON.stringify({
+  lists = JSON.stringify({
     data: {
       repository: {
         hasIssuesEnabled: true,
@@ -196,17 +203,7 @@ beforeEach(() => {
       },
     ],
   ]);
-  const pullPermissions = JSON.stringify({
-    data: {
-      repository: {
-        pullRequest: {
-          viewerCanUpdate: true,
-          viewerCanClose: true,
-          viewerCanReopen: false,
-        },
-      },
-    },
-  });
+  const pullDetails = JSON.stringify(pullDetailsResponse());
 
   restoreEnv = installFakeGh(
     binDir,
@@ -228,8 +225,9 @@ const exact = {
   "api --paginate --slurp repos/acme/widgets/pulls/42/files?per_page=100": ${JSON.stringify(pullFiles)},
 };
 const prefixed = [
-  ["api graphql --hostname github.com -f query=query PullPermissions", ${JSON.stringify(pullPermissions)}],
-  ["api graphql ", ${JSON.stringify(lists)}],
+  ["api graphql --hostname github.com -f query=query PullDetails", process.env.FAKE_GH_DETAILS ?? ${JSON.stringify(pullDetails)}],
+  ["api graphql ", process.env.FAKE_GH_LISTS ?? ${JSON.stringify(lists)}],
+  ["pr view 42 -R acme/widgets --json statusCheckRollup", process.env.FAKE_GH_ROLLUP ?? "{}"],
   ["pr view 43 -R acme/widgets --json state,isDraft", '{"state":"MERGED","isDraft":false}'],
   ["pr view 44 -R acme/widgets --json state,isDraft", '{"state":"CLOSED","isDraft":false}'],
   ["pr view 7 -R other/repo --json state,isDraft", '{"state":"OPEN","isDraft":false}'],
@@ -244,14 +242,197 @@ out((exact[joined] ?? prefixMatch?.[1] ?? "[]") + "\\n");`,
 
 afterEach(() => {
   delete process.env.FAKE_GH_FAIL;
+  delete process.env.FAKE_GH_DETAILS;
+  delete process.env.FAKE_GH_LISTS;
+  delete process.env.FAKE_GH_ROLLUP;
   restoreEnv();
   rmSync(binDir, { recursive: true, force: true });
 });
 
-async function loadPlugin(extraRepos = "acme/widgets") {
+function pullDetailsResponse(
+  overrides: {
+    repository?: Record<string, unknown>;
+    pullRequest?: Record<string, unknown>;
+  } = {},
+) {
+  const checkRun = (
+    name: string,
+    conclusion: string | null,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    __typename: "CheckRun",
+    name,
+    status: conclusion === null ? "QUEUED" : "COMPLETED",
+    conclusion,
+    startedAt: "2026-08-19T12:00:00Z",
+    completedAt: conclusion === null ? null : "2026-08-19T12:10:00Z",
+    detailsUrl: `https://github.com/acme/widgets/actions/runs/900/job/${name.length}`,
+    isRequired: false,
+    checkSuite: { workflowRun: { databaseId: 900, workflow: { name: "CI" } } },
+    annotations: { nodes: [] },
+    ...extra,
+  });
+  return {
+    data: {
+      repository: {
+        viewerPermission: "WRITE",
+        viewerDefaultMergeMethod: "SQUASH",
+        squashMergeAllowed: true,
+        mergeCommitAllowed: false,
+        rebaseMergeAllowed: true,
+        deleteBranchOnMerge: false,
+        ...overrides.repository,
+        pullRequest: {
+          state: "OPEN",
+          headRefName: "feature",
+          headRefOid: "abc1234",
+          isCrossRepository: false,
+          viewerCanUpdate: true,
+          viewerCanClose: true,
+          viewerCanReopen: false,
+          viewerCanDeleteHeadRef: true,
+          isInMergeQueue: false,
+          isMergeQueueEnabled: false,
+          headRef: { name: "feature" },
+          stack: {
+            number: 50,
+            size: 2,
+            baseRefName: "main",
+            entries: {
+              nodes: [
+                {
+                  position: 2,
+                  pullRequest: {
+                    number: 42,
+                    title: "Normalize pull details",
+                    state: "OPEN",
+                    isDraft: true,
+                    headRefName: "feature",
+                    baseRefName: "base",
+                    mergeable: "MERGEABLE",
+                    commits: {
+                      nodes: [{ commit: { verdict: { state: "FAILURE" } } }],
+                    },
+                  },
+                },
+                {
+                  position: 1,
+                  pullRequest: {
+                    number: 41,
+                    title: "Base change",
+                    state: "OPEN",
+                    isDraft: false,
+                    headRefName: "base",
+                    baseRefName: "main",
+                    mergeable: "MERGEABLE",
+                    commits: {
+                      nodes: [{ commit: { verdict: { state: "SUCCESS" } } }],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          stackEntry: { position: 2 },
+          commits: {
+            nodes: [
+              {
+                commit: {
+                  oid: "abc1234",
+                  committedDate: "2026-08-19T11:00:00Z",
+                  verdict: { state: "FAILURE" },
+                  statusCheckRollup: {
+                    contexts: {
+                      nodes: [
+                        checkRun("build", "CANCELLED", {
+                          startedAt: "2026-08-19T10:00:00Z",
+                        }),
+                        checkRun("build", "SUCCESS"),
+                        checkRun("unit", "FAILURE", {
+                          isRequired: true,
+                          checkSuite: {
+                            workflowRun: {
+                              databaseId: 901,
+                              workflow: { name: "Tests" },
+                            },
+                          },
+                          annotations: {
+                            nodes: [
+                              {
+                                path: ".github",
+                                message: "Process completed with exit code 1.",
+                                location: { start: { line: 1 } },
+                              },
+                              {
+                                path: "src/cache.test.ts",
+                                message:
+                                  "AssertionError: expected 2 to be 3\nat line",
+                                location: { start: { line: 18 } },
+                              },
+                            ],
+                          },
+                        }),
+                        checkRun("queued", null),
+                        {
+                          __typename: "StatusContext",
+                          context: "legacy",
+                          state: "FAILURE",
+                          targetUrl: "https://ci.example/legacy",
+                          createdAt: "2026-08-19T12:00:00Z",
+                          isRequired: false,
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          latestOpinionatedReviews: {
+            nodes: [
+              { author: { login: "reviewer" }, state: "CHANGES_REQUESTED" },
+            ],
+          },
+          timelineItems: {
+            nodes: [
+              {
+                __typename: "PullRequestCommit",
+                commit: {
+                  abbreviatedOid: "abc1234",
+                  messageHeadline: "Normalize shapes",
+                  committedDate: "2026-08-19T11:00:00Z",
+                },
+              },
+              {
+                __typename: "ReadyForReviewEvent",
+                actor: { login: "bob" },
+                createdAt: "2026-08-19T11:30:00Z",
+              },
+              {
+                __typename: "HeadRefForcePushedEvent",
+                actor: { login: "bob" },
+                createdAt: "2026-08-19T11:40:00Z",
+                beforeCommit: { abbreviatedOid: "0000001" },
+                afterCommit: { abbreviatedOid: "abc1234" },
+              },
+              { __typename: "LabeledEvent" },
+            ],
+          },
+          ...overrides.pullRequest,
+        },
+      },
+    },
+  };
+}
+
+async function loadPlugin(
+  extraRepos = "acme/widgets",
+  sdk: NonNullable<Parameters<typeof createFakePluginHost>[0]>["sdk"] = {},
+) {
   const host = createFakePluginHost({
     pluginId: "github",
-    settings: { extraRepos },
+    settings: { extraRepos, defaultProject: "project-1" },
+    sdk,
   });
   await plugin(host.bb);
   return host;
@@ -509,11 +690,61 @@ describe("github plugin RPC behavior", () => {
         changedFiles: 2,
         reviewRequests: ["reviewer", "core-team"],
         checks: [
-          { name: "build", status: "success" },
-          { name: "legacy", status: "failure" },
-          { name: "queued", status: "pending" },
-          { name: "skipped", status: "neutral" },
+          { name: "build", status: "success", runId: 900, workflow: "CI" },
+          {
+            name: "unit",
+            status: "failure",
+            runId: 901,
+            workflow: "Tests",
+            required: true,
+            annotations: [
+              {
+                path: "src/cache.test.ts",
+                line: 18,
+                message: "AssertionError: expected 2 to be 3",
+              },
+            ],
+          },
+          { name: "queued", status: "pending", completedAt: null },
+          {
+            name: "legacy",
+            status: "failure",
+            runId: null,
+            url: "https://ci.example/legacy",
+          },
         ],
+        checksVerdict: "FAILURE",
+        headCommittedAt: "2026-08-19T11:00:00Z",
+        reviewVerdicts: [{ author: "reviewer", state: "CHANGES_REQUESTED" }],
+        events: [
+          {
+            kind: "commit",
+            actor: "",
+            createdAt: "2026-08-19T11:00:00Z",
+            detail: "abc1234 Normalize shapes",
+          },
+          {
+            kind: "ready",
+            actor: "bob",
+            createdAt: "2026-08-19T11:30:00Z",
+            detail: null,
+          },
+          {
+            kind: "force_pushed",
+            actor: "bob",
+            createdAt: "2026-08-19T11:40:00Z",
+            detail: "0000001 → abc1234",
+          },
+        ],
+        stack: {
+          number: 50,
+          baseRefName: "main",
+          position: 2,
+          entries: [
+            { number: 41, state: "open", attention: "ready" },
+            { number: 42, state: "draft", attention: "failing" },
+          ],
+        },
         reviewThreads: [
           {
             path: "src/index.ts",
@@ -551,13 +782,20 @@ describe("github plugin RPC behavior", () => {
         viewerCanUpdate: true,
         viewerCanClose: true,
         viewerCanReopen: false,
+        viewerCanMerge: true,
+        viewerCanDeleteHeadRef: true,
+        mergeMethods: ["squash", "rebase"],
+        defaultMergeMethod: "squash",
+        deleteBranchOnMerge: false,
+        isInMergeQueue: false,
+        headRefExists: true,
       },
     });
     expect(ghCalls()).toContain("} -f owner=acme -f name=widgets -F number=42");
   });
 
   it("still opens a pull request when GitHub will not say what the viewer may change", async () => {
-    process.env.FAKE_GH_FAIL = "PullPermissions";
+    process.env.FAKE_GH_FAIL = "PullDetails";
     const { harness } = await loadPlugin();
 
     await expect(
@@ -568,6 +806,15 @@ describe("github plugin RPC behavior", () => {
         viewerCanUpdate: false,
         viewerCanClose: false,
         viewerCanReopen: false,
+        viewerCanMerge: false,
+        stack: null,
+        events: [],
+        checks: [
+          { name: "build", status: "success" },
+          { name: "legacy", status: "failure" },
+          { name: "queued", status: "pending" },
+          { name: "skipped", status: "neutral" },
+        ],
       },
     });
     expect(harness.logEntries).toEqual(
@@ -575,11 +822,237 @@ describe("github plugin RPC behavior", () => {
         expect.objectContaining({
           level: "warn",
           message: expect.stringContaining(
-            "could not read permissions for acme/widgets#42",
+            "could not read permissions and merge settings for acme/widgets#42",
           ),
         }),
       ]),
     );
+  });
+
+  it("merges with the chosen method on the head the viewer saw, then deletes the branch", async () => {
+    const { harness } = await loadPlugin();
+
+    await expect(
+      harness.callRpc("mergePull", {
+        repo: "acme/widgets",
+        number: 42,
+        method: "rebase",
+        deleteBranch: true,
+        headRefOid: "seen123",
+      }),
+    ).resolves.toEqual({ ok: true, method: "rebase", deletedBranch: true });
+    expect(ghCalls()).toEqual(
+      expect.arrayContaining([
+        "pr merge 42 -R acme/widgets --rebase --match-head-commit seen123",
+        "api -X DELETE repos/acme/widgets/git/refs/heads/feature",
+      ]),
+    );
+
+    const cli = await harness.runCli(["merge", "acme/widgets", "42", "--json"]);
+    expect(JSON.parse(cli.stdout)).toEqual({
+      ok: true,
+      repo: "acme/widgets",
+      number: 42,
+      method: "squash",
+      deletedBranch: false,
+    });
+    expect(ghCalls()).toContain(
+      "pr merge 42 -R acme/widgets --squash --match-head-commit abc1234",
+    );
+  });
+
+  it("refuses a merge GitHub would refuse, before running it", async () => {
+    const { harness } = await loadPlugin();
+
+    await expect(
+      harness.runCli(["merge", "acme/widgets", "42", "--method", "merge"]),
+    ).resolves.toMatchObject({
+      exitCode: 1,
+      stderr:
+        "acme/widgets doesn't allow merge merges. Allowed: squash, rebase.\n",
+    });
+    process.env.FAKE_GH_DETAILS = JSON.stringify(
+      pullDetailsResponse({ repository: { viewerPermission: "READ" } }),
+    );
+    await expect(
+      harness.runCli(["merge", "acme/widgets", "42"]),
+    ).resolves.toMatchObject({
+      exitCode: 1,
+      stderr:
+        "You don't have write access to acme/widgets, so you can't merge acme/widgets#42.\n",
+    });
+    process.env.FAKE_GH_DETAILS = JSON.stringify(
+      pullDetailsResponse({ pullRequest: { isInMergeQueue: true } }),
+    );
+    await expect(
+      harness.runCli(["merge", "acme/widgets", "42"]),
+    ).resolves.toMatchObject({
+      exitCode: 1,
+      stderr:
+        "acme/widgets#42 is queued to merge; GitHub merges it when its turn comes.\n",
+    });
+    expect(ghCalls().filter((call) => call.startsWith("pr merge"))).toEqual([]);
+  });
+
+  it("re-runs each Actions run with a failed job once", async () => {
+    const { harness } = await loadPlugin();
+    process.env.FAKE_GH_ROLLUP = JSON.stringify({
+      statusCheckRollup: [
+        {
+          name: "unit (1)",
+          conclusion: "FAILURE",
+          detailsUrl: "https://github.com/acme/widgets/actions/runs/555/job/1",
+        },
+        {
+          name: "unit (2)",
+          conclusion: "TIMED_OUT",
+          detailsUrl: "https://github.com/acme/widgets/actions/runs/555/job/2",
+        },
+        {
+          name: "superseded",
+          conclusion: "CANCELLED",
+          detailsUrl: "https://github.com/acme/widgets/actions/runs/554/job/9",
+        },
+        { context: "legacy", state: "ERROR", targetUrl: "https://ci.example" },
+      ],
+    });
+
+    await expect(
+      harness.runCli(["rerun", "acme/widgets", "42"]),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stdout: "Re-running 3 failed checks in 1 run on acme/widgets#42.",
+      stderr: "",
+    });
+    expect(ghCalls().filter((call) => call.startsWith("run rerun"))).toEqual([
+      "run rerun 555 --failed -R acme/widgets",
+    ]);
+
+    process.env.FAKE_GH_ROLLUP = JSON.stringify({
+      statusCheckRollup: [
+        { context: "legacy", state: "ERROR", targetUrl: "https://ci.example" },
+      ],
+    });
+    await expect(
+      harness.callRpc("rerunFailedChecks", {
+        repo: "acme/widgets",
+        number: 42,
+      }),
+    ).rejects.toThrow("don't run on GitHub Actions");
+  });
+
+  it("snoozes a pull request until its checks change, and shows it everywhere", async () => {
+    const { harness } = await loadPlugin();
+    await harness.callRpc("refresh");
+
+    await expect(
+      harness.callRpc("snoozePull", {
+        repo: "acme/widgets",
+        number: 42,
+        rule: "checks",
+        until: null,
+      }),
+    ).resolves.toEqual({ ok: true, snooze: { rule: "checks", until: null } });
+    await expect(
+      harness.callRpc("listItems", { kind: "pr" }),
+    ).resolves.toMatchObject({
+      items: [{ number: 42, snooze: { rule: "checks", until: null } }],
+    });
+    await expect(harness.runCli(["prs", "acme/widgets"])).resolves.toEqual({
+      exitCode: 0,
+      stdout:
+        "acme/widgets#42\t[OPEN]\tNormalize pull details\tSnoozed until checks change",
+      stderr: "",
+    });
+    const inbox = await harness.runCli([
+      "prs",
+      "acme/widgets",
+      "--view",
+      "inbox",
+      "--json",
+    ]);
+    expect(
+      JSON.parse(inbox.stdout).items.map(
+        (item: { number: number }) => item.number,
+      ),
+    ).toEqual([42]);
+
+    const passing = JSON.parse(lists);
+    passing.data.repository.openPrs.nodes[0].commits.nodes[0].commit.statusCheckRollup.contexts.checkRunCountsByState =
+      [{ state: "SUCCESS", count: 5 }];
+    process.env.FAKE_GH_LISTS = JSON.stringify(passing);
+    await harness.callRpc("refresh");
+    await expect(
+      harness.callRpc("listItems", { kind: "pr" }),
+    ).resolves.toMatchObject({ items: [{ number: 42, snooze: null }] });
+  });
+
+  it("snoozes until a time or an agent's reply, and refuses what cannot wake", async () => {
+    const { harness } = await loadPlugin();
+    await harness.callRpc("refresh");
+
+    await expect(
+      harness.callRpc("snoozePull", {
+        repo: "acme/widgets",
+        number: 42,
+        rule: "time",
+        until: "2020-01-01T00:00:00Z",
+      }),
+    ).rejects.toThrow("A timed snooze needs a moment in the future.");
+    await expect(
+      harness.callRpc("snoozePull", {
+        repo: "acme/widgets",
+        number: 42,
+        rule: "reply",
+        until: null,
+      }),
+    ).rejects.toThrow("No agent thread is linked to acme/widgets#42");
+    await expect(
+      harness.runCli(["snooze", "acme/widgets", "42", "--until", "someday"]),
+    ).resolves.toMatchObject({ exitCode: 1 });
+
+    const timed = await harness.runCli([
+      "snooze",
+      "acme/widgets",
+      "42",
+      "--until",
+      "monday",
+      "--json",
+    ]);
+    expect(JSON.parse(timed.stdout).snooze.rule).toBe("time");
+    await expect(
+      harness.runCli(["unsnooze", "acme/widgets", "42"]),
+    ).resolves.toMatchObject({ exitCode: 0 });
+
+    await harness.callRpc("linkThread", {
+      kind: "pr",
+      repo: "acme/widgets",
+      number: 42,
+      threadId: "thread-agent",
+      preset: "fix",
+    });
+    await harness.callRpc("snoozePull", {
+      repo: "acme/widgets",
+      number: 42,
+      rule: "reply",
+      until: null,
+    });
+    await harness.emitThreadEvent("thread.idle", {
+      thread: { id: "thread-other" } as never,
+      lastAssistantText: null,
+    });
+    await expect(
+      harness.callRpc("listItems", { kind: "pr" }),
+    ).resolves.toMatchObject({
+      items: [{ number: 42, snooze: { rule: "reply" } }],
+    });
+    await harness.emitThreadEvent("thread.idle", {
+      thread: { id: "thread-agent" } as never,
+      lastAssistantText: null,
+    });
+    await expect(
+      harness.callRpc("listItems", { kind: "pr" }),
+    ).resolves.toMatchObject({ items: [{ number: 42, snooze: null }] });
   });
 
   it("changes a pull request's state from the RPC and the CLI, then refreshes the list", async () => {
@@ -710,6 +1183,187 @@ describe("github plugin RPC behavior", () => {
         ).toHaveLength(1),
       { timeout: 10_000 },
     );
+  });
+
+  it("starts an agent with a preset prompt, linked to the pull request when it is created", async () => {
+    const spawned: unknown[] = [];
+    const { harness } = await loadPlugin("acme/widgets", {
+      threads: {
+        spawn: async (args: unknown) => {
+          spawned.push(args);
+          return { id: `thread-${spawned.length}` };
+        },
+      },
+    });
+    await harness.callRpc("refresh");
+    process.env.FAKE_GH_ROLLUP = JSON.stringify({
+      statusCheckRollup: [
+        {
+          name: "unit",
+          conclusion: "FAILURE",
+          detailsUrl: "https://github.com/acme/widgets/actions/runs/555/job/1",
+        },
+      ],
+    });
+
+    const cli = await harness.runCli(["agent", "acme/widgets", "42", "--json"]);
+    expect(JSON.parse(cli.stdout)).toEqual({
+      ok: true,
+      repo: "acme/widgets",
+      number: 42,
+      preset: "fix",
+      threadId: "thread-1",
+    });
+    expect(spawned[0]).toMatchObject({
+      projectId: "project-1",
+      environment: { type: "project-default" },
+      pluginMetadata: {
+        pullRequest: { repo: "acme/widgets", number: 42, preset: "fix" },
+      },
+      prompt: expect.stringContaining(
+        "Fix the failing checks on acme/widgets#42 (normalize → main).",
+      ),
+    });
+    const prompt = (spawned[0] as { prompt: string }).prompt;
+    expect(prompt).toContain(
+      "- unit: src/cache.test.ts:18 AssertionError: expected 2 to be 3\n- legacy\n",
+    );
+    expect(prompt).toContain(
+      "Logs: `gh run view 901 -R acme/widgets --log-failed`",
+    );
+    expect(prompt).toContain("gh pr checkout 42 -R acme/widgets");
+
+    process.env.FAKE_GH_FAIL = "PullDetails";
+    await harness.callRpc("startAgent", {
+      repo: "acme/widgets",
+      number: 42,
+      preset: "fix",
+      prompt: null,
+    });
+    expect((spawned[1] as { prompt: string }).prompt).toContain(
+      "- unit\nLogs: `gh run view 555 -R acme/widgets --log-failed`",
+    );
+    delete process.env.FAKE_GH_FAIL;
+
+    await expect(
+      harness.callRpc("startAgent", {
+        repo: "acme/widgets",
+        number: 42,
+        preset: "custom",
+        prompt: "Rename the cache.",
+      }),
+    ).resolves.toEqual({ threadId: "thread-3" });
+    expect(spawned[2]).toMatchObject({ prompt: "Rename the cache." });
+    await expect(harness.callRpc("listLinks")).resolves.toMatchObject({
+      links: {
+        "pr:acme/widgets#42": [
+          { threadId: "thread-1", preset: "fix" },
+          { threadId: "thread-2", preset: "fix" },
+          { threadId: "thread-3", preset: "custom" },
+        ],
+      },
+    });
+  });
+
+  it("previews the agent prompt and thread title for where the agent will run", async () => {
+    const { harness } = await loadPlugin("acme/widgets");
+    await harness.callRpc("refresh");
+
+    const sameBranch = await harness.callRpc("agentPrompt", {
+      repo: "acme/widgets",
+      number: 42,
+      preset: "conflicts",
+      branchCheckout: "same-branch",
+    });
+    expect(sameBranch).toMatchObject({
+      title: expect.stringMatching(/^Resolve conflicts · acme\/widgets#42: /),
+      prompt: expect.stringContaining(
+        "You are on normalize; push to it when you are done.",
+      ),
+    });
+    expect(sameBranch).not.toMatchObject({
+      prompt: expect.stringContaining("gh pr checkout"),
+    });
+
+    await expect(
+      harness.callRpc("agentPrompt", {
+        repo: "acme/widgets",
+        number: 42,
+        preset: "conflicts",
+        branchCheckout: "new-branch",
+      }),
+    ).resolves.toMatchObject({
+      prompt: expect.stringContaining(
+        "push with `git push origin HEAD:normalize`",
+      ),
+    });
+
+    await expect(
+      harness.callRpc("agentPrompt", {
+        repo: "acme/widgets",
+        number: 999,
+        preset: "review",
+        branchCheckout: "checkout",
+      }),
+    ).rejects.toThrow("acme/widgets#999 is not a cached pull request");
+  });
+
+  it("sends a followed pull request's new CI result to its agent thread", async () => {
+    const sent: unknown[] = [];
+    const { harness } = await loadPlugin("acme/widgets", {
+      threads: {
+        send: async (args: unknown) => {
+          sent.push(args);
+          return {};
+        },
+      },
+    });
+    await harness.callRpc("refresh");
+    await harness.callRpc("linkThread", {
+      kind: "pr",
+      repo: "acme/widgets",
+      number: 42,
+      threadId: "thread-agent",
+      preset: "fix",
+    });
+    await expect(
+      harness.runCli(["follow", "acme/widgets", "42"]),
+    ).resolves.toEqual({
+      exitCode: 0,
+      stdout: "thread-agent now follows acme/widgets#42.",
+      stderr: "",
+    });
+    await expect(harness.callRpc("listFollows")).resolves.toEqual({
+      follows: { "acme/widgets#42": "thread-agent" },
+    });
+
+    await harness.callRpc("refresh");
+    expect(sent).toEqual([]);
+
+    const passing = JSON.parse(lists);
+    passing.data.repository.openPrs.nodes[0].commits.nodes[0].commit.statusCheckRollup.contexts.checkRunCountsByState =
+      [{ state: "SUCCESS", count: 5 }];
+    process.env.FAKE_GH_LISTS = JSON.stringify(passing);
+    await harness.callRpc("refresh");
+    expect(sent).toEqual([
+      {
+        threadId: "thread-agent",
+        input: [
+          {
+            type: "text",
+            text: "GitHub update for acme/widgets#42:\n\nCI on acme/widgets#42: 5 checks passed.",
+            mentions: [],
+          },
+        ],
+        mode: "queue-if-active",
+      },
+    ]);
+    await expect(
+      harness.runCli(["follow", "acme/widgets", "42", "--off"]),
+    ).resolves.toMatchObject({ exitCode: 0 });
+    await expect(harness.callRpc("listFollows")).resolves.toEqual({
+      follows: {},
+    });
   });
 
   it("changes a pull request in an untracked repository without caching that repository", async () => {

@@ -1,57 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   definePluginApp,
-  experimental_Diff as Diff,
-  experimental_FileLink as FileLink,
   experimental_Icon as Icon,
-  experimental_copyToClipboard,
-  UrlLink,
   useBbNavigate,
-  useRealtime,
   useRpc,
   type PluginNavPanelProps,
-  type PluginRpcResult,
   type PluginThreadPanelProps,
 } from "@get-bb/plugin-sdk/app";
-import {
-  buildSuggestions,
-  CHANGE_KINDS,
-  changeBreakdown,
-  diffSizeBlocks,
-  matchesQuery,
-  unlistedChange,
-  parseQuery,
-  parseSubPath,
-  pullStateOptions,
-  routeToSubPath,
-  type ChangeTotals,
-  type Item,
-  type Route,
-  type Suggestion,
-  type SuggestionIcon,
-} from "./app-logic.js";
-import {
-  PULL_GROUPS,
-  pullGlyph,
-  pullGroup,
-  pullNextStep,
-  stackNotes,
-  type PullGroup,
-  type PullStateTarget,
-  type PullTone,
-} from "./pull-status.js";
-import type { githubRpcContract } from "./server.js";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DelayedLoading } from "@/components/ui/delayed-loading";
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -63,57 +28,44 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  parseSubPath,
+  pullRowModels,
+  routeToSubPath,
+  type Route,
+} from "./app-logic.js";
+import type { githubRpcContract } from "./server.js";
+import {
+  GITHUB_COMMANDS,
+  GithubBridge,
+  GithubHomeSection,
+  GithubThreadPullChip,
+  mountRowStatus,
+  onFindRequest,
+  useInboxBadge,
+} from "./components/ambient.js";
 import { EmptyState } from "./components/empty-state.js";
 import { Markdown } from "./components/markdown-lite.js";
-
-type IssueDetail = PluginRpcResult<
-  (typeof githubRpcContract)["getIssue"]
->["issue"];
-type PullDetail = PluginRpcResult<
-  (typeof githubRpcContract)["getPull"]
->["pull"];
-type PullCheck = PullDetail["checks"][number];
-type ReviewThread = PullDetail["reviewThreads"][number];
-type PullFile = PullDetail["files"][number];
-type Status = PluginRpcResult<(typeof githubRpcContract)["status"]>;
-type RepoInfo = Status["repos"][number];
-type LinksMap = PluginRpcResult<
-  (typeof githubRpcContract)["listLinks"]
->["links"];
-type ThreadLink = LinksMap[string][number];
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function compactAge(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const minutes = Math.max(1, Math.floor((Date.now() - then) / 60_000));
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 60) return `${days}d`;
-  return `${Math.floor(days / 30)}mo`;
-}
-
-function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const seconds = Math.max(0, (Date.now() - then) / 1000);
-  if (seconds < 3600) return `${Math.max(1, Math.floor(seconds / 60))}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
-}
+import { PullDetailView } from "./components/pull-detail.js";
+import {
+  Avatar,
+  errorText,
+  relativeTime,
+  StateDot,
+  TipButton,
+  useAgents,
+  useFollows,
+  useItems,
+  useLinks,
+  useStatus,
+  useSync,
+  useViewer,
+  type IssueDetail,
+  type RepoInfo,
+  type Status,
+} from "./components/shared.js";
+import { PullWorkspace, usePullDialogs } from "./components/workspace.js";
 
 const PANEL_PATH = "github";
 
@@ -127,222 +79,6 @@ function useSubPathRoute(subPath: string): [Route, (route: Route) => void] {
     [bbNavigate],
   );
   return [route, navigate];
-}
-
-function useItems(kind: "issue" | "pr"): {
-  items: Item[] | null;
-  error: string | null;
-} {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [state, setState] = useState<{
-    items: Item[] | null;
-    error: string | null;
-  }>({
-    items: null,
-    error: null,
-  });
-  const refetch = useCallback(() => {
-    rpc.call("listItems", { kind }).then(
-      (result) => setState({ items: result.items, error: null }),
-      (error: unknown) => setState({ items: null, error: errorText(error) }),
-    );
-  }, [rpc, kind]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("data-changed", refetch);
-  return state;
-}
-
-function useLinks(): LinksMap {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [links, setLinks] = useState<LinksMap>({});
-  const refetch = useCallback(() => {
-    rpc.call("listLinks").then(
-      (result) => setLinks(result.links),
-      () => {},
-    );
-  }, [rpc]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("links-changed", refetch);
-  return links;
-}
-
-function useSpawn(): {
-  spawn: (
-    method: "startWork" | "startReview",
-    repo: string,
-    number: number,
-  ) => void;
-  spawningKey: string | null;
-} {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const navigate = useBbNavigate();
-  const [spawningKey, setSpawningKey] = useState<string | null>(null);
-  const spawn = useCallback(
-    (method: "startWork" | "startReview", repo: string, number: number) => {
-      setSpawningKey(`${repo}#${number}`);
-      rpc
-        .call(method, { repo, number })
-        .then((result) => {
-          navigate.toThread(result.threadId);
-        })
-        .catch((error: unknown) => toast.error(errorText(error)))
-        .finally(() => setSpawningKey(null));
-    },
-    [rpc, navigate],
-  );
-  return { spawn, spawningKey };
-}
-
-let viewerLogin: string | null = null;
-
-function useViewer(): string | null {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [login, setLogin] = useState<string | null>(viewerLogin);
-  useEffect(() => {
-    if (viewerLogin !== null) return;
-    rpc.call("viewer").then(
-      (result) => {
-        viewerLogin = result.login;
-        setLogin(result.login);
-      },
-      () => {},
-    );
-  }, [rpc]);
-  return login;
-}
-
-function Avatar({
-  login,
-  size = "size-5",
-  className,
-}: {
-  login: string;
-  size?: string;
-  className?: string;
-}) {
-  return (
-    <img
-      src={`https://github.com/${encodeURIComponent(login)}.png?size=64`}
-      alt={login}
-      title={login}
-      loading="lazy"
-      className={`${size} shrink-0 rounded-full bg-muted ${className ?? ""}`}
-    />
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0 opacity-50"
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function RefreshIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M21 12a9 9 0 0 0-15.2-6.5L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M3 12a9 9 0 0 0 15.2 6.5L21 16" />
-      <path d="M16 16h5v5" />
-    </svg>
-  );
-}
-
-function stateDotClass(kind: "issue" | "pr", state: string): string {
-  if (state === "OPEN") return "bg-green-500";
-  if (kind === "pr" && state === "MERGED") return "bg-purple-500";
-  if (kind === "pr") return "bg-red-500";
-  return "bg-purple-500";
-}
-
-function StateDot({ kind, state }: { kind: "issue" | "pr"; state: string }) {
-  return (
-    <span
-      className={`size-2 shrink-0 rounded-full ${stateDotClass(kind, state)}`}
-    />
-  );
-}
-
-function StateBadge({ kind, state }: { kind: "issue" | "pr"; state: string }) {
-  return (
-    <Badge variant="outline" className="gap-1.5 font-normal">
-      <StateDot kind={kind} state={state} />
-      {state.toLowerCase()}
-    </Badge>
-  );
-}
-
-function ThreadPills({ links }: { links: ThreadLink[] | undefined }) {
-  const navigate = useBbNavigate();
-  if (links === undefined || links.length === 0) return null;
-  return (
-    <span className="flex shrink-0 items-center gap-1">
-      {links.map((link, index) => (
-        <Badge
-          key={link.threadId}
-          title={`Open BB thread ${link.threadId}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            navigate.toThread(link.threadId);
-          }}
-          variant="secondary"
-          className="cursor-pointer whitespace-nowrap hover:bg-accent"
-        >
-          ⚡ agent{links.length > 1 ? ` ${index + 1}` : ""}
-        </Badge>
-      ))}
-    </span>
-  );
-}
-
-function LabelChips({
-  labels,
-  className,
-}: {
-  labels: string[];
-  className?: string;
-}) {
-  if (labels.length === 0) return null;
-  return (
-    <span className={`items-center gap-1 ${className ?? "flex shrink-0"}`}>
-      {labels.slice(0, 3).map((label) => (
-        <Badge
-          key={label}
-          variant="secondary"
-          className="font-normal text-muted-foreground"
-        >
-          {label}
-        </Badge>
-      ))}
-    </span>
-  );
 }
 
 function useIssueMutations() {
@@ -371,800 +107,26 @@ function useIssueMutations() {
   return { setIssueState, setAssignees, setLabels };
 }
 
-function FilterSuggestionIcon({ icon }: { icon: SuggestionIcon }) {
-  if (icon.kind === "state") {
-    return <StateDot kind={icon.itemKind} state={icon.state} />;
-  }
-  return <Avatar login={icon.login} size="size-4" />;
-}
-
-function FilterBar({
-  value,
-  onChange,
-  items,
-  repos,
-  kind,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  items: Item[] | null;
-  repos: RepoInfo[];
-  kind: "issue" | "pr";
-}) {
-  const viewer = useViewer();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
-  const [caret, setCaret] = useState(value.length);
-  const [highlight, setHighlight] = useState(0);
-
-  const vocab = useMemo(() => {
-    const users = new Set<string>();
-    const labels = new Set<string>();
-    for (const item of items ?? []) {
-      if (item.author.length > 0) users.add(item.author);
-      for (const login of item.assignees) users.add(login);
-      for (const label of item.labels) labels.add(label);
-    }
-    return {
-      users: [...users].sort((a, b) => a.localeCompare(b)),
-      labels: [...labels].sort((a, b) => a.localeCompare(b)),
-      repos: repos.map((entry) => entry.repo),
-    };
-  }, [items, repos]);
-
-  const upToCaret = value.slice(0, caret);
-  const tokenStart = upToCaret.lastIndexOf(" ") + 1;
-  const token = upToCaret.slice(tokenStart);
-  const suggestions = useMemo(
-    () => buildSuggestions(token, vocab, kind, viewer).slice(0, 8),
-    [token, vocab, kind, viewer],
-  );
-  const active = Math.min(highlight, Math.max(0, suggestions.length - 1));
-
-  const syncCaret = () =>
-    setCaret(inputRef.current?.selectionStart ?? value.length);
-
-  const accept = (suggestion: Suggestion) => {
-    const next =
-      value.slice(0, tokenStart) + suggestion.insert + value.slice(caret);
-    onChange(next);
-    const position = tokenStart + suggestion.insert.length;
-    setCaret(position);
-    setHighlight(0);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(position, position);
-    });
-  };
-
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-    if (!open || suggestions.length === 0) {
-      if (event.key === "ArrowDown") setOpen(true);
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlight((active + 1) % suggestions.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlight((active - 1 + suggestions.length) % suggestions.length);
-    } else if (event.key === "Enter" || event.key === "Tab") {
-      event.preventDefault();
-      accept(suggestions[active]);
-    }
-  };
-
-  return (
-    <div className="relative">
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(event) => {
-          onChange(event.target.value);
-          setOpen(true);
-          setHighlight(0);
-          setCaret(event.target.selectionStart ?? event.target.value.length);
-        }}
-        onSelect={syncCaret}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        onKeyDown={onKeyDown}
-        placeholder="Filter — is:open assignee:@me label:bug, or plain text"
-        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 pr-8 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        spellCheck={false}
-        autoComplete="off"
-      />
-      {value.length > 0 ? (
-        <button
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onChange("");
-            setCaret(0);
-            inputRef.current?.focus();
-          }}
-          aria-label="Clear filter"
-        >
-          ✕
-        </button>
-      ) : null}
-      {open && suggestions.length > 0 ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={suggestion.insert}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
-                index === active
-                  ? "bg-accent text-accent-foreground"
-                  : "text-popover-foreground"
-              }`}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                accept(suggestion);
-              }}
-              onMouseEnter={() => setHighlight(index)}
-            >
-              {suggestion.icon !== undefined ? (
-                <FilterSuggestionIcon icon={suggestion.icon} />
-              ) : null}
-              <span className="min-w-0 truncate font-medium">
-                {suggestion.label}
-              </span>
-              {suggestion.hint !== undefined ? (
-                <span className="ml-auto shrink-0 pl-4 text-xs text-muted-foreground">
-                  {suggestion.hint}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-const COL = {
-  id: "shrink-0 @[48rem]:w-12",
-  assignee: "shrink-0 @[48rem]:w-20",
-  status: "shrink-0 @[48rem]:w-24",
-  updated: "hidden w-14 shrink-0 text-right @[48rem]:block",
-  actions:
-    "ml-auto flex shrink-0 items-center justify-end gap-1 @[48rem]:ml-0 @[48rem]:w-24",
-} as const;
-
-function AssigneeCell({ assignees }: { assignees: string[] }) {
-  if (assignees.length === 0) {
-    return <span className="text-muted-foreground/50">—</span>;
-  }
-  return (
-    <span
-      className="flex items-center -space-x-1.5"
-      title={assignees.join(", ")}
-    >
-      {assignees.slice(0, 3).map((login) => (
-        <Avatar key={login} login={login} className="ring-1 ring-card" />
-      ))}
-      {assignees.length > 3 ? (
-        <span className="pl-2.5 text-xs text-muted-foreground">
-          +{assignees.length - 3}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-function StatusCell({ item }: { item: Item }) {
-  const { setIssueState } = useIssueMutations();
-  const [pending, setPending] = useState(false);
-  if (item.kind === "pr") {
-    return <StateBadge kind="pr" state={item.state} />;
-  }
-  const change = (next: "open" | "closed") => {
-    if ((item.state === "OPEN") === (next === "open")) return;
-    setPending(true);
-    setIssueState(item.repo, item.number, next)
-      .catch((error: unknown) => toast.error(errorText(error)))
-      .finally(() => setPending(false));
-  };
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild disabled={pending}>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 gap-1.5 px-2 text-xs font-normal"
-          onClick={(event) => event.stopPropagation()}
-          aria-label={`Change issue #${item.number} state, currently ${item.state.toLowerCase()}`}
-          aria-busy={pending}
-        >
-          <StateDot kind="issue" state={item.state} />
-          <span>{pending ? "…" : item.state.toLowerCase()}</span>
-          <ChevronDownIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuItem onSelect={() => change("open")}>
-          <StateDot kind="issue" state="OPEN" />
-          Open
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => change("closed")}>
-          <StateDot kind="issue" state="CLOSED" />
-          Closed
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function RowMenu({ item }: { item: Item }) {
-  const navigate = useBbNavigate();
-  const viewer = useViewer();
-  const { setIssueState, setAssignees } = useIssueMutations();
-  const assignedToMe = viewer !== null && item.assignees.includes(viewer);
-
-  const toggleSelfAssign = () => {
-    if (viewer === null) return;
-    const next = assignedToMe
-      ? item.assignees.filter((login) => login !== viewer)
-      : [...item.assignees, viewer];
-    setAssignees(item.repo, item.number, next)
-      .then(() =>
-        toast.success(
-          assignedToMe
-            ? `Unassigned from #${item.number}`
-            : `Assigned to #${item.number}`,
-        ),
-      )
-      .catch((error: unknown) => toast.error(errorText(error)));
-  };
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="size-7 text-muted-foreground"
-          onClick={(event) => event.stopPropagation()}
-        >
-          ⋮
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {item.kind === "issue" && viewer !== null ? (
-          <DropdownMenuItem onSelect={toggleSelfAssign}>
-            {assignedToMe ? "Unassign me" : "Assign to me"}
-          </DropdownMenuItem>
-        ) : null}
-        {item.kind === "issue" ? (
-          <DropdownMenuItem
-            onSelect={() =>
-              setIssueState(
-                item.repo,
-                item.number,
-                item.state === "OPEN" ? "closed" : "open",
-              ).catch((error: unknown) => toast.error(errorText(error)))
-            }
-          >
-            {item.state === "OPEN" ? "Close issue" : "Reopen issue"}
-          </DropdownMenuItem>
-        ) : null}
-        {item.kind === "issue" ? <DropdownMenuSeparator /> : null}
-        <DropdownMenuItem
-          onSelect={() => {
-            navigate.openUrl(item.url);
-          }}
-        >
-          Open on GitHub ↗
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => {
-            void experimental_copyToClipboard({ text: item.url }).then(
-              (copied) => {
-                if (copied) toast.success("Link copied");
-                else toast.error("Could not copy the link");
-              },
-            );
-          }}
-        >
-          Copy link
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function ItemRow({
-  item,
-  links,
-  onOpen,
-}: {
-  item: Item;
-  links: ThreadLink[] | undefined;
-  onOpen: () => void;
-}) {
-  const { spawn, spawningKey } = useSpawn();
-  const busy = spawningKey === `${item.repo}#${item.number}`;
-  return (
-    <div
-      className="grid cursor-pointer grid-cols-1 gap-y-2 px-3 py-3 hover:bg-accent/50 @[48rem]:flex @[48rem]:items-center @[48rem]:gap-3 @[48rem]:py-2"
-      onClick={onOpen}
-    >
-      <span className="flex min-w-0 flex-col items-start gap-1.5 @[48rem]:order-2 @[48rem]:flex-1 @[48rem]:flex-row @[48rem]:items-center @[48rem]:gap-2">
-        <span className="min-w-0 flex-1 line-clamp-3 text-sm font-medium leading-snug text-foreground @[48rem]:line-clamp-1 @[48rem]:leading-normal">
-          {item.title}
-        </span>
-        <LabelChips
-          labels={item.labels}
-          className="hidden shrink-0 @[60rem]:flex"
-        />
-        <ThreadPills links={links} />
-      </span>
-      <span className="flex min-w-0 items-center gap-2 @[48rem]:contents">
-        <span
-          className={`${COL.id} font-mono text-xs text-muted-foreground @[48rem]:order-1`}
-        >
-          #{item.number}
-        </span>
-        <span
-          className={`${COL.assignee} ${item.assignees.length === 0 ? "hidden @[48rem]:flex" : "flex"} text-xs text-muted-foreground @[48rem]:order-3`}
-        >
-          <AssigneeCell assignees={item.assignees} />
-        </span>
-        <span className={`${COL.status} @[48rem]:order-4`}>
-          <StatusCell item={item} />
-        </span>
-        <span
-          className={`${COL.updated} text-xs text-muted-foreground @[48rem]:order-5`}
-        >
-          {relativeTime(item.updatedAt)}
-        </span>
-        <span className={`${COL.actions} @[48rem]:order-6`}>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            disabled={spawningKey !== null}
-            onClick={(event) => {
-              event.stopPropagation();
-              spawn(
-                item.kind === "issue" ? "startWork" : "startReview",
-                item.repo,
-                item.number,
-              );
-            }}
-          >
-            {busy ? "…" : item.kind === "issue" ? "Start" : "Review"}
-          </Button>
-          <RowMenu item={item} />
-        </span>
-      </span>
-    </div>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <DelayedLoading>
-      <div className="divide-y divide-border">
-        {[0, 1, 2, 3].map((row) => (
-          <div
-            key={row}
-            className="grid grid-cols-1 gap-y-3 px-3 py-3 @[48rem]:flex @[48rem]:items-center @[48rem]:gap-3"
-          >
-            <Skeleton className="h-3 w-4/5 @[48rem]:order-2 @[48rem]:flex-1" />
-            <span className="flex items-center gap-2 @[48rem]:contents">
-              <span className={`${COL.id} @[48rem]:order-1`}>
-                <Skeleton className="h-3 w-10" />
-              </span>
-              <span className={`${COL.assignee} flex @[48rem]:order-3`}>
-                <Skeleton className="size-5 rounded-full @[48rem]:h-3 @[48rem]:w-16" />
-              </span>
-              <span className={`${COL.status} @[48rem]:order-4`}>
-                <Skeleton className="h-3 w-16" />
-              </span>
-              <span className={`${COL.updated} @[48rem]:order-5`}>
-                <Skeleton className="ml-auto h-3 w-12" />
-              </span>
-              <span className={`${COL.actions} @[48rem]:order-6`}>
-                <Skeleton className="h-7 w-20" />
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
-    </DelayedLoading>
-  );
-}
-
-function DetailSkeleton() {
-  return (
-    <DelayedLoading>
-      <div className="flex flex-col gap-4">
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-7 w-2/3" />
-        <Skeleton className="h-32 w-full" />
-      </div>
-    </DelayedLoading>
-  );
-}
-
-function ItemsTable({
-  kind,
-  items,
-  error,
-  hasFilter,
-  onOpenItem,
-}: {
-  kind: "issue" | "pr";
-  items: Item[] | null;
-  error: string | null;
-  hasFilter: boolean;
-  onOpenItem: (repo: string, number: number) => void;
-}) {
-  const links = useLinks();
-
-  let body: React.ReactNode;
-  if (error !== null) {
-    body = <EmptyState message={error} />;
-  } else if (items === null) {
-    body = <TableSkeleton />;
-  } else if (items.length === 0) {
-    body = (
-      <EmptyState
-        message={
-          hasFilter
-            ? `No ${kind === "issue" ? "issues" : "pull requests"} match this filter.`
-            : `No ${kind === "issue" ? "issues" : "pull requests"} in the tracked repos.`
-        }
-      />
-    );
-  } else {
-    body = (
-      <div className="divide-y divide-border">
-        {items.map((item) => (
-          <ItemRow
-            key={`${item.repo}#${item.number}`}
-            item={item}
-            links={links[`${kind}:${item.repo}#${item.number}`]}
-            onOpen={() => onOpenItem(item.repo, item.number)}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="@container overflow-hidden rounded-lg border border-border bg-card">
-      <div className="hidden items-center gap-3 border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground @[48rem]:flex">
-        <span className={COL.id}>ID</span>
-        <span className="min-w-0 flex-1">Title</span>
-        <span className={COL.assignee}>Assignee</span>
-        <span className={COL.status}>Status</span>
-        <span className={COL.updated}>Updated</span>
-        <span className={COL.actions} />
-      </div>
-      {body}
-    </div>
-  );
-}
-
-const PULL_TONE_CLASS: Record<PullTone, string> = {
-  action: "text-destructive",
-  ready: "text-success",
-  merged: "text-pr-merged",
-  you: "text-foreground",
-  waiting: "text-muted-foreground",
-};
-
-const COLLAPSED_PULL_GROUPS: ReadonlySet<PullGroup> = new Set([
-  "draft",
-  "merged",
-  "closed",
-]);
-
-function splitConventionalTitle(title: string): {
-  prefix: string;
-  rest: string;
-} {
-  const match = /^([a-z]+(?:\([^)]*\))?!?:)\s+(.+)$/.exec(title);
-  return match === null || match[1] === undefined || match[2] === undefined
-    ? { prefix: "", rest: title }
-    : { prefix: match[1], rest: match[2] };
-}
-
-function PullAuthor({ login }: { login: string }) {
-  if (login.startsWith("app/")) {
-    return (
-      <span title={login.slice(4)} className="flex size-4 items-center">
-        <Icon name="Bot" className="size-4 text-muted-foreground" />
-      </span>
-    );
-  }
-  return <Avatar login={login} size="size-4" />;
-}
-
-function PullRow({
-  item,
-  group,
-  note,
-  showRepo,
-  viewer,
-  links,
-  onOpen,
-}: {
-  item: Item;
-  group: PullGroup;
-  note: string | undefined;
-  showRepo: boolean;
-  viewer: string | null;
-  links: ThreadLink[] | undefined;
-  onOpen: () => void;
-}) {
-  const navigate = useBbNavigate();
-  const { spawn, spawningKey } = useSpawn();
-  const busy = spawningKey === `${item.repo}#${item.number}`;
-  const { prefix, rest } = splitConventionalTitle(item.title);
-  const glyph =
-    item.pr === null
-      ? { icon: "GitPullRequest", tone: "waiting" as const, label: "Open" }
-      : pullGlyph(item.pr, group);
-  const reason =
-    item.pr === null ? "Status syncing" : pullNextStep(item.pr, group);
-  const parts = [
-    `${showRepo ? item.repo : ""}#${item.number}`,
-    reason,
-    ...(item.pr !== null && item.pr.state === "draft" && group !== "draft"
-      ? ["draft"]
-      : []),
-    ...(note === undefined ? [] : [note]),
-  ];
-  const latestLink =
-    links === undefined || links.length === 0
-      ? null
-      : links.reduce((latest, link) =>
-          link.createdAt > latest.createdAt ? link : latest,
-        );
-  const showAuthor =
-    viewer === null || item.author.toLowerCase() !== viewer.toLowerCase();
-  return (
-    <div className="group/row relative flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-state-hover has-[>button:focus-visible]:bg-state-hover">
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`#${item.number} ${item.title}: ${reason}`}
-        className="absolute inset-0 cursor-default rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      />
-      <span className="flex h-4.5 shrink-0 items-center" title={glyph.label}>
-        <Icon
-          name={glyph.icon}
-          aria-label={glyph.label}
-          className={`size-4 ${PULL_TONE_CLASS[glyph.tone]}`}
-        />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
-          {prefix.length > 0 ? (
-            <span className="font-normal text-subtle-foreground">
-              {prefix}{" "}
-            </span>
-          ) : null}
-          {rest}
-        </span>
-        <span className="mt-0.5 block truncate text-xs text-subtle-foreground">
-          {parts.map((part, index) => (
-            <span key={`${index}:${part}`}>
-              {index > 0 ? (
-                <span className="text-subtle-foreground/60"> · </span>
-              ) : null}
-              {part}
-            </span>
-          ))}
-          {latestLink === null ? null : (
-            <>
-              <span className="text-subtle-foreground/60"> · </span>
-              <button
-                type="button"
-                className="relative hover:text-foreground hover:underline"
-                onClick={() => navigate.toThread(latestLink.threadId)}
-              >
-                {links !== undefined && links.length > 1
-                  ? `${links.length} agent threads`
-                  : "Agent thread"}
-              </button>
-            </>
-          )}
-        </span>
-      </span>
-      <span className="flex h-4.5 shrink-0 items-center gap-2 text-xs text-subtle-foreground group-hover/row:invisible">
-        {showAuthor ? <PullAuthor login={item.author} /> : null}
-        <span className="min-w-6 text-right tabular-nums">
-          {compactAge(item.updatedAt)}
-        </span>
-      </span>
-      <span className="absolute top-0.5 right-1 hidden items-center gap-0.5 group-hover/row:flex">
-        <TooltipProvider delayDuration={250}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-7 text-muted-foreground"
-                disabled={spawningKey !== null}
-                aria-label={`Review #${item.number} with an agent`}
-                onClick={() => spawn("startReview", item.repo, item.number)}
-              >
-                <Icon
-                  name={busy ? "Loading" : "Zap"}
-                  className={`size-4 ${busy ? "animate-spin motion-reduce:animate-none" : ""}`}
-                />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Review with an agent</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <RowMenu item={item} />
-      </span>
-    </div>
-  );
-}
-
-function PullGroupHeader({
-  label,
-  count,
-  collapsed,
-  onToggle,
-}: {
-  label: string;
-  count: number;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={!collapsed}
-      className="sticky top-0 z-10 flex h-8 w-full items-center gap-1.5 rounded-md bg-sidebar px-2 text-left text-xs font-medium text-subtle-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-    >
-      <Icon
-        name="ChevronDown"
-        className={`size-3 transition-transform motion-reduce:transition-none ${collapsed ? "-rotate-90" : ""}`}
-      />
-      <span>{label}</span>
-      <span className="font-normal tabular-nums">{count}</span>
-    </button>
-  );
-}
-
-function PullInboxSkeleton() {
-  return (
-    <DelayedLoading>
-      <div className="flex flex-col gap-0.5">
-        <Skeleton className="h-8 w-full rounded-md" />
-        {[0, 1, 2, 3, 4].map((row) => (
-          <div key={row} className="flex items-start gap-2 px-2 py-1.5">
-            <Skeleton className="size-4 rounded-full" />
-            <span className="flex flex-1 flex-col gap-1.5">
-              <Skeleton className="h-3 w-3/5" />
-              <Skeleton className="h-2.5 w-2/5" />
-            </span>
-          </div>
-        ))}
-      </div>
-    </DelayedLoading>
-  );
-}
-
-function PullInbox({
-  items,
-  error,
-  hasFilter,
-  showRepo,
-  onOpenItem,
-}: {
-  items: Item[] | null;
-  error: string | null;
-  hasFilter: boolean;
-  showRepo: boolean;
-  onOpenItem: (repo: string, number: number) => void;
-}) {
-  const links = useLinks();
-  const viewer = useViewer();
-  const [toggled, setToggled] = useState<ReadonlySet<PullGroup>>(new Set());
-  const groups = useMemo(() => {
-    if (items === null) return [];
-    const notes = stackNotes(
-      items.flatMap((item) =>
-        item.pr === null
-          ? []
-          : [{ repo: item.repo, number: item.number, pr: item.pr }],
-      ),
-    );
-    const byGroup = new Map<
-      PullGroup,
-      Array<{ item: Item; note: string | undefined }>
-    >();
-    for (const item of items) {
-      const group =
-        item.pr === null ? "open" : pullGroup(item.pr, item.author, viewer);
-      const rows = byGroup.get(group) ?? [];
-      rows.push({ item, note: notes.get(`${item.repo}#${item.number}`) });
-      byGroup.set(group, rows);
-    }
-    return PULL_GROUPS.flatMap((group) => {
-      const rows = byGroup.get(group.id);
-      return rows === undefined ? [] : [{ ...group, rows }];
-    });
-  }, [items, viewer]);
-
-  if (error !== null) return <EmptyState message={error} />;
-  if (items === null) return <PullInboxSkeleton />;
-  if (items.length === 0) {
-    return (
-      <EmptyState
-        message={
-          hasFilter
-            ? "No pull requests match this filter."
-            : "No pull requests in the tracked repos."
-        }
-      />
-    );
-  }
-  return (
-    <div className="flex flex-col gap-3">
-      {groups.map((group) => {
-        const collapsed =
-          COLLAPSED_PULL_GROUPS.has(group.id) !== toggled.has(group.id);
-        return (
-          <section
-            key={group.id}
-            aria-label={group.label}
-            className="flex flex-col gap-0.5"
-          >
-            <PullGroupHeader
-              label={group.label}
-              count={group.rows.length}
-              collapsed={collapsed}
-              onToggle={() =>
-                setToggled((current) => {
-                  const next = new Set(current);
-                  if (next.has(group.id)) next.delete(group.id);
-                  else next.add(group.id);
-                  return next;
-                })
-              }
-            />
-            {collapsed
-              ? null
-              : group.rows.map(({ item, note }) => (
-                  <PullRow
-                    key={`${item.repo}#${item.number}`}
-                    item={item}
-                    group={group.id}
-                    note={note}
-                    showRepo={showRepo}
-                    viewer={viewer}
-                    links={links[`pr:${item.repo}#${item.number}`]}
-                    onOpen={() => onOpenItem(item.repo, item.number)}
-                  />
-                ))}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
 function SidebarHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-      {children}
-    </h3>
+    <h3 className="text-xs font-medium text-subtle-foreground">{children}</h3>
+  );
+}
+
+function LabelChips({ labels }: { labels: string[] }) {
+  if (labels.length === 0) return null;
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {labels.map((label) => (
+        <Badge
+          key={label}
+          variant="secondary"
+          className="font-normal text-muted-foreground"
+        >
+          {label}
+        </Badge>
+      ))}
+    </span>
   );
 }
 
@@ -1181,7 +143,6 @@ function AssigneePicker({
   const viewer = useViewer();
   const [users, setUsers] = useState<string[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-
   const load = useCallback(() => {
     if (users !== null) return;
     rpc.call("assignableUsers", { repo }).then(
@@ -1189,12 +150,10 @@ function AssigneePicker({
       (error: unknown) => setLoadError(errorText(error)),
     );
   }, [rpc, repo, users]);
-
   const ordered =
     users === null
       ? null
       : [...users].sort((a, b) => Number(b === viewer) - Number(a === viewer));
-
   return (
     <DropdownMenu onOpenChange={(open) => open && load()}>
       <DropdownMenuTrigger asChild>
@@ -1209,6 +168,7 @@ function AssigneePicker({
       <DropdownMenuContent
         align="end"
         className="max-h-72 w-56 overflow-y-auto"
+        mobileTitle="Assignees"
       >
         <DropdownMenuLabel>Assignees</DropdownMenuLabel>
         {loadError !== null ? (
@@ -1252,7 +212,6 @@ function LabelPicker({
   const rpc = useRpc<typeof githubRpcContract>();
   const [available, setAvailable] = useState<string[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-
   const load = useCallback(() => {
     if (available !== null) return;
     rpc.call("repositoryLabels", { repo }).then(
@@ -1260,14 +219,12 @@ function LabelPicker({
       (error: unknown) => setLoadError(errorText(error)),
     );
   }, [rpc, repo, available]);
-
   const ordered =
     available === null
       ? null
       : [...new Set([...labels, ...available])].sort((a, b) =>
           a.localeCompare(b),
         );
-
   return (
     <DropdownMenu onOpenChange={(open) => open && load()}>
       <DropdownMenuTrigger asChild>
@@ -1282,6 +239,7 @@ function LabelPicker({
       <DropdownMenuContent
         align="end"
         className="max-h-72 w-56 overflow-y-auto"
+        mobileTitle="Labels"
       >
         <DropdownMenuLabel>Labels</DropdownMenuLabel>
         {loadError !== null ? (
@@ -1307,6 +265,18 @@ function LabelPicker({
   );
 }
 
+function DetailSkeleton() {
+  return (
+    <DelayedLoading>
+      <div aria-hidden className="flex flex-col gap-4 p-6">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-7 w-2/3" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    </DelayedLoading>
+  );
+}
+
 function IssueDetailView({
   repo,
   number,
@@ -1317,13 +287,14 @@ function IssueDetailView({
   onBack: () => void;
 }) {
   const rpc = useRpc<typeof githubRpcContract>();
+  const navigate = useBbNavigate();
   const links = useLinks();
-  const { spawn, spawningKey } = useSpawn();
   const { setIssueState, setAssignees, setLabels } = useIssueMutations();
   const [detail, setDetail] = useState<IssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [posting, setPosting] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const load = useCallback(() => {
     rpc.call("getIssue", { repo, number }).then(
@@ -1335,7 +306,6 @@ function IssueDetailView({
     );
   }, [rpc, repo, number]);
   useEffect(() => {
-    setDetail(null);
     load();
   }, [load]);
 
@@ -1353,7 +323,6 @@ function IssueDetailView({
     },
     [setIssueState, repo, number, load],
   );
-
   const toggleAssignee = useCallback(
     (login: string, assigned: boolean) => {
       let next: string[] = [];
@@ -1371,7 +340,6 @@ function IssueDetailView({
     },
     [setAssignees, repo, number, load],
   );
-
   const toggleLabel = useCallback(
     (label: string, enabled: boolean) => {
       let next: string[] = [];
@@ -1389,7 +357,6 @@ function IssueDetailView({
     },
     [setLabels, repo, number, load],
   );
-
   const postComment = useCallback(() => {
     if (comment.trim().length === 0) return;
     setPosting(true);
@@ -1402,1213 +369,218 @@ function IssueDetailView({
       .catch((err: unknown) => toast.error(errorText(err)))
       .finally(() => setPosting(false));
   }, [rpc, repo, number, comment, load]);
-
-  if (error !== null) return <EmptyState message={error} />;
-  if (detail === null) {
-    return <DetailSkeleton />;
-  }
-
-  const issueLinks = links[`issue:${repo}#${number}`];
-  return (
-    <div className="@container/github-detail flex flex-col gap-4">
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onBack}>
-          ← Issues
-        </Button>
-        <span>
-          {repo} · #{number}
-        </span>
-        <span className="flex-1" />
-        <UrlLink href={detail.url} className="underline hover:text-foreground">
-          Open on GitHub ↗
-        </UrlLink>
-      </div>
-
-      <div className="flex items-start gap-3">
-        <h2 className="min-w-0 flex-1 text-xl font-semibold text-foreground">
-          {detail.title}{" "}
-          <span className="font-normal text-muted-foreground">
-            #{detail.number}
-          </span>
-        </h2>
-        <Button
-          size="sm"
-          disabled={spawningKey !== null}
-          onClick={() => spawn("startWork", repo, number)}
-        >
-          {spawningKey !== null ? "Starting…" : "Send agent"}
-        </Button>
-      </div>
-
-      <div className="flex flex-col gap-6 @min-[56rem]/github-detail:flex-row">
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
-            <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
-              <Avatar login={detail.author} />
-              <span className="font-medium text-foreground">
-                {detail.author}
-              </span>
-              opened this issue · updated {relativeTime(detail.updatedAt)}
-            </div>
-            <div className="p-4">
-              {detail.body.length > 0 ? (
-                <Markdown content={detail.body} className="text-sm" />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  (no description)
-                </p>
-              )}
-            </div>
-          </div>
-
-          {detail.comments.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-semibold text-muted-foreground">
-                Activity · {detail.comments.length}
-              </h3>
-              {detail.comments.map((entry, index) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-border bg-card p-3"
-                >
-                  <p className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                    <Avatar login={entry.author} />
-                    <span className="font-medium text-foreground">
-                      {entry.author}
-                    </span>{" "}
-                    · {relativeTime(entry.createdAt)}
-                  </p>
-                  <Markdown content={entry.body} className="text-sm" />
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="flex flex-col gap-2">
-            <Textarea
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-              placeholder="Leave a comment…"
-              rows={3}
-            />
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                disabled={posting || comment.trim().length === 0}
-                onClick={postComment}
-              >
-                {posting ? "Posting…" : "Comment"}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <aside className="flex w-full shrink-0 flex-col gap-5 @min-[56rem]/github-detail:w-56">
-          <div className="flex flex-col gap-2">
-            <SidebarHeading>Status</SidebarHeading>
-            <Select
-              value={detail.state === "OPEN" ? "open" : "closed"}
-              onValueChange={(value) =>
-                changeState(value === "closed" ? "closed" : "open")
-              }
-            >
-              <SelectTrigger className="h-8 w-full text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="open">
-                  <span className="flex items-center gap-2">
-                    <StateDot kind="issue" state="OPEN" /> Open
-                  </span>
-                </SelectItem>
-                <SelectItem value="closed">
-                  <span className="flex items-center gap-2">
-                    <StateDot kind="issue" state="CLOSED" /> Closed
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-              <SidebarHeading>Assignees</SidebarHeading>
-              <AssigneePicker
-                repo={repo}
-                assignees={detail.assignees}
-                onToggle={toggleAssignee}
-              />
-            </div>
-            {detail.assignees.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No one assigned</p>
-            ) : (
-              detail.assignees.map((login) => (
-                <p
-                  key={login}
-                  className="flex items-center gap-2 text-sm text-foreground"
-                >
-                  <Avatar login={login} />
-                  <span className="truncate">{login}</span>
-                </p>
-              ))
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <SidebarHeading>Labels</SidebarHeading>
-              <LabelPicker
-                repo={repo}
-                labels={detail.labels}
-                onToggle={toggleLabel}
-              />
-            </div>
-            {detail.labels.length === 0 ? (
-              <p className="text-sm text-muted-foreground">None yet</p>
-            ) : (
-              <LabelChips labels={detail.labels} className="flex flex-wrap" />
-            )}
-          </div>
-
-          {issueLinks !== undefined && issueLinks.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              <SidebarHeading>Agents</SidebarHeading>
-              <ThreadPills links={issueLinks} />
-            </div>
-          ) : null}
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-const PULL_STATE_DISPLAY: Record<
-  string,
-  { icon: string; tone: string; label: string }
-> = {
-  OPEN: { icon: "GitPullRequestArrow", tone: "text-success", label: "Open" },
-  DRAFT: {
-    icon: "GitPullRequestDraft",
-    tone: "text-muted-foreground",
-    label: "Draft",
-  },
-  MERGED: { icon: "GitMerge", tone: "text-pr-merged", label: "Merged" },
-  CLOSED: {
-    icon: "GitPullRequestClosed",
-    tone: "text-destructive",
-    label: "Closed",
-  },
-};
-
-const PULL_STATE_ORDER: PullStateTarget[] = ["draft", "open", "closed"];
-
-const TARGET_DETAIL_STATE: Record<PullStateTarget, string> = {
-  open: "OPEN",
-  draft: "DRAFT",
-  closed: "CLOSED",
-};
-
-function pullStateDisplay(state: string) {
-  return PULL_STATE_DISPLAY[state] ?? PULL_STATE_DISPLAY.CLOSED!;
-}
-
-const DIFF_COUNT_FORMAT = new Intl.NumberFormat("en-US");
-
-function formatDiffCount(value: number): string {
-  return DIFF_COUNT_FORMAT.format(value);
-}
-
-function PullStateBadge({ state }: { state: string }) {
-  const display = pullStateDisplay(state);
-  return (
-    <Badge variant="outline" className="h-6 gap-1.5 rounded-full font-normal">
-      <Icon
-        name={display.icon}
-        className={`size-3.5 shrink-0 ${display.tone}`}
-      />
-      {display.label}
-    </Badge>
-  );
-}
-
-function pullStateMessages(
-  number: number,
-  from: string,
-  to: PullStateTarget,
-): { pending: string; loading: string; done: string } {
-  if (to === "closed") {
-    return {
-      pending: "Closing…",
-      loading: `Closing #${number}…`,
-      done: `Closed #${number} without merging`,
-    };
-  }
-  if (from === "CLOSED") {
-    return to === "draft"
-      ? {
-          pending: "Reopening…",
-          loading: `Reopening #${number} as a draft…`,
-          done: `Reopened #${number} as a draft`,
-        }
-      : {
-          pending: "Reopening…",
-          loading: `Reopening #${number}…`,
-          done: `Reopened #${number}`,
-        };
-  }
-  return to === "draft"
-    ? {
-        pending: "Converting…",
-        loading: `Converting #${number} to a draft…`,
-        done: `#${number} is a draft now`,
-      }
-    : {
-        pending: "Marking ready…",
-        loading: `Marking #${number} ready for review…`,
-        done: `#${number} is ready for review`,
-      };
-}
-
-const DETAIL_STATE_TARGET: Record<string, PullStateTarget> = {
-  OPEN: "open",
-  DRAFT: "draft",
-  CLOSED: "closed",
-};
-
-function PullStateMenu({
-  pull,
-  onChanged,
-}: {
-  pull: PullDetail;
-  onChanged: () => Promise<void>;
-}) {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
-  const [settling, setSettling] = useState(false);
-  const [shownState, setShownState] = useState<string | null>(null);
-  const [seenState, setSeenState] = useState(pull.state);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmClose, setConfirmClose] = useState(false);
-  const queue = useRef<Promise<void>>(Promise.resolve());
-  const inFlight = useRef(0);
-  if (seenState !== pull.state) {
-    setSeenState(pull.state);
-    setShownState(null);
-  }
-  useEffect(() => {
-    if (!confirmClose) return;
-    const timer = window.setTimeout(() => setConfirmClose(false), 3_000);
-    return () => window.clearTimeout(timer);
-  }, [confirmClose]);
-
-  const state = shownState ?? pull.state;
-  const options = pullStateOptions({ ...pull, state });
-  const change = useCallback(
-    function requestChange(
-      from: string,
-      to: PullStateTarget,
-      undo: boolean,
-    ): void {
-      const messages = pullStateMessages(pull.number, from, to);
-      const back = DETAIL_STATE_TARGET[from];
-      const reversible =
-        from !== "CLOSED" ||
-        TARGET_DETAIL_STATE[to] === (pull.isDraft ? "DRAFT" : "OPEN");
-      const id = toast.loading(messages.loading);
-      inFlight.current += 1;
-      setSettling(true);
-      queue.current = queue.current
-        .then(() => {
-          setPendingLabel(messages.pending);
-          return rpc.call("setPullState", {
-            repo: pull.repo,
-            number: pull.number,
-            state: to,
-          });
-        })
-        .then(
-          () => {
-            setShownState(TARGET_DETAIL_STATE[to]);
-            toast.success(messages.done, {
-              id,
-              ...(undo && reversible && back !== undefined
-                ? {
-                    action: {
-                      label: "Undo",
-                      onClick: () =>
-                        requestChange(TARGET_DETAIL_STATE[to], back, false),
-                    },
-                  }
-                : {}),
-            });
-          },
-          (error: unknown) => {
-            toast.error(`Couldn't update #${pull.number}`, {
-              id,
-              description: errorText(error),
-            });
-          },
-        )
-        .then(() => {
-          setPendingLabel(null);
-          return onChanged();
-        })
-        .finally(() => {
-          inFlight.current -= 1;
-          if (inFlight.current === 0) setSettling(false);
-        });
-    },
-    [onChanged, pull.isDraft, pull.number, pull.repo, rpc],
-  );
-
-  const display = pullStateDisplay(state);
-  if (!settling && options.length === 0) {
-    return <PullStateBadge state={state} />;
-  }
-  const rows = PULL_STATE_ORDER.flatMap(
-    (target): Array<{ target: PullStateTarget; hint: string | null }> => {
-      if (TARGET_DETAIL_STATE[target] === state)
-        return [{ target, hint: null }];
-      const option = options.find((entry) => entry.target === target);
-      return option === undefined ? [] : [{ target, hint: option.hint }];
-    },
-  );
-  return (
-    <DropdownMenu
-      open={menuOpen}
-      onOpenChange={(open) => {
-        if (open && settling) return;
-        setMenuOpen(open);
-        if (!open) setConfirmClose(false);
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-6 gap-1.5 rounded-full px-2 text-xs font-normal aria-disabled:cursor-default data-[state=open]:bg-state-active"
-          aria-label={
-            pendingLabel ??
-            (settling
-              ? `Status: ${display.label}`
-              : `Status: ${display.label}. Change the status`)
-          }
-          aria-busy={settling}
-          aria-disabled={settling}
-        >
-          {pendingLabel !== null ? (
-            <>
-              <Icon name="Loading" className="size-3.5 shrink-0 animate-spin" />
-              {pendingLabel}
-            </>
-          ) : (
-            <>
-              <Icon
-                name={display.icon}
-                className={`size-3.5 shrink-0 ${display.tone}`}
-              />
-              {display.label}
-              {settling ? null : (
-                <Icon
-                  name="ChevronDown"
-                  className="size-3 shrink-0 text-muted-foreground"
-                />
-              )}
-            </>
-          )}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-72"
-        mobileTitle={`Status of #${pull.number}`}
-      >
-        <DropdownMenuLabel>Status of #{pull.number}</DropdownMenuLabel>
-        <span className="sr-only" aria-live="polite">
-          {confirmClose
-            ? `Press Closed again to close #${pull.number} without merging`
-            : ""}
-        </span>
-        {rows.map(({ target, hint }) => {
-          const rowDisplay = pullStateDisplay(TARGET_DETAIL_STATE[target]);
-          const current = hint === null;
-          const confirming = target === "closed" && confirmClose && !current;
-          return (
-            <DropdownMenuItem
-              key={target}
-              role="menuitemradio"
-              aria-checked={current}
-              variant={confirming ? "destructive" : "default"}
-              onSelect={(event) => {
-                if (current) return;
-                if (target === "closed" && !confirmClose) {
-                  event.preventDefault();
-                  setConfirmClose(true);
-                  return;
-                }
-                change(state, target, true);
-              }}
-            >
-              <Icon
-                name={rowDisplay.icon}
-                className={`size-3.5 shrink-0 ${confirming ? "" : rowDisplay.tone}`}
-              />
-              {confirming ? (
-                <span className="min-w-0 flex-1 truncate">
-                  Close without merging?
-                </span>
-              ) : (
-                <>
-                  <span className="w-14 shrink-0">{rowDisplay.label}</span>
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                    {hint}
-                  </span>
-                </>
-              )}
-              {current ? (
-                <Icon
-                  name="Check"
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                />
-              ) : confirming ? (
-                <span className="shrink-0 text-xs">Press again</span>
-              ) : null}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function DiffSizeBar({
-  additions,
-  deletions,
-}: {
-  additions: number;
-  deletions: number;
-}) {
-  return (
-    <span className="flex shrink-0 gap-px" aria-hidden>
-      {diffSizeBlocks(additions, deletions).map((block, index) => (
-        <span
-          key={index}
-          className={`size-1.5 rounded-[1px] ${
-            block === "added"
-              ? "bg-diff-added"
-              : block === "removed"
-                ? "bg-diff-removed"
-                : "bg-muted"
-          }`}
-        />
-      ))}
-    </span>
-  );
-}
-
-function PullDiffStat({
-  pull,
-  onShowFiles,
-}: {
-  pull: PullDetail;
-  onShowFiles: (() => void) | null;
-}) {
-  const breakdown = changeBreakdown(pull.files);
-  const unlisted = unlistedChange(pull, breakdown);
-  const fileCount = `${pull.changedFiles} file${pull.changedFiles === 1 ? "" : "s"}`;
-  return (
-    <TooltipProvider delayDuration={250}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="-mx-1 inline-flex items-center gap-1.5 rounded px-1 tabular-nums transition-colors enabled:hover:bg-state-hover enabled:hover:text-foreground"
-            aria-label={`${pull.additions} lines added and ${pull.deletions} removed in ${fileCount}${onShowFiles === null ? "" : ". Show the files"}`}
-            disabled={onShowFiles === null}
-            onClick={onShowFiles ?? undefined}
-          >
-            <span className="text-diff-added">
-              +{formatDiffCount(pull.additions)}
-            </span>
-            <span className="text-diff-removed">
-              -{formatDiffCount(pull.deletions)}
-            </span>
-            <DiffSizeBar
-              additions={pull.additions}
-              deletions={pull.deletions}
-            />
-            <span>· {fileCount}</span>
-          </button>
-        </TooltipTrigger>
-        {breakdown.length > 0 ? (
-          <TooltipContent
-            side="bottom"
-            align="start"
-            className="border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md"
-          >
-            <div className="grid grid-cols-[auto_auto_auto_auto] gap-x-4 gap-y-1 tabular-nums">
-              {breakdown.map((entry) => (
-                <ChangeRow
-                  key={entry.kind}
-                  label={CHANGE_KINDS[entry.kind]}
-                  additions={entry.additions}
-                  deletions={entry.deletions}
-                  files={entry.files}
-                />
-              ))}
-              {unlisted === null ? null : (
-                <ChangeRow
-                  label="Not listed"
-                  additions={unlisted.additions}
-                  deletions={unlisted.deletions}
-                  files={unlisted.files}
-                />
-              )}
-              <span className="col-span-4 border-t border-border" />
-              <ChangeRow
-                label="Total"
-                additions={pull.additions}
-                deletions={pull.deletions}
-                files={pull.changedFiles}
-              />
-            </div>
-          </TooltipContent>
-        ) : null}
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-function ChangeKinds({ rows }: { rows: ChangeTotals[] }) {
-  if (rows.length < 2) return null;
-  return (
-    <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
-      {rows.map((row) => (
-        <span key={row.kind}>
-          {CHANGE_KINDS[row.kind]}{" "}
-          <span className="text-diff-added">
-            +{formatDiffCount(row.additions)}
-          </span>{" "}
-          <span className="text-diff-removed">
-            -{formatDiffCount(row.deletions)}
-          </span>
-        </span>
-      ))}
-    </p>
-  );
-}
-
-function ChangeRow({
-  label,
-  additions,
-  deletions,
-  files,
-}: {
-  label: string;
-  additions: number;
-  deletions: number;
-  files: number;
-}) {
-  return (
-    <>
-      <span>{label}</span>
-      <span className="text-right text-diff-added">
-        +{formatDiffCount(additions)}
-      </span>
-      <span className="text-right text-diff-removed">
-        -{formatDiffCount(deletions)}
-      </span>
-      <span className="text-right text-muted-foreground">
-        {files} file{files === 1 ? "" : "s"}
-      </span>
-    </>
-  );
-}
-
-function BranchCopyChip({ name }: { name: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1_600);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
-  return (
-    <button
-      type="button"
-      className="-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 font-mono transition-colors hover:bg-state-hover hover:text-foreground"
-      title={copied ? "Copied" : `Copy ${name}`}
-      aria-label={`Copy the branch name ${name}`}
-      onClick={() => {
-        void experimental_copyToClipboard({ text: name }).then((ok) => {
-          if (ok) setCopied(true);
-          else toast.error("Could not copy the branch name");
-        });
-      }}
-    >
-      <span className="min-w-0 truncate">{name}</span>
-      <Icon
-        name={copied ? "Check" : "Copy"}
-        className={`size-3 shrink-0 ${copied ? "text-success" : "text-muted-foreground"}`}
-      />
-      <span className="sr-only" aria-live="polite">
-        {copied ? "Branch name copied" : ""}
-      </span>
-    </button>
-  );
-}
-
-const REVIEW_STATE_LABELS: Record<string, string> = {
-  APPROVED: "approved",
-  CHANGES_REQUESTED: "requested changes",
-  COMMENTED: "commented",
-  DISMISSED: "dismissed",
-  PENDING: "review requested",
-};
-
-function reviewStateClass(state: string): string {
-  if (state === "APPROVED") return "text-green-600 dark:text-green-400";
-  if (state === "CHANGES_REQUESTED") return "text-red-600 dark:text-red-400";
-  return "text-muted-foreground";
-}
-
-function ReviewDecisionBadge({ decision }: { decision: string }) {
-  if (decision === "APPROVED") {
-    return (
-      <Badge className="bg-green-600 text-white hover:bg-green-600">
-        approved
-      </Badge>
-    );
-  }
-  if (decision === "CHANGES_REQUESTED") {
-    return <Badge variant="destructive">changes requested</Badge>;
-  }
-  if (decision === "REVIEW_REQUIRED") {
-    return <Badge variant="secondary">review required</Badge>;
-  }
-  return null;
-}
-
-function checkDotClass(status: PullCheck["status"]): string {
-  if (status === "success") return "bg-green-500";
-  if (status === "failure") return "bg-red-500";
-  if (status === "pending") return "animate-pulse bg-yellow-500";
-  return "bg-muted-foreground/50";
-}
-
-function ChecksSection({ checks }: { checks: PullCheck[] }) {
-  const [open, setOpen] = useState(() =>
-    checks.some((check) => check.status === "failure"),
-  );
-  if (checks.length === 0) return null;
-  const passing = checks.filter((check) => check.status === "success").length;
-  const failing = checks.filter((check) => check.status === "failure").length;
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <button
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent/50"
-        onClick={() => setOpen((prev) => !prev)}
-      >
-        <span
-          className={`size-2 shrink-0 rounded-full ${
-            failing > 0
-              ? "bg-red-500"
-              : passing === checks.length
-                ? "bg-green-500"
-                : "animate-pulse bg-yellow-500"
-          }`}
-        />
-        <span className="font-medium text-foreground">Checks</span>
-        <span className="text-xs text-muted-foreground">
-          {passing}/{checks.length} passing
-          {failing > 0 ? ` · ${failing} failing` : ""}
-        </span>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {open ? "▾" : "▸"}
-        </span>
-      </button>
-      {open ? (
-        <div className="divide-y divide-border border-t border-border">
-          {checks.map((check, index) => (
-            <div
-              key={`${check.name}-${index}`}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs"
-            >
-              <span
-                className={`size-2 shrink-0 rounded-full ${checkDotClass(check.status)}`}
-              />
-              <span className="min-w-0 flex-1 truncate text-foreground">
-                {check.name}
-              </span>
-              {check.url.length > 0 ? (
-                <UrlLink
-                  href={check.url}
-                  className="shrink-0 text-muted-foreground underline hover:text-foreground"
-                >
-                  details ↗
-                </UrlLink>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function FileDiffCard({
-  environmentId,
-  file,
-  url,
-}: {
-  environmentId: string | null;
-  file: PullFile;
-  url: string;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex w-full items-center gap-2 px-3 py-2 hover:bg-accent/50">
-        <button
-          type="button"
-          className="shrink-0 text-xs text-muted-foreground"
-          aria-label={`${open ? "Collapse" : "Expand"} ${file.path} diff`}
-          onClick={() => setOpen((prev) => !prev)}
-        >
-          {open ? "▾" : "▸"}
-        </button>
-        {environmentId === null || file.status === "removed" ? (
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
-            {file.path}
-          </span>
-        ) : (
-          <FileLink
-            className="min-w-0 flex-1 truncate font-mono text-xs text-foreground hover:underline"
-            target={{
-              kind: "workspace",
-              environmentId,
-              path: file.path,
-            }}
-          >
-            {file.path}
-          </FileLink>
-        )}
-        {file.status !== "modified" ? (
-          <Badge
-            variant="secondary"
-            className="shrink-0 font-normal text-muted-foreground"
-          >
-            {file.status}
-          </Badge>
-        ) : null}
-        <span className="shrink-0 text-xs tabular-nums text-diff-added">
-          +{formatDiffCount(file.additions)}
-        </span>
-        <span className="shrink-0 text-xs tabular-nums text-diff-removed">
-          -{formatDiffCount(file.deletions)}
-        </span>
-      </div>
-      {open ? (
-        file.patch !== null ? (
-          <div className="border-t border-border">
-            <Diff patch={file.patch} path={file.path} />
-          </div>
-        ) : (
-          <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-            Diff too large to inline —{" "}
-            <UrlLink href={`${url}/files`} className="underline">
-              view on GitHub ↗
-            </UrlLink>
-          </p>
-        )
-      ) : null}
-    </div>
-  );
-}
-
-function ReviewThreadCard({ thread }: { thread: ReviewThread }) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <p className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5 font-mono text-xs text-muted-foreground">
-        <span className="min-w-0 truncate">{thread.path}</span>
-        {thread.line !== null ? (
-          <span className="shrink-0">:{thread.line}</span>
-        ) : null}
-      </p>
-      {thread.diffHunk.length > 0 ? (
-        <div className="border-b border-border">
-          <Diff patch={thread.diffHunk} path={thread.path} />
-        </div>
-      ) : null}
-      <div className="flex flex-col gap-3 p-3">
-        {thread.comments.map((entry, index) => (
-          <div key={index}>
-            <p className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-              <Avatar login={entry.author} size="size-4" />
-              <span className="font-medium text-foreground">
-                {entry.author}
-              </span>{" "}
-              · {relativeTime(entry.createdAt)}
-            </p>
-            <Markdown content={entry.body} className="text-sm" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-type PullTimelineEntry =
-  | { type: "comment"; author: string; body: string; createdAt: string }
-  | {
-      type: "review";
-      author: string;
-      state: string;
-      body: string;
-      createdAt: string;
-    };
-
-function PullTimeline({ pull }: { pull: PullDetail }) {
-  const entries = useMemo<PullTimelineEntry[]>(() => {
-    const merged: PullTimelineEntry[] = [
-      ...pull.comments.map((comment) => ({
-        type: "comment" as const,
-        ...comment,
-      })),
-      ...pull.reviews
-        .filter(
-          (review) => review.body.length > 0 || review.state !== "COMMENTED",
-        )
-        .map((review) => ({ type: "review" as const, ...review })),
-    ];
-    return merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  }, [pull]);
-  if (entries.length === 0 && pull.reviewThreads.length === 0) return null;
-  return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold text-muted-foreground">
-        Activity · {entries.length + pull.reviewThreads.length}
-      </h3>
-      {entries.map((entry, index) => (
-        <div
-          key={index}
-          className="rounded-lg border border-border bg-card p-3"
-        >
-          <p className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-            <Avatar login={entry.author} />
-            <span className="font-medium text-foreground">{entry.author}</span>
-            {entry.type === "review" ? (
-              <span className={`font-medium ${reviewStateClass(entry.state)}`}>
-                {REVIEW_STATE_LABELS[entry.state] ?? entry.state.toLowerCase()}
-              </span>
-            ) : null}
-            · {relativeTime(entry.createdAt)}
-          </p>
-          {entry.body.length > 0 ? (
-            <Markdown content={entry.body} className="text-sm" />
-          ) : null}
-        </div>
-      ))}
-      {pull.reviewThreads.map((thread, index) => (
-        <ReviewThreadCard key={index} thread={thread} />
-      ))}
-    </div>
-  );
-}
-
-function PullReviewersList({ pull }: { pull: PullDetail }) {
-  const rows = useMemo(() => {
-    const latest = new Map<string, { login: string; state: string }>();
-    for (const review of pull.reviews) {
-      if (review.author.length > 0) {
-        latest.set(review.author, {
-          login: review.author,
-          state: review.state,
-        });
-      }
-    }
-    for (const login of pull.reviewRequests) {
-      latest.set(login, { login, state: "PENDING" });
-    }
-    return [...latest.values()];
-  }, [pull]);
-  if (rows.length === 0)
-    return <p className="text-sm text-muted-foreground">No reviewers</p>;
-  return (
-    <>
-      {rows.map((row) => (
-        <p
-          key={row.login}
-          className="flex items-center gap-2 text-sm text-foreground"
-        >
-          <Avatar login={row.login} />
-          <span className="min-w-0 truncate">{row.login}</span>
-          <span
-            className={`ml-auto shrink-0 text-xs ${reviewStateClass(row.state)}`}
-          >
-            {REVIEW_STATE_LABELS[row.state] ?? row.state.toLowerCase()}
-          </span>
-        </p>
-      ))}
-    </>
-  );
-}
-
-function PullCommentBox({
-  repo,
-  number,
-  onPosted,
-}: {
-  repo: string;
-  number: number;
-  onPosted: () => void;
-}) {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [comment, setComment] = useState("");
-  const [posting, setPosting] = useState(false);
-  const post = useCallback(() => {
-    if (comment.trim().length === 0) return;
-    setPosting(true);
+  const start = useCallback(() => {
+    setStarting(true);
     rpc
-      .call("commentPull", { repo, number, body: comment })
-      .then(() => {
-        setComment("");
-        onPosted();
-      })
-      .catch((error: unknown) => toast.error(errorText(error)))
-      .finally(() => setPosting(false));
-  }, [rpc, repo, number, comment, onPosted]);
+      .call("startWork", { repo, number })
+      .then(
+        (result) => navigate.toThread(result.threadId),
+        (err: unknown) => toast.error(errorText(err)),
+      )
+      .finally(() => setStarting(false));
+  }, [navigate, number, repo, rpc]);
+
+  const issueLinks = links[`issue:${repo}#${number}`] ?? [];
   return (
-    <div className="flex flex-col gap-2">
-      <Textarea
-        value={comment}
-        onChange={(event) => setComment(event.target.value)}
-        placeholder="Leave a comment…"
-        rows={3}
-      />
-      <div className="flex justify-end">
-        <Button
-          size="sm"
-          disabled={posting || comment.trim().length === 0}
-          onClick={post}
-        >
-          {posting ? "Posting…" : "Comment"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function PullDetailView({
-  repo,
-  number,
-  onBack,
-  backLabel = "Pull requests",
-  compact = false,
-  workspaceEnvironmentId = null,
-}: {
-  repo: string;
-  number: number;
-  onBack?: () => void;
-  backLabel?: string;
-  compact?: boolean;
-  workspaceEnvironmentId?: string | null;
-}) {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const links = useLinks();
-  const { spawn, spawningKey } = useSpawn();
-  const [pull, setPull] = useState<PullDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const filesRef = useRef<HTMLDivElement | null>(null);
-  const loadSeq = useRef(0);
-
-  const load = useCallback(() => {
-    loadSeq.current += 1;
-    const seq = loadSeq.current;
-    return rpc.call("getPull", { repo, number }).then(
-      (result) => {
-        if (seq !== loadSeq.current) return;
-        setPull(result.pull);
-        setError(null);
-      },
-      (err: unknown) => {
-        if (seq !== loadSeq.current) return;
-        setError(errorText(err));
-      },
-    );
-  }, [rpc, repo, number]);
-  useEffect(() => {
-    setPull(null);
-    void load();
-  }, [load]);
-
-  if (error !== null) return <EmptyState message={error} />;
-  if (pull === null) {
-    return <DetailSkeleton />;
-  }
-
-  const pullLinks = links[`pr:${repo}#${number}`];
-  const mainColumn = (
-    <div className="flex min-w-0 flex-1 flex-col gap-4">
-      <ChecksSection checks={pull.checks} />
-
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
-          <Avatar login={pull.author} />
-          <span className="font-medium text-foreground">{pull.author}</span>
-          opened this pull request · updated {relativeTime(pull.updatedAt)}
-        </div>
-        <div className="p-4">
-          {pull.body.length > 0 ? (
-            <Markdown content={pull.body} className="text-sm" />
-          ) : (
-            <p className="text-sm text-muted-foreground">(no description)</p>
-          )}
-        </div>
-      </div>
-
-      <PullTimeline pull={pull} />
-
-      {pull.files.length > 0 ? (
-        <div className="flex scroll-mt-4 flex-col gap-2" ref={filesRef}>
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <h3 className="text-xs font-semibold text-muted-foreground">
-              Files changed · {pull.files.length}
-              <span className="ml-2 font-normal tabular-nums">
-                <span className="text-diff-added">
-                  +{formatDiffCount(pull.additions)}
-                </span>{" "}
-                <span className="text-diff-removed">
-                  -{formatDiffCount(pull.deletions)}
-                </span>
-              </span>
-            </h3>
-            <ChangeKinds rows={changeBreakdown(pull.files)} />
-          </div>
-          {pull.files.map((file) => (
-            <FileDiffCard
-              key={file.path}
-              environmentId={workspaceEnvironmentId}
-              file={file}
-              url={pull.url}
-            />
-          ))}
-        </div>
-      ) : null}
-
-      <PullCommentBox repo={repo} number={number} onPosted={load} />
-    </div>
-  );
-
-  return (
-    <div className="@container/github-detail flex flex-col gap-4">
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        {onBack !== undefined ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2"
-            onClick={onBack}
-          >
-            ← {backLabel}
-          </Button>
-        ) : null}
-        <span className="min-w-0 truncate">
-          {repo} · #{number}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border px-2">
+        <TipButton
+          label="Back"
+          keys={["Esc"]}
+          icon="ArrowLeft"
+          onClick={onBack}
+        />
+        <span className="flex min-w-0 items-center gap-1.5 pl-1.5 text-xs text-subtle-foreground">
+          <span>Issue</span>
+          <span className="text-subtle-foreground/60">/</span>
+          <span className="font-medium text-foreground">#{number}</span>
         </span>
         <span className="flex-1" />
-        <UrlLink
-          href={pull.url}
-          className="shrink-0 underline hover:text-foreground"
-        >
-          Open on GitHub ↗
-        </UrlLink>
+        {detail === null ? null : (
+          <TipButton
+            label="Open on GitHub"
+            icon="ExternalLink"
+            onClick={() => navigate.openUrl(detail.url)}
+          />
+        )}
       </div>
-
-      <div className="flex items-start gap-3">
-        <h2
-          className={`min-w-0 flex-1 font-semibold text-foreground ${compact ? "text-base" : "text-xl"}`}
-        >
-          {pull.title}{" "}
-          <span className="font-normal text-muted-foreground">
-            #{pull.number}
-          </span>
-        </h2>
-        <Button
-          size="sm"
-          disabled={spawningKey !== null}
-          onClick={() => spawn("startReview", repo, number)}
-        >
-          {spawningKey !== null ? "Starting…" : "Review with agent"}
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <PullStateMenu pull={pull} onChanged={load} />
-        <ReviewDecisionBadge decision={pull.reviewDecision} />
-        <span className="flex min-w-0 items-center gap-1">
-          <span className="font-mono">{pull.baseRefName}</span>
-          <span aria-hidden>←</span>
-          <BranchCopyChip name={pull.headRefName} />
-        </span>
-        <PullDiffStat
-          pull={pull}
-          onShowFiles={
-            pull.files.length === 0
-              ? null
-              : () =>
-                  filesRef.current?.scrollIntoView({
-                    block: "start",
-                    behavior: "smooth",
-                  })
-          }
-        />
-        <LabelChips labels={pull.labels} className="flex flex-wrap" />
-        <ThreadPills links={pullLinks} />
-      </div>
-
-      {compact ? (
-        mainColumn
-      ) : (
-        <div className="flex flex-col gap-6 @min-[56rem]/github-detail:flex-row">
-          {mainColumn}
-          <aside className="flex w-full shrink-0 flex-col gap-5 @min-[56rem]/github-detail:w-56">
-            <div className="flex flex-col gap-1">
-              <SidebarHeading>Reviewers</SidebarHeading>
-              <PullReviewersList pull={pull} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {error !== null ? (
+          <div className="p-6">
+            <EmptyState message={error} />
+          </div>
+        ) : detail === null ? (
+          <DetailSkeleton />
+        ) : (
+          <div className="@container/github-detail flex flex-col gap-4 px-8 pt-6 pb-14 @max-[35rem]/github:px-4">
+            <div className="flex items-start gap-3">
+              <h1 className="min-w-0 flex-1 text-lg font-semibold tracking-tight text-foreground">
+                {detail.title}{" "}
+                <span className="font-normal text-subtle-foreground">
+                  #{detail.number}
+                </span>
+              </h1>
+              {detail.state === "OPEN" ? (
+                <Button size="sm" disabled={starting} onClick={start}>
+                  <Icon
+                    name={starting ? "Spinner" : "Zap"}
+                    className={
+                      starting
+                        ? "animate-spin motion-reduce:animate-none"
+                        : undefined
+                    }
+                  />
+                  {starting ? "Starting…" : "Start an agent"}
+                </Button>
+              ) : null}
             </div>
-            <div className="flex flex-col gap-1">
-              <SidebarHeading>Assignees</SidebarHeading>
-              {pull.assignees.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No one assigned</p>
-              ) : (
-                pull.assignees.map((login) => (
-                  <p
-                    key={login}
-                    className="flex items-center gap-2 text-sm text-foreground"
-                  >
-                    <Avatar login={login} />
-                    <span className="truncate">{login}</span>
+            <div className="flex flex-col gap-6 @min-[56rem]/github-detail:flex-row">
+              <div className="flex min-w-0 flex-1 flex-col gap-4">
+                <p className="flex items-center gap-2 text-xs text-subtle-foreground">
+                  <Avatar login={detail.author} size="size-4" />
+                  <span className="font-medium text-foreground">
+                    {detail.author}
+                  </span>
+                  opened this issue · updated {relativeTime(detail.updatedAt)}
+                </p>
+                {detail.body.length > 0 ? (
+                  <Markdown content={detail.body} className="text-sm" />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No description.
                   </p>
-                ))
-              )}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <SidebarHeading>Labels</SidebarHeading>
-              {pull.labels.length === 0 ? (
-                <p className="text-sm text-muted-foreground">None yet</p>
-              ) : (
-                <LabelChips labels={pull.labels} className="flex flex-wrap" />
-              )}
-            </div>
-            {pullLinks !== undefined && pullLinks.length > 0 ? (
-              <div className="flex flex-col gap-1.5">
-                <SidebarHeading>Agents</SidebarHeading>
-                <ThreadPills links={pullLinks} />
+                )}
+                {detail.comments.length > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-xs font-medium text-subtle-foreground">
+                      Activity · {detail.comments.length}
+                    </h3>
+                    {detail.comments.map((entry, index) => (
+                      <div
+                        key={index}
+                        className="rounded-lg border border-border p-3"
+                      >
+                        <p className="mb-1.5 flex items-center gap-2 text-xs text-subtle-foreground">
+                          <Avatar login={entry.author} size="size-4" />
+                          <span className="font-medium text-foreground">
+                            {entry.author}
+                          </span>{" "}
+                          · {relativeTime(entry.createdAt)}
+                        </p>
+                        <Markdown content={entry.body} className="text-sm" />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="flex flex-col gap-2">
+                  <Textarea
+                    value={comment}
+                    onChange={(event) => setComment(event.target.value)}
+                    placeholder="Leave a comment on GitHub"
+                    rows={3}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      disabled={posting || comment.trim().length === 0}
+                      onClick={postComment}
+                    >
+                      {posting ? "Posting…" : "Comment"}
+                    </Button>
+                  </div>
+                </div>
               </div>
-            ) : null}
-          </aside>
-        </div>
-      )}
+              <aside className="flex w-full shrink-0 flex-col gap-5 @min-[56rem]/github-detail:w-56">
+                <div className="flex flex-col gap-2">
+                  <SidebarHeading>Status</SidebarHeading>
+                  <Select
+                    value={detail.state === "OPEN" ? "open" : "closed"}
+                    onValueChange={(value) =>
+                      changeState(value === "closed" ? "closed" : "open")
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-full text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">
+                        <span className="flex items-center gap-2">
+                          <StateDot kind="issue" state="OPEN" /> Open
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="closed">
+                        <span className="flex items-center gap-2">
+                          <StateDot kind="issue" state="CLOSED" /> Closed
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <SidebarHeading>Assignees</SidebarHeading>
+                    <AssigneePicker
+                      repo={repo}
+                      assignees={detail.assignees}
+                      onToggle={toggleAssignee}
+                    />
+                  </div>
+                  {detail.assignees.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No one assigned
+                    </p>
+                  ) : (
+                    detail.assignees.map((login) => (
+                      <p
+                        key={login}
+                        className="flex items-center gap-2 text-sm text-foreground"
+                      >
+                        <Avatar login={login} />
+                        <span className="truncate">{login}</span>
+                      </p>
+                    ))
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <SidebarHeading>Labels</SidebarHeading>
+                    <LabelPicker
+                      repo={repo}
+                      labels={detail.labels}
+                      onToggle={toggleLabel}
+                    />
+                  </div>
+                  {detail.labels.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">None yet</p>
+                  ) : (
+                    <LabelChips labels={detail.labels} />
+                  )}
+                </div>
+                {issueLinks.length > 0 ? (
+                  <div className="flex flex-col gap-1.5">
+                    <SidebarHeading>Agents</SidebarHeading>
+                    {issueLinks.map((link, index) => (
+                      <button
+                        key={link.threadId}
+                        type="button"
+                        className="-mx-1 flex items-center gap-2 rounded px-1 text-left text-sm text-foreground hover:bg-state-hover"
+                        onClick={() => navigate.toThread(link.threadId)}
+                      >
+                        <Icon
+                          name="Bot"
+                          className="size-4 text-muted-foreground"
+                        />
+                        Agent thread
+                        {issueLinks.length > 1 ? ` ${index + 1}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </aside>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2619,11 +591,11 @@ function PullPickerList({
   onPick: (repo: string, number: number) => void;
 }) {
   const { items, error } = useItems("pr");
-  if (error !== null) return <EmptyState message={error} />;
+  if (error !== null && items === null) return <EmptyState message={error} />;
   if (items === null) {
     return (
       <DelayedLoading>
-        <div className="flex flex-col gap-2">
+        <div aria-hidden className="flex flex-col gap-2">
           <Skeleton className="h-5 w-full" />
           <Skeleton className="h-5 w-5/6" />
           <Skeleton className="h-5 w-2/3" />
@@ -2636,33 +608,41 @@ function PullPickerList({
     return <EmptyState message="No open pull requests in the tracked repos." />;
   }
   return (
-    <div className="@container/github-picker overflow-hidden rounded-lg border border-border bg-card">
-      <div className="divide-y divide-border">
-        {open.map((item) => (
-          <button
-            key={`${item.repo}#${item.number}`}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent/50"
-            onClick={() => onPick(item.repo, item.number)}
-          >
-            <StateDot kind="pr" state={item.state} />
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">
-              #{item.number}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-              {item.title}
-            </span>
-            <span className="hidden shrink-0 text-xs text-muted-foreground @min-[32rem]/github-picker:block">
-              {item.repo}
-            </span>
-          </button>
-        ))}
-      </div>
+    <div className="@container/github-picker flex flex-col gap-0.5">
+      {open.map((item) => (
+        <button
+          key={`${item.repo}#${item.number}`}
+          type="button"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-state-hover"
+          onClick={() => onPick(item.repo, item.number)}
+        >
+          <StateDot
+            kind="pr"
+            state={item.pr?.state === "draft" ? "DRAFT" : item.state}
+          />
+          <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+            #{item.number}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+            {item.title}
+          </span>
+          <span className="hidden shrink-0 text-xs text-subtle-foreground @min-[32rem]/github-picker:block">
+            {item.repo}
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
 
 function PullPanelTab({ threadId }: PluginThreadPanelProps) {
   const rpc = useRpc<typeof githubRpcContract>();
+  const viewer = useViewer();
+  const links = useLinks();
+  const agents = useAgents(links);
+  const follows = useFollows();
+  const { items } = useItems("pr");
+  const dialogs = usePullDialogs();
   const [resolved, setResolved] = useState(false);
   const [selected, setSelected] = useState<{
     repo: string;
@@ -2687,14 +667,12 @@ function PullPanelTab({ threadId }: PluginThreadPanelProps) {
     };
   }, [rpc, threadId]);
 
-  if (!resolved) {
-    return <DetailSkeleton />;
-  }
+  if (!resolved) return <DetailSkeleton />;
   if (selected === null) {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">
-          No pull request is linked to this thread yet — pick one:
+          No pull request is linked to this thread yet. Pick one:
         </p>
         <PullPickerList
           onPick={(repo, number) =>
@@ -2704,15 +682,67 @@ function PullPanelTab({ threadId }: PluginThreadPanelProps) {
       </div>
     );
   }
+  const key = `${selected.repo}#${selected.number}`;
+  const item =
+    items?.find(
+      (entry) =>
+        entry.repo === selected.repo && entry.number === selected.number,
+    ) ?? null;
+  const row =
+    item === null
+      ? null
+      : (pullRowModels([item], viewer, new Map())[0] ?? null);
   return (
-    <PullDetailView
-      repo={selected.repo}
-      number={selected.number}
-      compact
-      workspaceEnvironmentId={selected.environmentId}
-      backLabel="All PRs"
-      onBack={() => setSelected(null)}
-    />
+    <div className="-m-4 flex min-h-0 flex-1 flex-col @container/github">
+      <PullDetailView
+        key={key}
+        repo={selected.repo}
+        number={selected.number}
+        row={row}
+        chainRows={null}
+        agent={agents.get(key) ?? null}
+        follow={follows[key] ?? null}
+        merging={dialogs.merging.has(key)}
+        viewer={viewer}
+        compact
+        split={false}
+        workspaceEnvironmentId={selected.environmentId}
+        handle={null}
+        backLabel="All pull requests"
+        onBack={() => setSelected(null)}
+        onClose={null}
+        onMerge={dialogs.openMerge}
+        onStartAgent={dialogs.openAgent}
+        onOpenPull={(repo, number) =>
+          setSelected({ repo, number, environmentId: null })
+        }
+        onSnooze={(choice) => {
+          rpc
+            .call("snoozePull", {
+              repo: selected.repo,
+              number: selected.number,
+              rule: choice.rule,
+              until: choice.until,
+            })
+            .then(
+              () => toast.success(`#${selected.number} snoozed`),
+              (failure: unknown) => toast.error(errorText(failure)),
+            );
+        }}
+        onUnsnooze={() => {
+          rpc
+            .call("unsnoozePull", {
+              repo: selected.repo,
+              number: selected.number,
+            })
+            .then(
+              () => toast.success(`#${selected.number} is back in the inbox`),
+              (failure: unknown) => toast.error(errorText(failure)),
+            );
+        }}
+      />
+      {dialogs.dialogs}
+    </div>
   );
 }
 
@@ -2730,7 +760,6 @@ function NewIssueForm({
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [creating, setCreating] = useState(false);
-
   const create = useCallback(() => {
     setCreating(true);
     rpc
@@ -2742,9 +771,8 @@ function NewIssueForm({
       .catch((err: unknown) => toast.error(errorText(err)))
       .finally(() => setCreating(false));
   }, [rpc, repo, title, body, onCreated]);
-
   return (
-    <div className="flex max-w-2xl flex-col gap-3">
+    <div className="flex max-w-2xl flex-col gap-3 p-6">
       <h2 className="text-lg font-semibold text-foreground">New issue</h2>
       <Select value={repo} onValueChange={setRepo}>
         <SelectTrigger className="w-full">
@@ -2785,222 +813,93 @@ function NewIssueForm({
   );
 }
 
-function useStatus(): { status: Status | null; refetch: () => void } {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [status, setStatus] = useState<Status | null>(null);
-  const refetch = useCallback(() => {
-    rpc.call("status").then(
-      (result) => setStatus(result),
-      () => {},
-    );
-  }, [rpc]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("data-changed", refetch);
-  return { status, refetch };
-}
-
 function PanelHeader() {
-  const rpc = useRpc<typeof githubRpcContract>();
   const { status } = useStatus();
-  const [syncing, setSyncing] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const refresh = useCallback(() => {
-    setSyncing(true);
-    setFailed(false);
-    rpc
-      .call("refresh")
-      .catch(() => setFailed(true))
-      .finally(() => setSyncing(false));
-  }, [rpc]);
+  const sync = useSync();
+  const failed = sync.failed || (status?.lastSyncError ?? null) !== null;
+  const label = sync.syncing
+    ? "Syncing…"
+    : failed
+      ? "Couldn't sync · try again"
+      : status?.lastSyncedAt == null
+        ? "Refresh"
+        : `Refresh · synced ${relativeTime(status.lastSyncedAt)}`;
   return (
-    <>
-      <span className="hidden text-xs text-muted-foreground @min-[40rem]/page-header:inline">
-        {failed ? (
-          "Sync failed — check `gh auth status`"
-        ) : status === null ? (
-          <DelayedLoading>Loading…</DelayedLoading>
-        ) : status.ghOk ? (
-          `${status.repos.length} repo${status.repos.length === 1 ? "" : "s"} · synced ${
-            status.lastSyncedAt !== null
-              ? relativeTime(status.lastSyncedAt)
-              : "never"
-          }`
-        ) : status.ghState === "unavailable" ? (
-          "GitHub CLI unavailable — retrying"
-        ) : (
-          "GitHub CLI not authenticated"
-        )}
-      </span>
-      <Button
-        size="sm"
-        variant="outline"
-        className="size-8 gap-1.5 px-0 @min-[32rem]/page-header:h-8 @min-[32rem]/page-header:w-auto @min-[32rem]/page-header:px-3"
-        disabled={syncing}
-        onClick={refresh}
-        aria-label={syncing ? "Syncing GitHub data" : "Refresh GitHub data"}
-      >
-        <RefreshIcon className={syncing ? "animate-spin" : undefined} />
-        <span className="hidden @min-[32rem]/page-header:inline">
-          {syncing ? "Syncing…" : "Refresh"}
-        </span>
-      </Button>
-    </>
+    <TipButton
+      label={label}
+      icon={failed ? "CloudOff" : "RotateCcw"}
+      tone={failed ? "text-destructive" : undefined}
+      busy={sync.syncing}
+      className="size-8"
+      onClick={sync.refresh}
+    />
   );
 }
 
-const QUERY_KEY = "bb-plugin-github:query";
-const DEFAULT_QUERY = "is:open ";
-
-function GithubPanel({ subPath }: PluginNavPanelProps) {
-  const [route, navigate] = useSubPathRoute(subPath);
-  const { status } = useStatus();
-  const [query, setQueryState] = useState<string>(() => {
-    try {
-      return window.localStorage.getItem(QUERY_KEY) ?? DEFAULT_QUERY;
-    } catch {
-      return DEFAULT_QUERY;
-    }
-  });
-  const setQuery = useCallback((next: string) => {
-    setQueryState(next);
-    try {
-      window.localStorage.setItem(QUERY_KEY, next);
-    } catch {}
-  }, []);
-
+function SetupMessage({ status }: { status: Status }) {
+  const sync = useSync();
+  const [title, detail] =
+    status.ghState === "unavailable"
+      ? [
+          "Can't reach GitHub",
+          `The GitHub CLI couldn't reach GitHub; the plugin retries by itself. ${status.ghError ?? ""}`,
+        ]
+      : !status.ghOk
+        ? [
+            "Connect the GitHub CLI",
+            `Install it from cli.github.com, run \`gh auth login\`, then reload the plugin. ${status.ghError ?? ""}`,
+          ]
+        : [
+            "No GitHub repositories tracked yet",
+            "Create a bb project whose checkout has a GitHub origin remote, or add repositories in the extraRepos plugin setting.",
+          ];
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
-      <div className="mx-auto w-full max-w-5xl space-y-4">
-        <GithubPanelBody
-          route={route}
-          navigate={navigate}
-          status={status}
-          query={query}
-          setQuery={setQuery}
-        />
-      </div>
+    <div className="flex flex-col items-center gap-1 px-6 py-20 text-center">
+      <Icon name="Github" className="size-5 text-subtle-foreground/60" />
+      <p className="mt-2 text-sm font-medium text-foreground">{title}</p>
+      <p className="max-w-96 text-xs text-subtle-foreground">{detail}</p>
+      {status.ghState === "unavailable" ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="mt-2"
+          disabled={sync.syncing}
+          onClick={sync.refresh}
+        >
+          Try again
+        </Button>
+      ) : null}
     </div>
   );
 }
 
-function ListView({
-  kind,
-  query,
-  setQuery,
-  repos,
-  onOpenItem,
-}: {
-  kind: "issue" | "pr";
-  query: string;
-  setQuery: (query: string) => void;
-  repos: RepoInfo[];
-  onOpenItem: (repo: string, number: number) => void;
-}) {
-  const { items, error } = useItems(kind);
-  const viewer = useViewer();
-  const parsed = useMemo(() => parseQuery(query), [query]);
-  const filtered = useMemo(
-    () =>
-      items === null
-        ? null
-        : items.filter((item) => matchesQuery(item, parsed, viewer)),
-    [items, parsed, viewer],
+function GithubPanel({ subPath }: PluginNavPanelProps) {
+  const [route, navigate] = useSubPathRoute(subPath);
+  const { status } = useStatus();
+  const [findRequest, setFindRequest] = useState(0);
+  useEffect(
+    () => onFindRequest(() => setFindRequest((value) => value + 1)),
+    [],
   );
-  return (
-    <>
-      <FilterBar
-        value={query}
-        onChange={setQuery}
-        items={items}
-        repos={repos}
-        kind={kind}
-      />
-      {kind === "pr" ? (
-        <PullInbox
-          items={filtered}
-          error={error}
-          hasFilter={query.trim().length > 0}
-          showRepo={repos.length > 1}
-          onOpenItem={onOpenItem}
-        />
-      ) : (
-        <ItemsTable
-          kind={kind}
-          items={filtered}
-          error={error}
-          hasFilter={query.trim().length > 0}
-          onOpenItem={onOpenItem}
-        />
-      )}
-    </>
-  );
-}
-
-function GithubPanelBody({
-  route,
-  navigate,
-  status,
-  query,
-  setQuery,
-}: {
-  route: Route;
-  navigate: (route: Route) => void;
-  status: Status | null;
-  query: string;
-  setQuery: (query: string) => void;
-}) {
-  const openItem = useCallback(
-    (itemKind: "issue" | "pr", repo: string, number: number) => {
-      navigate(
-        itemKind === "pr"
-          ? { view: "pull", repo, number }
-          : { view: "issue", repo, number },
-      );
-    },
-    [navigate],
-  );
-  if (status !== null && status.ghState === "unavailable") {
-    return (
-      <EmptyState
-        message={`GitHub CLI could not reach GitHub. Check your network or keychain; the plugin retries by itself. (${status.ghError ?? ""})`}
-      />
-    );
-  }
-  if (status !== null && !status.ghOk) {
-    return (
-      <EmptyState
-        message={`GitHub CLI is not available or not authenticated. Install it from cli.github.com, run \`gh auth login\`, then reload the plugin. (${status.ghError ?? ""})`}
-      />
-    );
-  }
-  if (status !== null && status.repos.length === 0) {
-    return (
-      <EmptyState message="No GitHub repos tracked yet. Create a BB project whose checkout has a GitHub origin remote, or add repos via the extraRepos plugin setting." />
-    );
-  }
-
-  if (route.view === "issue") {
-    return (
+  const blocked =
+    status !== null &&
+    ((status.ghState !== "unavailable" && !status.ghOk) ||
+      status.repos.length === 0);
+  let body: React.ReactNode;
+  if (blocked && status !== null) {
+    body = <SetupMessage status={status} />;
+  } else if (route.view === "issue") {
+    body = (
       <IssueDetailView
+        key={`${route.repo}#${route.number}`}
         repo={route.repo}
         number={route.number}
         onBack={() => navigate({ view: "issues" })}
       />
     );
-  }
-  if (route.view === "pull") {
-    return (
-      <PullDetailView
-        repo={route.repo}
-        number={route.number}
-        onBack={() => navigate({ view: "pulls" })}
-      />
-    );
-  }
-  if (route.view === "new") {
-    return (
+  } else if (route.view === "new") {
+    body = (
       <NewIssueForm
         repos={status?.repos ?? []}
         onCreated={(repo, number) =>
@@ -3013,41 +912,18 @@ function GithubPanelBody({
         onCancel={() => navigate({ view: "issues" })}
       />
     );
-  }
-
-  const kind = route.view === "pulls" ? "pr" : "issue";
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Tabs
-          value={route.view}
-          onValueChange={(value) => {
-            navigate(
-              value === "pulls" ? { view: "pulls" } : { view: "issues" },
-            );
-          }}
-        >
-          <TabsList>
-            <TabsTrigger value="issues">Issues</TabsTrigger>
-            <TabsTrigger value="pulls">Pull requests</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="flex-1" />
-        {route.view === "issues" ? (
-          <Button size="sm" onClick={() => navigate({ view: "new" })}>
-            New issue
-          </Button>
-        ) : null}
-      </div>
-
-      <ListView
-        kind={kind}
-        query={query}
-        setQuery={setQuery}
-        repos={status?.repos ?? []}
-        onOpenItem={(repo, number) => openItem(kind, repo, number)}
+  } else {
+    body = (
+      <PullWorkspace
+        route={route}
+        navigate={navigate}
+        status={status}
+        findRequest={findRequest}
       />
-    </div>
+    );
+  }
+  return (
+    <div className="@container/github flex min-h-0 flex-1 flex-col">{body}</div>
   );
 }
 
@@ -3056,9 +932,10 @@ export default definePluginApp((app) => {
     id: "github",
     title: "GitHub",
     icon: "Github",
-    path: "github",
+    path: PANEL_PATH,
     component: GithubPanel,
     headerContent: PanelHeader,
+    experimental_useBadge: useInboxBadge,
   });
   app.slots.threadPanelAction({
     id: "pull",
@@ -3066,4 +943,20 @@ export default definePluginApp((app) => {
     icon: "Github",
     component: PullPanelTab,
   });
+  app.slots.homepageSection({
+    id: "inbox",
+    title: "Pull requests",
+    component: GithubHomeSection,
+  });
+  app.slots.experimental_threadHeaderAction({
+    id: "pull",
+    title: "Linked pull request",
+    component: GithubThreadPullChip,
+  });
+  app.slots.experimental_appOverlay({
+    id: "bridge",
+    component: GithubBridge,
+  });
+  app.contentScripts.register({ id: "row-status", mount: mountRowStatus });
+  for (const command of GITHUB_COMMANDS) app.commands.register(command);
 });

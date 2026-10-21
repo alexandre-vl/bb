@@ -33,6 +33,14 @@ export interface PullStatus {
   state: PullState;
   baseRefName: string;
   headRefName: string;
+  headRefOid: string | null;
+  isCrossRepository: boolean;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  mergedAt: string | null;
+  stack: PullStack | null;
+  headOwner: string | null;
   checks: {
     state: PullChecksState;
     passed: number;
@@ -54,23 +62,37 @@ export interface RawPullStatus {
   isDraft: boolean;
   baseRefName: string;
   headRefName: string;
+  headRefOid: string | null;
+  isCrossRepository: boolean;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  mergedAt: string | null;
   mergeable: string;
   reviewDecision: string | null;
   isInMergeQueue: boolean;
   requestedReviewers: string[];
   checkRunCounts: PullStateCount[];
   statusContextCounts: PullStateCount[];
+  checksVerdict: string | null;
+  stack: PullStack | null;
+  headOwner: string | null;
+}
+
+export interface PullStack {
+  number: number;
+  size: number;
+  position: number;
 }
 
 const CHECK_RUN_PASSED = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 const CHECK_RUN_FAILED = new Set([
   "FAILURE",
-  "CANCELLED",
   "TIMED_OUT",
   "ACTION_REQUIRED",
   "STARTUP_FAILURE",
-  "STALE",
 ]);
+const CHECK_RUN_CANCELLED = new Set(["CANCELLED", "STALE"]);
 const CHECK_RUN_PENDING = new Set([
   "QUEUED",
   "IN_PROGRESS",
@@ -81,14 +103,29 @@ const CHECK_RUN_PENDING = new Set([
 const STATUS_CONTEXT_FAILED = new Set(["FAILURE", "ERROR"]);
 const STATUS_CONTEXT_PENDING = new Set(["PENDING", "EXPECTED"]);
 
+export function isFailedCheck(conclusion: string): boolean {
+  const value = conclusion.toUpperCase();
+  return CHECK_RUN_FAILED.has(value) || STATUS_CONTEXT_FAILED.has(value);
+}
+
+const VERDICT_STATES: Record<string, PullChecksState> = {
+  SUCCESS: "passing",
+  FAILURE: "failing",
+  ERROR: "failing",
+  PENDING: "pending",
+  EXPECTED: "pending",
+};
+
 function assembleChecks(raw: RawPullStatus): PullStatus["checks"] {
   let passed = 0;
   let failed = 0;
+  let cancelled = 0;
   let pending = 0;
   let unknown = 0;
   for (const { state, count } of raw.checkRunCounts) {
     if (CHECK_RUN_PASSED.has(state)) passed += count;
     else if (CHECK_RUN_FAILED.has(state)) failed += count;
+    else if (CHECK_RUN_CANCELLED.has(state)) cancelled += count;
     else if (CHECK_RUN_PENDING.has(state)) pending += count;
     else unknown += count;
   }
@@ -98,13 +135,22 @@ function assembleChecks(raw: RawPullStatus): PullStatus["checks"] {
     else if (STATUS_CONTEXT_PENDING.has(state)) pending += count;
     else unknown += count;
   }
+  const verdict =
+    raw.checksVerdict === null ? undefined : VERDICT_STATES[raw.checksVerdict];
   let state: PullChecksState;
-  if (passed + failed + pending + unknown === 0) state = "no_checks";
-  else if (failed > 0) state = "failing";
+  if (passed + failed + cancelled + pending + unknown === 0) {
+    state = "no_checks";
+  } else if (verdict !== undefined) state = verdict;
+  else if (failed + cancelled > 0) state = "failing";
   else if (pending > 0) state = "pending";
   else if (unknown > 0) state = "unknown";
   else state = "passing";
-  return { state, passed, failed, pending };
+  return {
+    state,
+    passed,
+    failed: state === "failing" && failed === 0 ? cancelled : failed,
+    pending,
+  };
 }
 
 function assembleReview(raw: RawPullStatus): PullStatus["review"] {
@@ -176,6 +222,14 @@ export function assemblePullStatus(raw: RawPullStatus): PullStatus {
     state,
     baseRefName: raw.baseRefName,
     headRefName: raw.headRefName,
+    headRefOid: raw.headRefOid,
+    isCrossRepository: raw.isCrossRepository,
+    additions: raw.additions,
+    deletions: raw.deletions,
+    changedFiles: raw.changedFiles,
+    mergedAt: raw.mergedAt,
+    stack: raw.stack,
+    headOwner: raw.headOwner,
     checks,
     review,
     mergeability,
@@ -197,6 +251,7 @@ export type PullGroup =
   | "review"
   | "open"
   | "draft"
+  | "snoozed"
   | "merged"
   | "closed";
 
@@ -208,9 +263,65 @@ export const PULL_GROUPS: ReadonlyArray<{ id: PullGroup; label: string }> = [
   { id: "review", label: "Waiting for review" },
   { id: "open", label: "Open" },
   { id: "draft", label: "Drafts" },
+  { id: "snoozed", label: "Snoozed" },
   { id: "merged", label: "Merged" },
   { id: "closed", label: "Closed" },
 ];
+
+export type PullAgentState = "running" | "waiting" | "done";
+
+export interface PullGroupExtra {
+  snoozed?: boolean;
+  agent?: PullAgentState | null;
+}
+
+export type PullView = "inbox" | "mine" | "all" | "merged";
+
+export const PULL_VIEWS: ReadonlyArray<{ id: PullView; label: string }> = [
+  { id: "inbox", label: "Inbox" },
+  { id: "mine", label: "Mine" },
+  { id: "all", label: "All" },
+  { id: "merged", label: "Merged" },
+];
+
+const INBOX_GROUPS: ReadonlySet<PullGroup> = new Set([
+  "you",
+  "ready",
+  "fixing",
+  "progress",
+  "snoozed",
+]);
+
+export const INBOX_COUNT_GROUPS: ReadonlySet<PullGroup> = new Set([
+  "you",
+  "ready",
+  "fixing",
+]);
+
+export const COLLAPSED_PULL_GROUPS: Record<PullView, ReadonlySet<PullGroup>> = {
+  inbox: new Set(["snoozed"]),
+  mine: new Set(["draft", "snoozed", "closed"]),
+  all: new Set(["draft", "snoozed", "closed"]),
+  merged: new Set(),
+};
+
+export function inPullView(
+  view: PullView,
+  group: PullGroup,
+  author: string,
+  viewer: string | null,
+): boolean {
+  switch (view) {
+    case "inbox":
+      return INBOX_GROUPS.has(group);
+    case "mine":
+      return group !== "merged" && viewer !== null && sameLogin(author, viewer);
+    case "all":
+      return group !== "merged";
+    case "merged":
+      return group === "merged";
+  }
+}
 
 function sameLogin(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
@@ -231,9 +342,13 @@ export function pullGroup(
   status: PullStatus,
   author: string,
   viewer: string | null,
+  extra: PullGroupExtra = {},
 ): PullGroup {
   if (status.attention === "merged") return "merged";
   if (status.attention === "closed") return "closed";
+  if (extra.snoozed === true) return "snoozed";
+  if (extra.agent === "waiting") return "you";
+  if (extra.agent === "running") return "progress";
   if (isViewerReviewRequested(status, viewer)) return "you";
   if (
     status.attention === "changes_requested" &&
@@ -261,7 +376,14 @@ export function pullGroup(
   }
 }
 
-export type PullTone = "action" | "ready" | "merged" | "you" | "waiting";
+export type PullTone =
+  | "action"
+  | "ready"
+  | "merged"
+  | "you"
+  | "waiting"
+  | "closed"
+  | "working";
 
 export interface PullGlyph {
   icon: string;
@@ -269,7 +391,20 @@ export interface PullGlyph {
   label: string;
 }
 
-export function pullGlyph(status: PullStatus, group: PullGroup): PullGlyph {
+export function pullGlyph(
+  status: PullStatus,
+  group: PullGroup,
+  agent: PullAgentState | null = null,
+): PullGlyph {
+  if (group === "snoozed") {
+    return { icon: "TimeSchedule", tone: "waiting", label: "Snoozed" };
+  }
+  if (group === "you" && agent === "waiting") {
+    return { icon: "MessageQuestion", tone: "you", label: "Waiting for you" };
+  }
+  if (group === "progress" && agent === "running") {
+    return { icon: "Spinner", tone: "working", label: "Agent working" };
+  }
   if (group === "you") {
     return status.attention === "changes_requested"
       ? { icon: "AlertCircle", tone: "action", label: "Changes requested" }
@@ -301,7 +436,7 @@ export function pullGlyph(status: PullStatus, group: PullGroup): PullGlyph {
     case "closed":
       return {
         icon: "GitPullRequestClosed",
-        tone: "waiting",
+        tone: "closed",
         label: "Closed",
       };
     case "none":
@@ -313,7 +448,7 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-function checksSummary(checks: PullStatus["checks"]): string {
+export function checksSummary(checks: PullStatus["checks"]): string {
   switch (checks.state) {
     case "passing":
       return `${plural(checks.passed, "check")} passed`;
@@ -351,10 +486,56 @@ export function pullNextStep(status: PullStatus, group: PullGroup): string {
       return status.review.state === "review_required"
         ? "Review required"
         : "Review requested";
+    case "none":
+      return status.mergeability === "unknown" &&
+        status.checks.state !== "failing"
+        ? "Waiting for GitHub"
+        : checksSummary(status.checks);
     case "ready_to_merge":
     case "draft":
-    case "none":
       return checksSummary(status.checks);
+  }
+}
+
+export type AgentPreset =
+  | "fix"
+  | "conflicts"
+  | "review"
+  | "finish"
+  | "restack"
+  | "custom";
+
+export function pullPreset(status: PullStatus): AgentPreset {
+  if (status.attention === "conflicts") return "conflicts";
+  if (status.attention === "checks_failed") return "fix";
+  if (status.state === "draft") return "finish";
+  return "review";
+}
+
+export function mergeBlockedReason(status: PullStatus): string | null {
+  switch (status.attention) {
+    case "ready_to_merge":
+      return null;
+    case "merged":
+      return "Already merged";
+    case "closed":
+      return "Reopen it first";
+    case "draft":
+      return "Mark it ready first";
+    case "conflicts":
+      return `Conflicts with ${status.baseRefName}`;
+    case "checks_failed":
+      return `${plural(status.checks.failed, "check")} failing`;
+    case "checks_pending":
+      return "Checks running";
+    case "queued":
+      return "Queued to merge";
+    case "changes_requested":
+      return "Changes requested";
+    case "review_requested":
+      return "Waiting for review";
+    case "none":
+      return "Waiting for GitHub";
   }
 }
 
@@ -364,29 +545,85 @@ export interface StackPull {
   pr: PullStatus;
 }
 
-export function stackNotes(pulls: readonly StackPull[]): Map<string, string> {
+function isOpenPull(pull: StackPull): boolean {
+  return pull.pr.state === "open" || pull.pr.state === "draft";
+}
+
+export function stackChain<T extends StackPull>(
+  pull: T,
+  pulls: readonly T[],
+): T[] | null {
+  if (!isOpenPull(pull)) return null;
   const open = pulls.filter(
-    (pull) => pull.pr.state === "open" || pull.pr.state === "draft",
+    (other) => other.repo === pull.repo && isOpenPull(other),
   );
-  const byHead = new Map<string, StackPull>();
-  for (const pull of open) {
-    byHead.set(`${pull.repo}:${pull.pr.headRefName}`, pull);
+  const native = pull.pr.stack;
+  if (native !== null) {
+    const chain = open
+      .filter((other) => other.pr.stack?.number === native.number)
+      .sort(
+        (a, b) => (a.pr.stack?.position ?? 0) - (b.pr.stack?.position ?? 0),
+      );
+    return chain.length > 1 ? chain : null;
   }
+  const byHead = new Map(
+    open
+      .filter((other) => !other.pr.isCrossRepository)
+      .map((other) => [other.pr.headRefName, other]),
+  );
+  const below: T[] = [];
+  const seen = new Set([pull.number]);
+  for (
+    let current = byHead.get(pull.pr.baseRefName);
+    current !== undefined && !seen.has(current.number);
+    current = byHead.get(current.pr.baseRefName)
+  ) {
+    seen.add(current.number);
+    below.unshift(current);
+  }
+  const above: T[] = [];
+  for (let current: T = pull; !current.pr.isCrossRepository;) {
+    const next = open
+      .filter(
+        (other) =>
+          other.pr.stack === null &&
+          other.pr.baseRefName === current.pr.headRefName &&
+          !seen.has(other.number),
+      )
+      .sort((a, b) => a.number - b.number)[0];
+    if (next === undefined) break;
+    seen.add(next.number);
+    above.push(next);
+    current = next;
+  }
+  const chain = [...below, pull, ...above];
+  return chain.length > 1 ? chain : null;
+}
+
+export function stackPosition(
+  pull: StackPull,
+  chain: readonly StackPull[] | null,
+): { index: number; size: number } | null {
+  const native = pull.pr.stack;
+  if (native !== null && native.size > 1) {
+    return { index: native.position, size: native.size };
+  }
+  if (chain === null) return null;
+  const at = chain.findIndex((entry) => entry.number === pull.number);
+  return at < 0 ? null : { index: at + 1, size: chain.length };
+}
+
+export function stackNotes(pulls: readonly StackPull[]): Map<string, string> {
   const notes = new Map<string, string>();
-  for (const pull of open) {
-    const below = byHead.get(`${pull.repo}:${pull.pr.baseRefName}`);
+  for (const pull of pulls) {
+    const chain = stackChain(pull, pulls);
+    if (chain === null) continue;
+    const at = chain.findIndex((entry) => entry.number === pull.number);
+    const below = chain[at - 1];
+    const above = chain[at + 1];
     const key = `${pull.repo}#${pull.number}`;
-    if (below !== undefined && below.number !== pull.number) {
-      notes.set(key, `stacked on #${below.number}`);
-      continue;
-    }
-    const above = open.find(
-      (other) =>
-        other.repo === pull.repo &&
-        other.number !== pull.number &&
-        other.pr.baseRefName === pull.pr.headRefName,
-    );
-    if (above !== undefined) notes.set(key, `has #${above.number} on top`);
+    if (below !== undefined) notes.set(key, `stacked on #${below.number}`);
+    else if (above !== undefined) notes.set(key, `has #${above.number} on top`);
   }
   return notes;
 }

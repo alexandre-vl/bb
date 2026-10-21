@@ -12,14 +12,39 @@ import {
   type PluginCliResult,
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { issueKeyOf } from "./app-logic.js";
+import {
+  AGENT_PRESETS,
+  presetInfo,
+  presetPrompt,
+  type PresetPull,
+} from "./agent-presets.js";
 import {
   assemblePullStatus,
+  checksSummary,
+  inPullView,
+  isFailedCheck,
+  mergeBlockedReason,
+  PULL_VIEWS,
   pullGroup,
   pullNextStep,
+  pullPreset,
   pullStateCommands,
+  stackChain,
+  type AgentPreset,
   type PullStateTarget,
   type PullStatus,
+  type PullView,
 } from "./pull-status.js";
+import {
+  nextMondayMorning,
+  snoozeFor,
+  snoozeLabel,
+  snoozeWakes,
+  tomorrowMorning,
+  type Snooze,
+  type SnoozeRule,
+} from "./snooze.js";
 
 const SYNC_INTERVAL_MS = 15 * 60_000;
 const SYNC_RETRY_MAX_MS = 5 * 60_000;
@@ -49,6 +74,21 @@ const pullStatusSchema = z
     state: z.enum(["open", "draft", "merged", "closed"]),
     baseRefName: z.string(),
     headRefName: z.string(),
+    headRefOid: z.string().nullable(),
+    isCrossRepository: z.boolean(),
+    additions: z.number().int().nonnegative(),
+    deletions: z.number().int().nonnegative(),
+    changedFiles: z.number().int().nonnegative(),
+    mergedAt: z.string().nullable(),
+    stack: z
+      .object({
+        number: z.number().int().positive(),
+        size: z.number().int().nonnegative(),
+        position: z.number().int().positive(),
+      })
+      .strict()
+      .nullable(),
+    headOwner: z.string().nullable(),
     checks: z
       .object({
         state: z.enum([
@@ -91,7 +131,7 @@ const pullStatusSchema = z
     ]),
   })
   .strict() satisfies z.ZodType<PullStatus>;
-const itemSchema = z
+const cachedItemSchema = z
   .object({
     repo: repoNameSchema,
     number: itemNumberSchema,
@@ -107,6 +147,47 @@ const itemSchema = z
     pr: pullStatusSchema.nullable(),
   })
   .strict();
+const snoozeRuleSchema = z.enum([
+  "checks",
+  "push",
+  "reply",
+  "time",
+]) satisfies z.ZodType<SnoozeRule>;
+const itemSnoozeSchema = z
+  .object({ rule: snoozeRuleSchema, until: z.string().nullable() })
+  .strict();
+const itemSchema = cachedItemSchema
+  .extend({ snooze: itemSnoozeSchema.nullable() })
+  .strict();
+const storedSnoozeSchema = z
+  .object({
+    rule: snoozeRuleSchema,
+    until: z.string().nullable(),
+    createdAt: z.string(),
+    checks: z.string().nullable(),
+    headRefOid: z.string().nullable(),
+    agentActivity: z.string().nullable(),
+  })
+  .strict() satisfies z.ZodType<Snooze>;
+const agentPresetSchema = z.enum([
+  "fix",
+  "conflicts",
+  "review",
+  "finish",
+  "restack",
+  "custom",
+]) satisfies z.ZodType<AgentPreset>;
+const mergeMethodSchema = z.enum(["squash", "merge", "rebase"]);
+const repoSettingsSchema = z
+  .object({
+    viewerCanWrite: z.boolean(),
+    mergeMethods: z.array(mergeMethodSchema),
+    defaultMergeMethod: mergeMethodSchema,
+    deleteBranchOnMerge: z.boolean(),
+  })
+  .strict();
+type RepoSettings = z.infer<typeof repoSettingsSchema>;
+
 const syncResultSchema = z
   .object({
     repos: z.number().int().nonnegative(),
@@ -124,6 +205,7 @@ const threadLinkSchema = z
     number: itemNumberSchema,
     threadId: z.string().min(1),
     createdAt: z.string(),
+    preset: agentPresetSchema.nullable(),
   })
   .strict();
 const pullSchema = z
@@ -146,17 +228,93 @@ const pullSchema = z
     assignees: z.array(z.string()),
     reviewDecision: z.string(),
     mergeStateStatus: z.string(),
+    mergeable: z.string(),
     reviewRequests: z.array(z.string()),
     isDraft: z.boolean(),
+    headRefOid: z.string(),
+    isCrossRepository: z.boolean(),
+    isInMergeQueue: z.boolean(),
+    headCommittedAt: z.string().nullable(),
+    closedAt: z.string().nullable(),
+    mergedAt: z.string().nullable(),
+    mergedBy: z.string().nullable(),
     viewerCanUpdate: z.boolean(),
     viewerCanClose: z.boolean(),
     viewerCanReopen: z.boolean(),
+    viewerCanMerge: z.boolean(),
+    viewerCanDeleteHeadRef: z.boolean(),
+    isMergeQueueEnabled: z.boolean(),
+    headRefExists: z.boolean(),
+    checksVerdict: z.string().nullable(),
+    mergeMethods: z.array(mergeMethodSchema),
+    defaultMergeMethod: mergeMethodSchema,
+    deleteBranchOnMerge: z.boolean(),
+    reviewVerdicts: z.array(
+      z.object({ author: z.string(), state: z.string() }).strict(),
+    ),
+    events: z.array(
+      z
+        .object({
+          kind: z.enum([
+            "ready",
+            "draft",
+            "closed",
+            "reopened",
+            "merged",
+            "force_pushed",
+            "commit",
+            "base_changed",
+            "head_deleted",
+          ]),
+          actor: z.string(),
+          createdAt: z.string(),
+          detail: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    stack: z
+      .object({
+        number: z.number().int().positive(),
+        baseRefName: z.string(),
+        position: z.number().int().nonnegative(),
+        entries: z.array(
+          z
+            .object({
+              number: itemNumberSchema,
+              title: z.string(),
+              state: z.enum(["open", "draft", "merged", "closed"]),
+              attention: z.enum([
+                "conflicts",
+                "failing",
+                "draft",
+                "ready",
+                "none",
+              ]),
+            })
+            .strict(),
+        ),
+      })
+      .strict()
+      .nullable(),
     checks: z.array(
       z
         .object({
           name: z.string(),
+          workflow: z.string().nullable(),
           status: z.enum(["success", "failure", "pending", "neutral"]),
           url: z.string(),
+          runId: z.number().int().positive().nullable(),
+          completedAt: z.string().nullable(),
+          required: z.boolean(),
+          annotations: z.array(
+            z
+              .object({
+                path: z.string(),
+                line: z.number().int().nullable(),
+                message: z.string(),
+              })
+              .strict(),
+          ),
         })
         .strict(),
     ),
@@ -211,6 +369,7 @@ export const githubRpcContract = defineRpcContract({
         ghError: z.string().nullable(),
         repos: z.array(repoInfoSchema),
         lastSyncedAt: z.string().nullable(),
+        lastSyncError: z.string().nullable(),
       })
       .strict(),
   },
@@ -291,6 +450,89 @@ export const githubRpcContract = defineRpcContract({
       .object({ ok: z.literal(true), state: pullStateTargetSchema })
       .strict(),
   },
+  mergePull: {
+    input: itemInputSchema
+      .extend({
+        method: mergeMethodSchema,
+        deleteBranch: z.boolean(),
+        headRefOid: z.string().min(1).nullable(),
+      })
+      .strict(),
+    output: z
+      .object({
+        ok: z.literal(true),
+        method: mergeMethodSchema,
+        deletedBranch: z.boolean(),
+      })
+      .strict(),
+  },
+  rerunFailedChecks: {
+    input: itemInputSchema,
+    output: z
+      .object({
+        ok: z.literal(true),
+        runs: z.number().int().nonnegative(),
+        checks: z.number().int().nonnegative(),
+      })
+      .strict(),
+  },
+  snoozePull: {
+    input: itemInputSchema
+      .extend({ rule: snoozeRuleSchema, until: z.string().nullable() })
+      .strict(),
+    output: z
+      .object({ ok: z.literal(true), snooze: itemSnoozeSchema })
+      .strict(),
+  },
+  unsnoozePull: {
+    input: itemInputSchema,
+    output: okResultSchema,
+  },
+  startAgent: {
+    input: itemInputSchema
+      .extend({ preset: agentPresetSchema, prompt: z.string().nullable() })
+      .strict(),
+    output: z.object({ threadId: z.string().min(1) }).strict(),
+  },
+  agentPrompt: {
+    input: itemInputSchema
+      .extend({
+        preset: agentPresetSchema,
+        branchCheckout: z.enum(["same-branch", "new-branch", "checkout"]),
+      })
+      .strict(),
+    output: z.object({ prompt: z.string(), title: z.string().min(1) }).strict(),
+  },
+  linkThread: {
+    input: itemInputSchema
+      .extend({
+        kind: z.enum(["issue", "pr"]),
+        threadId: z.string().min(1),
+        preset: agentPresetSchema.nullable(),
+      })
+      .strict(),
+    output: okResultSchema,
+  },
+  setFollow: {
+    input: itemInputSchema
+      .extend({ threadId: z.string().min(1).nullable() })
+      .strict(),
+    output: z
+      .object({ ok: z.literal(true), threadId: z.string().nullable() })
+      .strict(),
+  },
+  repoSettings: {
+    input: z.null(),
+    output: z
+      .object({ repos: z.record(z.string(), repoSettingsSchema) })
+      .strict(),
+  },
+  listFollows: {
+    input: z.null(),
+    output: z
+      .object({ follows: z.record(z.string(), z.string().min(1)) })
+      .strict(),
+  },
   commentPull: {
     input: itemInputSchema.extend({ body: nonBlankStringSchema }).strict(),
     output: okResultSchema,
@@ -343,7 +585,8 @@ export const githubRpcContract = defineRpcContract({
 });
 
 type RepoInfo = z.infer<typeof repoInfoSchema>;
-type CachedItem = z.infer<typeof itemSchema>;
+type CachedItem = z.infer<typeof cachedItemSchema>;
+type ListedItem = z.infer<typeof itemSchema>;
 type ThreadLink = z.infer<typeof threadLinkSchema>;
 
 interface GhListEntry {
@@ -502,17 +745,39 @@ const listNodeSchema = z.object({
 const stateCountsSchema = z
   .array(z.object({ state: z.string(), count: z.number().int().nonnegative() }))
   .nullable();
+const pullChangeFields = {
+  headRefOid: z.string(),
+  isCrossRepository: z.boolean(),
+  headRepositoryOwner: z.object({ login: z.string() }).nullable(),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  changedFiles: z.number().int().nonnegative(),
+  stack: z
+    .object({
+      number: z.number().int().positive(),
+      size: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .optional(),
+  stackEntry: z
+    .object({ position: z.number().int().positive() })
+    .nullable()
+    .optional(),
+};
 const closedPullNodeSchema = listNodeSchema.extend({
   state: z.enum(["CLOSED", "MERGED"]),
   isDraft: z.boolean(),
   headRefName: z.string(),
   baseRefName: z.string(),
+  mergedAt: z.string().nullable(),
+  ...pullChangeFields,
 });
 const openPullNodeSchema = listNodeSchema.extend({
   state: z.literal("OPEN"),
   isDraft: z.boolean(),
   headRefName: z.string(),
   baseRefName: z.string(),
+  ...pullChangeFields,
   mergeable: z.string(),
   reviewDecision: z.string().nullable(),
   isInMergeQueue: z.boolean(),
@@ -538,6 +803,7 @@ const openPullNodeSchema = listNodeSchema.extend({
                 }),
               })
               .nullable(),
+            verdict: z.object({ state: z.string() }).nullable().optional(),
           }),
         }),
       )
@@ -548,6 +814,14 @@ const repositoryListsSchema = z.object({
   data: z.object({
     repository: z.object({
       hasIssuesEnabled: z.boolean(),
+      viewerPermission: z.string().nullable().optional(),
+      viewerDefaultMergeMethod: z
+        .enum(["SQUASH", "MERGE", "REBASE"])
+        .optional(),
+      squashMergeAllowed: z.boolean().optional(),
+      mergeCommitAllowed: z.boolean().optional(),
+      rebaseMergeAllowed: z.boolean().optional(),
+      deleteBranchOnMerge: z.boolean().optional(),
       openIssues: z.object({
         nodes: z
           .array(listNodeSchema.extend({ state: z.literal("OPEN") }))
@@ -574,22 +848,29 @@ const listFields = `
   assignees(first: 100) { nodes { login } }
   url body updatedAt
 `;
-const closedPullFields = `isDraft headRefName baseRefName`;
+const pullChangeQueryFields = `headRefOid isCrossRepository headRepositoryOwner { login } additions deletions changedFiles stack { number size } stackEntry { position }`;
+const closedPullFields = `isDraft headRefName baseRefName mergedAt ${pullChangeQueryFields}`;
 const openPullFields = `
   isDraft headRefName baseRefName mergeable reviewDecision isInMergeQueue
+  ${pullChangeQueryFields}
   reviewRequests(first: 20) {
     nodes { requestedReviewer { ... on User { login } ... on Team { slug } } }
   }
   commits(last: 1) {
-    nodes { commit { statusCheckRollup { contexts(first: 1) {
-      checkRunCountsByState { state count }
-      statusContextCountsByState { state count }
-    } } } }
+    nodes { commit {
+      verdict: statusCheckRollup { state }
+      statusCheckRollup { contexts(first: 1) {
+        checkRunCountsByState { state count }
+        statusContextCountsByState { state count }
+      } }
+    } }
   }
 `;
 const repositoryListsQuery = `query RepositoryLists($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     hasIssuesEnabled
+    viewerPermission viewerDefaultMergeMethod
+    squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed deleteBranchOnMerge
     openIssues: issues(first: ${ISSUE_PAGE}, states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}) {
       nodes { ${listFields} }
     }
@@ -605,27 +886,304 @@ const repositoryListsQuery = `query RepositoryLists($owner: String!, $name: Stri
   }
 }`;
 
-const pullPermissionsQuery = `query PullPermissions($owner: String!, $name: String!, $number: Int!) {
+type PullEventKind =
+  | "ready"
+  | "draft"
+  | "closed"
+  | "reopened"
+  | "merged"
+  | "force_pushed"
+  | "commit"
+  | "base_changed"
+  | "head_deleted";
+const PULL_EVENT_TYPES: Record<string, PullEventKind> = {
+  ReadyForReviewEvent: "ready",
+  ConvertToDraftEvent: "draft",
+  ClosedEvent: "closed",
+  ReopenedEvent: "reopened",
+  MergedEvent: "merged",
+  HeadRefForcePushedEvent: "force_pushed",
+  BaseRefChangedEvent: "base_changed",
+  HeadRefDeletedEvent: "head_deleted",
+  PullRequestCommit: "commit",
+};
+const pullDetailsQuery = `query PullDetails($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) { viewerCanUpdate viewerCanClose viewerCanReopen }
+    viewerPermission viewerDefaultMergeMethod
+    squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed deleteBranchOnMerge
+    pullRequest(number: $number) {
+      state headRefName headRefOid isCrossRepository
+      viewerCanUpdate viewerCanClose viewerCanReopen viewerCanDeleteHeadRef
+      isInMergeQueue isMergeQueueEnabled
+      headRef { name }
+      stack { number size baseRefName entries(first: 20) { nodes { position pullRequest {
+        number title state isDraft headRefName baseRefName mergeable
+        commits(last: 1) { nodes { commit { verdict: statusCheckRollup { state } } } }
+      } } } }
+      stackEntry { position }
+      commits(last: 1) { nodes { commit {
+        oid committedDate
+        verdict: statusCheckRollup { state }
+        statusCheckRollup { contexts(first: 100) { nodes { __typename
+          ... on CheckRun { name status conclusion startedAt completedAt detailsUrl
+            isRequired(pullRequestNumber: $number)
+            checkSuite { workflowRun { databaseId workflow { name } } }
+            annotations(first: 5) { nodes { path message location { start { line } } } } }
+          ... on StatusContext { context state targetUrl createdAt isRequired(pullRequestNumber: $number) }
+        } } }
+      } } }
+      latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { author { login } state } }
+      timelineItems(last: 100, itemTypes: [PULL_REQUEST_COMMIT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, HEAD_REF_DELETED_EVENT, BASE_REF_CHANGED_EVENT]) {
+        nodes { __typename
+          ... on PullRequestCommit { commit { abbreviatedOid messageHeadline committedDate } }
+          ... on ReadyForReviewEvent { actor { login } createdAt }
+          ... on ConvertToDraftEvent { actor { login } createdAt }
+          ... on ClosedEvent { actor { login } createdAt }
+          ... on ReopenedEvent { actor { login } createdAt }
+          ... on MergedEvent { actor { login } createdAt }
+          ... on HeadRefForcePushedEvent { actor { login } createdAt beforeCommit { abbreviatedOid } afterCommit { abbreviatedOid } }
+          ... on HeadRefDeletedEvent { actor { login } createdAt }
+          ... on BaseRefChangedEvent { actor { login } createdAt previousRefName currentRefName }
+        }
+      }
+    }
   }
 }`;
-const pullPermissionsSchema = z.object({
+const actorSchema = z.object({ login: z.string() }).nullable().optional();
+const detailCheckSchema = z.object({
+  __typename: z.string(),
+  name: z.string().optional(),
+  context: z.string().optional(),
+  status: z.string().nullable().optional(),
+  conclusion: z.string().nullable().optional(),
+  state: z.string().nullable().optional(),
+  startedAt: z.string().nullable().optional(),
+  completedAt: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  detailsUrl: z.string().nullable().optional(),
+  targetUrl: z.string().nullable().optional(),
+  isRequired: z.boolean().optional(),
+  checkSuite: z
+    .object({
+      workflowRun: z
+        .object({
+          databaseId: z.number().int().positive(),
+          workflow: z.object({ name: z.string() }).nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
+  annotations: z
+    .object({
+      nodes: z.array(
+        z.object({
+          path: z.string(),
+          message: z.string(),
+          location: z
+            .object({ start: z.object({ line: z.number().int() }) })
+            .nullable()
+            .optional(),
+        }),
+      ),
+    })
+    .nullable()
+    .optional(),
+});
+const pullDetailsSchema = z.object({
   data: z.object({
     repository: z.object({
+      viewerPermission: z.string().nullable(),
+      viewerDefaultMergeMethod: z.enum(["SQUASH", "MERGE", "REBASE"]),
+      squashMergeAllowed: z.boolean(),
+      mergeCommitAllowed: z.boolean(),
+      rebaseMergeAllowed: z.boolean(),
+      deleteBranchOnMerge: z.boolean(),
       pullRequest: z.object({
+        state: z.enum(["OPEN", "CLOSED", "MERGED"]),
+        headRefName: z.string(),
+        headRefOid: z.string(),
+        isCrossRepository: z.boolean(),
         viewerCanUpdate: z.boolean(),
         viewerCanClose: z.boolean(),
         viewerCanReopen: z.boolean(),
+        viewerCanDeleteHeadRef: z.boolean(),
+        isInMergeQueue: z.boolean(),
+        isMergeQueueEnabled: z.boolean(),
+        headRef: z.object({ name: z.string() }).nullable(),
+        stack: z
+          .object({
+            number: z.number().int().positive(),
+            size: z.number().int().nonnegative(),
+            baseRefName: z.string(),
+            entries: z.object({
+              nodes: z.array(
+                z.object({
+                  position: z.number().int().positive(),
+                  pullRequest: z.object({
+                    number: z.number().int().positive(),
+                    title: z.string(),
+                    state: z.string(),
+                    isDraft: z.boolean(),
+                    headRefName: z.string(),
+                    baseRefName: z.string(),
+                    mergeable: z.string(),
+                    commits: z.object({
+                      nodes: z.array(
+                        z.object({
+                          commit: z.object({
+                            verdict: z
+                              .object({ state: z.string() })
+                              .nullable()
+                              .optional(),
+                          }),
+                        }),
+                      ),
+                    }),
+                  }),
+                }),
+              ),
+            }),
+          })
+          .nullable()
+          .optional(),
+        stackEntry: z
+          .object({ position: z.number().int().positive() })
+          .nullable()
+          .optional(),
+        commits: z.object({
+          nodes: z
+            .array(
+              z.object({
+                commit: z.object({
+                  oid: z.string(),
+                  committedDate: z.string(),
+                  verdict: z
+                    .object({ state: z.string() })
+                    .nullable()
+                    .optional(),
+                  statusCheckRollup: z
+                    .object({
+                      contexts: z.object({ nodes: z.array(detailCheckSchema) }),
+                    })
+                    .nullable(),
+                }),
+              }),
+            )
+            .max(1),
+        }),
+        latestOpinionatedReviews: z.object({
+          nodes: z.array(z.object({ author: actorSchema, state: z.string() })),
+        }),
+        timelineItems: z.object({
+          nodes: z.array(
+            z.object({
+              __typename: z.string(),
+              createdAt: z.string().optional(),
+              actor: actorSchema,
+              commit: z
+                .object({
+                  abbreviatedOid: z.string(),
+                  messageHeadline: z.string(),
+                  committedDate: z.string(),
+                })
+                .optional(),
+              beforeCommit: z
+                .object({ abbreviatedOid: z.string() })
+                .nullable()
+                .optional(),
+              afterCommit: z
+                .object({ abbreviatedOid: z.string() })
+                .nullable()
+                .optional(),
+              previousRefName: z.string().optional(),
+              currentRefName: z.string().optional(),
+            }),
+          ),
+        }),
       }),
     }),
   }),
 });
-const NO_PULL_PERMISSIONS = {
+type MergeMethod = z.infer<typeof mergeMethodSchema>;
+type DetailCheck = PullCheckView;
+interface PullCheckView {
+  name: string;
+  workflow: string | null;
+  status: "success" | "failure" | "pending" | "neutral";
+  url: string;
+  runId: number | null;
+  completedAt: string | null;
+  required: boolean;
+  annotations: Array<{ path: string; line: number | null; message: string }>;
+}
+interface PullEvent {
+  kind: PullEventKind;
+  actor: string;
+  createdAt: string;
+  detail: string | null;
+}
+interface PullStackView {
+  number: number;
+  baseRefName: string;
+  position: number;
+  entries: Array<{
+    number: number;
+    title: string;
+    state: "open" | "draft" | "merged" | "closed";
+    attention: "conflicts" | "failing" | "draft" | "ready" | "none";
+  }>;
+}
+interface PullDetails {
+  known: boolean;
+  state: "OPEN" | "CLOSED" | "MERGED" | null;
+  headRefName: string | null;
+  headRefOid: string | null;
+  isCrossRepository: boolean;
+  viewerCanUpdate: boolean;
+  viewerCanClose: boolean;
+  viewerCanReopen: boolean;
+  viewerCanMerge: boolean;
+  viewerCanDeleteHeadRef: boolean;
+  isInMergeQueue: boolean;
+  isMergeQueueEnabled: boolean;
+  headRefExists: boolean;
+  headCommittedAt: string | null;
+  checksVerdict: string | null;
+  checks: DetailCheck[] | null;
+  mergeMethods: MergeMethod[];
+  defaultMergeMethod: MergeMethod;
+  deleteBranchOnMerge: boolean;
+  reviewVerdicts: Array<{ author: string; state: string }>;
+  events: PullEvent[];
+  stack: PullStackView | null;
+}
+const UNKNOWN_PULL_DETAILS: PullDetails = {
+  known: false,
+  state: null,
+  headRefName: null,
+  headRefOid: null,
+  isCrossRepository: false,
   viewerCanUpdate: false,
   viewerCanClose: false,
   viewerCanReopen: false,
+  viewerCanMerge: false,
+  viewerCanDeleteHeadRef: false,
+  isInMergeQueue: false,
+  isMergeQueueEnabled: false,
+  headRefExists: true,
+  headCommittedAt: null,
+  checksVerdict: null,
+  checks: null,
+  mergeMethods: ["squash", "merge", "rebase"],
+  defaultMergeMethod: "squash",
+  deleteBranchOnMerge: false,
+  reviewVerdicts: [],
+  events: [],
+  stack: null,
 };
+const WRITE_PERMISSIONS = new Set(["WRITE", "MAINTAIN", "ADMIN"]);
 const pullStateViewSchema = z.object({
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   isDraft: z.boolean(),
@@ -636,21 +1194,272 @@ const PULL_STATE_PHRASES: Record<PullStateTarget, string> = {
   closed: "closed",
 };
 
-function parsePullPermissions(raw: string | null): typeof NO_PULL_PERMISSIONS {
-  if (raw === null) return NO_PULL_PERMISSIONS;
-  try {
-    const parsed = pullPermissionsSchema.safeParse(JSON.parse(raw));
-    return parsed.success
-      ? parsed.data.data.repository.pullRequest
-      : NO_PULL_PERMISSIONS;
-  } catch {
-    return NO_PULL_PERMISSIONS;
+export function checkStatus(
+  status: string | null | undefined,
+  conclusion: string | null | undefined,
+): PullCheckView["status"] {
+  const result = (conclusion ?? "").toUpperCase();
+  if (result === "") {
+    return (status ?? "").toUpperCase() === "COMPLETED" ? "neutral" : "pending";
   }
+  if (result === "SUCCESS") return "success";
+  if (isFailedCheck(result)) return "failure";
+  if (result === "PENDING" || result === "EXPECTED") return "pending";
+  return "neutral";
+}
+
+export function latestChecks<T extends { name: string; startedAt: string }>(
+  checks: readonly T[],
+): T[] {
+  const byName = new Map<string, T>();
+  for (const check of checks) {
+    const kept = byName.get(check.name);
+    if (kept === undefined || check.startedAt > kept.startedAt) {
+      byName.set(check.name, check);
+    }
+  }
+  return [...byName.values()];
+}
+
+function detailChecks(
+  nodes: ReadonlyArray<z.infer<typeof detailCheckSchema>>,
+): DetailCheck[] {
+  const checks = nodes.map((node) => {
+    const isRun = node.__typename === "CheckRun";
+    const url = (isRun ? node.detailsUrl : node.targetUrl) ?? "";
+    const run = node.checkSuite?.workflowRun ?? null;
+    return {
+      name: (isRun ? node.name : node.context) ?? "check",
+      workflow: run?.workflow?.name ?? null,
+      status: isRun
+        ? checkStatus(node.status, node.conclusion)
+        : checkStatus(null, node.state),
+      url,
+      runId: run?.databaseId ?? actionsRunId(url),
+      completedAt: isRun ? (node.completedAt ?? null) : null,
+      required: node.isRequired === true,
+      annotations: (node.annotations?.nodes ?? [])
+        .filter(
+          (annotation) =>
+            !/^Process completed with exit code \d+\.?$/.test(
+              annotation.message.trim(),
+            ),
+        )
+        .map((annotation) => ({
+          path: annotation.path,
+          line: annotation.location?.start.line ?? null,
+          message: annotation.message.trim().split("\n")[0] ?? "",
+        })),
+      startedAt: (isRun ? node.startedAt : node.createdAt) ?? "",
+    };
+  });
+  return latestChecks(checks).map(
+    ({ startedAt: _startedAt, ...check }) => check,
+  );
+}
+
+function stackAttention(entry: {
+  state: string;
+  isDraft: boolean;
+  mergeable: string;
+  verdict: string | null;
+}): PullStackView["entries"][number]["attention"] {
+  if (entry.mergeable === "CONFLICTING") return "conflicts";
+  if (entry.verdict === "FAILURE" || entry.verdict === "ERROR")
+    return "failing";
+  if (entry.isDraft) return "draft";
+  if (entry.mergeable === "MERGEABLE" && entry.verdict === "SUCCESS") {
+    return "ready";
+  }
+  return "none";
+}
+
+function parsePullDetails(raw: string | null): PullDetails {
+  if (raw === null) return UNKNOWN_PULL_DETAILS;
+  let parsed: z.infer<typeof pullDetailsSchema>;
+  try {
+    const result = pullDetailsSchema.safeParse(JSON.parse(raw));
+    if (!result.success) return UNKNOWN_PULL_DETAILS;
+    parsed = result.data;
+  } catch {
+    return UNKNOWN_PULL_DETAILS;
+  }
+  const { repository } = parsed.data;
+  const pull = repository.pullRequest;
+  const mergeMethods: MergeMethod[] = [
+    ...(repository.squashMergeAllowed ? (["squash"] as const) : []),
+    ...(repository.mergeCommitAllowed ? (["merge"] as const) : []),
+    ...(repository.rebaseMergeAllowed ? (["rebase"] as const) : []),
+  ];
+  const preferred = repository.viewerDefaultMergeMethod.toLowerCase();
+  const defaultMergeMethod =
+    mergeMethods.find((method) => method === preferred) ??
+    mergeMethods[0] ??
+    "squash";
+  const head = pull.commits.nodes[0]?.commit ?? null;
+  const stack = pull.stack ?? null;
+  return {
+    known: true,
+    state: pull.state,
+    headRefName: pull.headRefName,
+    headRefOid: pull.headRefOid,
+    isCrossRepository: pull.isCrossRepository,
+    viewerCanUpdate: pull.viewerCanUpdate,
+    viewerCanClose: pull.viewerCanClose,
+    viewerCanReopen: pull.viewerCanReopen,
+    viewerCanMerge: WRITE_PERMISSIONS.has(repository.viewerPermission ?? ""),
+    viewerCanDeleteHeadRef: pull.viewerCanDeleteHeadRef,
+    isInMergeQueue: pull.isInMergeQueue,
+    isMergeQueueEnabled: pull.isMergeQueueEnabled,
+    headRefExists: pull.headRef !== null,
+    headCommittedAt: head?.committedDate ?? null,
+    checksVerdict: head?.verdict?.state ?? null,
+    checks:
+      head?.statusCheckRollup == null
+        ? head === null
+          ? null
+          : []
+        : detailChecks(head.statusCheckRollup.contexts.nodes),
+    mergeMethods,
+    defaultMergeMethod,
+    deleteBranchOnMerge: repository.deleteBranchOnMerge,
+    reviewVerdicts: pull.latestOpinionatedReviews.nodes.flatMap((review) =>
+      review.author == null
+        ? []
+        : [{ author: review.author.login, state: review.state }],
+    ),
+    events: pull.timelineItems.nodes.flatMap((node): PullEvent[] => {
+      const kind = PULL_EVENT_TYPES[node.__typename];
+      if (kind === undefined) return [];
+      if (kind === "commit") {
+        return node.commit === undefined
+          ? []
+          : [
+              {
+                kind,
+                actor: "",
+                createdAt: node.commit.committedDate,
+                detail: `${node.commit.abbreviatedOid} ${node.commit.messageHeadline}`,
+              },
+            ];
+      }
+      if (node.createdAt === undefined) return [];
+      const detail =
+        kind === "force_pushed"
+          ? `${node.beforeCommit?.abbreviatedOid ?? "?"} → ${node.afterCommit?.abbreviatedOid ?? "?"}`
+          : kind === "base_changed"
+            ? `${node.previousRefName ?? "?"} → ${node.currentRefName ?? "?"}`
+            : null;
+      return [
+        {
+          kind,
+          actor: node.actor?.login ?? "",
+          createdAt: node.createdAt,
+          detail,
+        },
+      ];
+    }),
+    stack:
+      stack === null
+        ? null
+        : {
+            number: stack.number,
+            baseRefName: stack.baseRefName,
+            position: pull.stackEntry?.position ?? 0,
+            entries: [...stack.entries.nodes]
+              .sort((a, b) => a.position - b.position)
+              .map(({ pullRequest: entry }) => {
+                const verdict =
+                  entry.commits.nodes[0]?.commit.verdict?.state ?? null;
+                return {
+                  number: entry.number,
+                  title: entry.title,
+                  state:
+                    entry.state === "MERGED"
+                      ? ("merged" as const)
+                      : entry.state === "CLOSED"
+                        ? ("closed" as const)
+                        : entry.isDraft
+                          ? ("draft" as const)
+                          : ("open" as const),
+                  attention: stackAttention({ ...entry, verdict }),
+                };
+              }),
+          },
+  };
+}
+
+export function annotationNote(
+  annotations: ReadonlyArray<{
+    path: string;
+    line: number | null;
+    message: string;
+  }>,
+): string | null {
+  const first = annotations[0];
+  if (first === undefined) return null;
+  const where =
+    first.path === ".github" || first.path.length === 0
+      ? ""
+      : `${first.path}${first.line === null ? "" : `:${first.line}`} `;
+  return `${where}${first.message}`;
+}
+
+const ACTIONS_RUN_URL = /\/actions\/runs\/(\d+)/;
+
+export function actionsRunId(url: string): number | null {
+  const match = ACTIONS_RUN_URL.exec(url);
+  return match?.[1] === undefined ? null : Number(match[1]);
+}
+
+function nativeStack(entry: {
+  stack?: { number: number; size: number } | null;
+  stackEntry?: { position: number } | null;
+}): PullStatus["stack"] {
+  return entry.stack != null && entry.stackEntry != null
+    ? {
+        number: entry.stack.number,
+        size: entry.stack.size,
+        position: entry.stackEntry.position,
+      }
+    : null;
+}
+
+function mergeSettingsOf(repository: {
+  viewerPermission?: string | null;
+  viewerDefaultMergeMethod?: "SQUASH" | "MERGE" | "REBASE";
+  squashMergeAllowed?: boolean;
+  mergeCommitAllowed?: boolean;
+  rebaseMergeAllowed?: boolean;
+  deleteBranchOnMerge?: boolean;
+}): RepoSettings | null {
+  if (
+    repository.viewerDefaultMergeMethod === undefined ||
+    repository.squashMergeAllowed === undefined
+  ) {
+    return null;
+  }
+  const mergeMethods: MergeMethod[] = [
+    ...(repository.squashMergeAllowed ? (["squash"] as const) : []),
+    ...(repository.mergeCommitAllowed === true ? (["merge"] as const) : []),
+    ...(repository.rebaseMergeAllowed === true ? (["rebase"] as const) : []),
+  ];
+  const preferred = repository.viewerDefaultMergeMethod.toLowerCase();
+  return {
+    viewerCanWrite: WRITE_PERMISSIONS.has(repository.viewerPermission ?? ""),
+    mergeMethods,
+    defaultMergeMethod:
+      mergeMethods.find((method) => method === preferred) ??
+      mergeMethods[0] ??
+      "squash",
+    deleteBranchOnMerge: repository.deleteBranchOnMerge === true,
+  };
 }
 
 async function fetchRepoItems(
   gh: GhRunner,
   repo: string,
+  onSettings: (settings: RepoSettings) => void = () => {},
 ): Promise<CachedItem[]> {
   const [owner, name] = repoNameSchema.parse(repo).split("/");
   const raw = await gh([
@@ -668,6 +1477,8 @@ async function fetchRepoItems(
   const {
     data: { repository },
   } = repositoryListsSchema.parse(JSON.parse(raw));
+  const settings = mergeSettingsOf(repository);
+  if (settings !== null) onSettings(settings);
   const toItem = (
     entry: z.infer<typeof listNodeSchema>,
     kind: "issue" | "pr",
@@ -691,8 +1502,8 @@ async function fetchRepoItems(
   const toOpenPullItem = (
     entry: z.infer<typeof openPullNodeSchema>,
   ): CachedItem => {
-    const contexts =
-      entry.commits.nodes[0]?.commit.statusCheckRollup?.contexts ?? null;
+    const commit = entry.commits.nodes[0]?.commit;
+    const contexts = commit?.statusCheckRollup?.contexts ?? null;
     return toItem(
       entry,
       "pr",
@@ -701,6 +1512,12 @@ async function fetchRepoItems(
         isDraft: entry.isDraft,
         baseRefName: entry.baseRefName,
         headRefName: entry.headRefName,
+        headRefOid: entry.headRefOid,
+        isCrossRepository: entry.isCrossRepository,
+        additions: entry.additions,
+        deletions: entry.deletions,
+        changedFiles: entry.changedFiles,
+        mergedAt: null,
         mergeable: entry.mergeable,
         reviewDecision: entry.reviewDecision,
         isInMergeQueue: entry.isInMergeQueue,
@@ -711,6 +1528,9 @@ async function fetchRepoItems(
         }),
         checkRunCounts: contexts?.checkRunCountsByState ?? [],
         statusContextCounts: contexts?.statusContextCountsByState ?? [],
+        checksVerdict: commit?.verdict?.state ?? null,
+        stack: nativeStack(entry),
+        headOwner: entry.headRepositoryOwner?.login ?? null,
       }),
     );
   };
@@ -725,12 +1545,21 @@ async function fetchRepoItems(
         isDraft: entry.isDraft,
         baseRefName: entry.baseRefName,
         headRefName: entry.headRefName,
+        headRefOid: entry.headRefOid,
+        isCrossRepository: entry.isCrossRepository,
+        additions: entry.additions,
+        deletions: entry.deletions,
+        changedFiles: entry.changedFiles,
+        mergedAt: entry.mergedAt,
         mergeable: "UNKNOWN",
         reviewDecision: null,
         isInMergeQueue: false,
         requestedReviewers: [],
         checkRunCounts: [],
         statusContextCounts: [],
+        checksVerdict: null,
+        stack: nativeStack(entry),
+        headOwner: entry.headRepositoryOwner?.login ?? null,
       }),
     );
   return [
@@ -1057,8 +1886,28 @@ export default async function plugin(bb: BbPluginApi) {
     bb.realtime.publish("data-changed", {});
   }
 
+  let lastSyncError: string | null = null;
+  const repoSettings = new Map<string, RepoSettings>();
+
+  function setSyncError(next: string | null): void {
+    if (next === lastSyncError) return;
+    lastSyncError = next;
+    bb.realtime.publish("data-changed", {});
+  }
+
   async function syncAll(
     force = false,
+  ): Promise<{ repos: number; items: number }> {
+    try {
+      return await syncTrackedRepos(force);
+    } catch (error) {
+      setSyncError(errorMessage(error));
+      throw error;
+    }
+  }
+
+  async function syncTrackedRepos(
+    force: boolean,
   ): Promise<{ repos: number; items: number }> {
     await checkAuth();
     const repos = await discoverRepos(force);
@@ -1070,22 +1919,24 @@ export default async function plugin(bb: BbPluginApi) {
         .all(),
     );
     let total = 0;
-    let failed = 0;
+    const failedRepos: string[] = [];
     let lastFailure = "";
     for (const { repo } of repos) {
       try {
         const items = await fetchRepoItems(
           (args) => gh(args, undefined, "background"),
           repo,
+          (settings) => repoSettings.set(repo, settings),
         );
         replaceRepoRows(repo, items);
         total += items.length;
       } catch (error) {
-        failed += 1;
+        failedRepos.push(repo);
         lastFailure = errorMessage(error);
         bb.log.warn(`sync failed for ${repo}: ${lastFailure}`);
       }
     }
+    const failed = failedRepos.length;
     if (repos.length > 0 && failed === repos.length) {
       throw ghUnavailable(
         `sync failed for all ${repos.length} repo(s); last error: ${lastFailure}`,
@@ -1101,9 +1952,17 @@ export default async function plugin(bb: BbPluginApi) {
     await bb.storage.kv.set("sync-cursor", {
       lastSyncedAt: new Date().toISOString(),
     });
+    setSyncError(
+      failed > 0
+        ? `Couldn't sync ${failedRepos.join(", ")}: ${lastFailure}`
+        : null,
+    );
     if (before !== after) {
       bb.realtime.publish("data-changed", { items: total });
     }
+    await notifyFollowers().catch((error: unknown) => {
+      bb.log.warn(`following pull requests failed: ${errorMessage(error)}`);
+    });
     bb.log.info(`synced ${total} item(s) across ${repos.length} repo(s)`);
     return { repos: repos.length, items: total };
   }
@@ -1114,6 +1973,7 @@ export default async function plugin(bb: BbPluginApi) {
     const items = await fetchRepoItems(
       (args) => gh(args, undefined, "background"),
       repo,
+      (settings) => repoSettings.set(repo, settings),
     );
     replaceRepoRows(repo, items);
     bb.realtime.publish("data-changed", { items: items.length });
@@ -1150,6 +2010,473 @@ export default async function plugin(bb: BbPluginApi) {
           `refresh after a state change failed for ${repo}: ${errorMessage(error)}`,
         );
       });
+    }
+  }
+
+  function snoozeKey(repo: string, number: number): string {
+    return `snooze:${repo}#${number}`;
+  }
+
+  function activityKey(repo: string, number: number): string {
+    return `agent-activity:${repo}#${number}`;
+  }
+
+  async function readSnoozes(): Promise<Map<string, Snooze>> {
+    const result = new Map<string, Snooze>();
+    for (const key of await bb.storage.kv.list("snooze:")) {
+      const parsed = storedSnoozeSchema.safeParse(await bb.storage.kv.get(key));
+      if (parsed.success) result.set(key.slice("snooze:".length), parsed.data);
+    }
+    return result;
+  }
+
+  async function agentActivity(
+    repo: string,
+    number: number,
+  ): Promise<string | null> {
+    return (await bb.storage.kv.get<string>(activityKey(repo, number))) ?? null;
+  }
+
+  async function withSnoozes(items: CachedItem[]): Promise<ListedItem[]> {
+    const snoozes = await readSnoozes();
+    const now = new Date();
+    const listed: ListedItem[] = [];
+    for (const item of items) {
+      const snooze =
+        item.kind === "pr"
+          ? snoozes.get(`${item.repo}#${item.number}`)
+          : undefined;
+      if (snooze === undefined) {
+        listed.push({ ...item, snooze: null });
+        continue;
+      }
+      const subject = {
+        pr: item.pr,
+        agentActivity: await agentActivity(item.repo, item.number),
+      };
+      if (snoozeWakes(snooze, subject, now)) {
+        await bb.storage.kv.delete(snoozeKey(item.repo, item.number));
+        listed.push({ ...item, snooze: null });
+      } else {
+        listed.push({
+          ...item,
+          snooze: { rule: snooze.rule, until: snooze.until },
+        });
+      }
+    }
+    return listed;
+  }
+
+  async function snoozePull(
+    repo: string,
+    number: number,
+    rule: SnoozeRule,
+    until: string | null,
+  ): Promise<{ rule: SnoozeRule; until: string | null }> {
+    const item = getCachedItem("pr", repo, number);
+    if (item?.pr == null) {
+      throw new Error(
+        `${repo}#${number} is not a cached pull request. Run \`bb github sync\` first.`,
+      );
+    }
+    if (item.pr.state === "merged" || item.pr.state === "closed") {
+      throw new Error(
+        `${repo}#${number} is ${item.pr.state}; only open pull requests can be snoozed.`,
+      );
+    }
+    const now = new Date();
+    if (rule === "time") {
+      const at = until === null ? Number.NaN : Date.parse(until);
+      if (!Number.isFinite(at) || at <= now.getTime()) {
+        throw new Error("A timed snooze needs a moment in the future.");
+      }
+    }
+    if (rule === "reply") {
+      const links =
+        (await bb.storage.kv.get<ThreadLink[]>(linkKey("pr", repo, number))) ??
+        [];
+      if (links.length === 0) {
+        throw new Error(
+          `No agent thread is linked to ${repo}#${number}, so there is no reply to wait for.`,
+        );
+      }
+    }
+    const snooze = snoozeFor(
+      rule,
+      rule === "time" && until !== null ? new Date(until).toISOString() : null,
+      { pr: item.pr, agentActivity: await agentActivity(repo, number) },
+      now,
+    );
+    await bb.storage.kv.set(snoozeKey(repo, number), snooze);
+    bb.realtime.publish("data-changed", {});
+    return { rule: snooze.rule, until: snooze.until };
+  }
+
+  async function unsnoozePull(repo: string, number: number): Promise<void> {
+    await bb.storage.kv.delete(snoozeKey(repo, number));
+    bb.realtime.publish("data-changed", {});
+  }
+
+  async function linkedPulls(
+    threadId: string,
+  ): Promise<Array<{ repo: string; number: number }>> {
+    const links = await listAllLinks();
+    return Object.values(links).flatMap((entries) =>
+      entries
+        .filter((link) => link.kind === "pr" && link.threadId === threadId)
+        .slice(0, 1)
+        .map((link) => ({ repo: link.repo, number: link.number })),
+    );
+  }
+
+  async function recordAgentActivity(threadId: string): Promise<void> {
+    const pulls = await linkedPulls(threadId);
+    if (pulls.length === 0) return;
+    const stamp = new Date().toISOString();
+    for (const { repo, number } of pulls) {
+      await bb.storage.kv.set(activityKey(repo, number), stamp);
+    }
+    bb.realtime.publish("data-changed", {});
+  }
+
+  for (const event of ["thread.idle", "thread.failed"] as const) {
+    bb.events.on(event, async ({ thread }) => {
+      await recordAgentActivity(thread.id);
+    });
+  }
+  bb.events.on("interaction.pending", async ({ thread }) => {
+    await recordAgentActivity(thread.id);
+  });
+
+  async function rollupOf(
+    repo: string,
+    number: number,
+  ): Promise<Array<{ name: string; conclusion: string; url: string }>> {
+    const raw = await gh(
+      ["pr", "view", String(number), "-R", repo, "--json", "statusCheckRollup"],
+      15_000,
+    );
+    const view = JSON.parse(raw) as {
+      statusCheckRollup?: Array<{
+        name?: unknown;
+        context?: unknown;
+        conclusion?: unknown;
+        state?: unknown;
+        detailsUrl?: unknown;
+        targetUrl?: unknown;
+      }>;
+    };
+    return (view.statusCheckRollup ?? []).map((entry) => ({
+      name: String(entry.name ?? entry.context ?? "check"),
+      conclusion: String(entry.conclusion ?? entry.state ?? ""),
+      url: String(entry.detailsUrl ?? entry.targetUrl ?? ""),
+    }));
+  }
+
+  async function failingChecks(
+    repo: string,
+    number: number,
+  ): Promise<PresetPull["failingChecks"]> {
+    try {
+      const details = await pullDetailsOf(repo, number);
+      if (details.checks !== null) {
+        return details.checks
+          .filter((check) => check.status === "failure")
+          .map((check) => ({
+            name: check.name,
+            runId: check.runId,
+            note: annotationNote(check.annotations),
+          }));
+      }
+    } catch (error) {
+      bb.log.warn(
+        `could not read the failing checks of ${repo}#${number}: ${errorMessage(error)}`,
+      );
+    }
+    try {
+      return (await rollupOf(repo, number))
+        .filter((check) => isFailedCheck(check.conclusion))
+        .map((check) => ({
+          name: check.name,
+          runId: actionsRunId(check.url),
+          note: null,
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  async function rerunFailedChecks(
+    repo: string,
+    number: number,
+  ): Promise<{ runs: number; checks: number }> {
+    const failed = (await rollupOf(repo, number)).filter((check) =>
+      isFailedCheck(check.conclusion),
+    );
+    if (failed.length === 0) {
+      throw new Error(`${repo}#${number} has no failed checks.`);
+    }
+    const runIds = [
+      ...new Set(
+        failed.flatMap((check) => {
+          const id = actionsRunId(check.url);
+          return id === null ? [] : [id];
+        }),
+      ),
+    ];
+    if (runIds.length === 0) {
+      throw new Error(
+        `The failed checks on ${repo}#${number} don't run on GitHub Actions, so they can't be re-run from bb.`,
+      );
+    }
+    try {
+      for (const id of runIds) {
+        await gh(["run", "rerun", String(id), "--failed", "-R", repo], 30_000);
+      }
+    } finally {
+      refreshTrackedRepo(repo).catch((error: unknown) => {
+        bb.log.warn(
+          `refresh after a re-run failed for ${repo}: ${errorMessage(error)}`,
+        );
+      });
+    }
+    return { runs: runIds.length, checks: failed.length };
+  }
+
+  async function pullDetailsOf(
+    repo: string,
+    number: number,
+  ): Promise<PullDetails> {
+    const [owner, name] = repo.split("/");
+    return parsePullDetails(
+      await gh(
+        [
+          "api",
+          "graphql",
+          "--hostname",
+          GH_HOST,
+          "-f",
+          `query=${pullDetailsQuery}`,
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-F",
+          `number=${number}`,
+        ],
+        30_000,
+      ),
+    );
+  }
+
+  async function mergePull(
+    repo: string,
+    number: number,
+    requested: MergeMethod | null,
+    deleteBranch: boolean,
+    headRefOid: string | null,
+  ): Promise<{ method: MergeMethod; deletedBranch: boolean }> {
+    const ref = `${repo}#${number}`;
+    const facts = await pullDetailsOf(repo, number);
+    const cached = getCachedItem("pr", repo, number);
+    if (facts.isInMergeQueue || cached?.pr?.attention === "queued") {
+      throw new Error(
+        `${ref} is queued to merge; GitHub merges it when its turn comes.`,
+      );
+    }
+    if (facts.known && facts.state !== "OPEN") {
+      throw new Error(`${ref} is ${facts.state?.toLowerCase()}.`);
+    }
+    if (facts.known && !facts.viewerCanMerge) {
+      throw new Error(
+        `You don't have write access to ${repo}, so you can't merge ${ref}.`,
+      );
+    }
+    const method = requested ?? facts.defaultMergeMethod;
+    if (facts.known && !facts.mergeMethods.includes(method)) {
+      throw new Error(
+        `${repo} doesn't allow ${method} merges. Allowed: ${facts.mergeMethods.join(", ") || "none"}.`,
+      );
+    }
+    const head = headRefOid ?? facts.headRefOid;
+    const args = ["pr", "merge", String(number), "-R", repo, `--${method}`];
+    if (head !== null) args.push("--match-head-commit", head);
+    let deletedBranch = false;
+    try {
+      await gh(args, 60_000);
+      if (
+        deleteBranch &&
+        !facts.deleteBranchOnMerge &&
+        facts.viewerCanDeleteHeadRef &&
+        !facts.isCrossRepository &&
+        facts.headRefName !== null
+      ) {
+        try {
+          await gh(
+            [
+              "api",
+              "-X",
+              "DELETE",
+              `repos/${repo}/git/refs/heads/${facts.headRefName
+                .split("/")
+                .map(encodeURIComponent)
+                .join("/")}`,
+            ],
+            15_000,
+          );
+          deletedBranch = true;
+        } catch (error) {
+          bb.log.warn(
+            `merged ${ref} but could not delete ${facts.headRefName}: ${errorMessage(error)}`,
+          );
+        }
+      }
+    } finally {
+      refreshTrackedRepo(repo).catch((error: unknown) => {
+        bb.log.warn(
+          `refresh after a merge failed for ${repo}: ${errorMessage(error)}`,
+        );
+      });
+    }
+    return {
+      method,
+      deletedBranch:
+        deletedBranch ||
+        (facts.deleteBranchOnMerge && !facts.isCrossRepository),
+    };
+  }
+
+  function followKey(repo: string, number: number): string {
+    return `follow:${repo}#${number}`;
+  }
+
+  const followSchema = z
+    .object({
+      threadId: z.string().min(1),
+      since: z.string(),
+      checks: z.string().nullable(),
+      review: z.string().nullable(),
+    })
+    .strict();
+
+  async function setFollow(
+    repo: string,
+    number: number,
+    threadId: string | null,
+  ): Promise<void> {
+    if (threadId === null) {
+      await bb.storage.kv.delete(followKey(repo, number));
+    } else {
+      const item = getCachedItem("pr", repo, number);
+      await bb.storage.kv.set(followKey(repo, number), {
+        threadId,
+        since: new Date().toISOString(),
+        checks: item?.pr?.checks.state ?? null,
+        review: item?.pr?.review.state ?? null,
+      } satisfies z.infer<typeof followSchema>);
+    }
+    bb.realtime.publish("links-changed", {});
+  }
+
+  async function listFollows(): Promise<Record<string, string>> {
+    const follows: Record<string, string> = {};
+    for (const key of await bb.storage.kv.list("follow:")) {
+      const parsed = followSchema.safeParse(await bb.storage.kv.get(key));
+      if (parsed.success)
+        follows[key.slice("follow:".length)] = parsed.data.threadId;
+    }
+    return follows;
+  }
+
+  async function newComments(
+    repo: string,
+    number: number,
+    since: string,
+  ): Promise<string[]> {
+    const raw = await gh(
+      [
+        "api",
+        `repos/${repo}/issues/${number}/comments?since=${encodeURIComponent(since)}&per_page=20`,
+      ],
+      15_000,
+      "background",
+    );
+    const comments = JSON.parse(raw) as Array<{
+      user?: { login?: unknown; type?: unknown };
+      body?: unknown;
+      created_at?: unknown;
+    }>;
+    return comments
+      .filter(
+        (comment) =>
+          String(comment.created_at ?? "") > since &&
+          comment.user?.type !== "Bot",
+      )
+      .map(
+        (comment) =>
+          `${String(comment.user?.login ?? "someone")} commented:\n${String(comment.body ?? "").slice(0, 2000)}`,
+      );
+  }
+
+  async function notifyFollowers(): Promise<void> {
+    for (const key of await bb.storage.kv.list("follow:")) {
+      const parsed = followSchema.safeParse(await bb.storage.kv.get(key));
+      const match = /^follow:([\w.-]+\/[\w.-]+)#(\d+)$/.exec(key);
+      if (!parsed.success || match?.[1] === undefined) continue;
+      const repo = match[1];
+      const number = Number(match[2]);
+      const follow = parsed.data;
+      const pr = getCachedItem("pr", repo, number)?.pr ?? null;
+      if (pr === null) continue;
+      const ref = `${repo}#${number}`;
+      const notes: string[] = [];
+      if (
+        pr.checks.state !== follow.checks &&
+        (pr.checks.state === "failing" || pr.checks.state === "passing")
+      ) {
+        notes.push(`CI on ${ref}: ${checksSummary(pr.checks)}.`);
+      }
+      if (pr.review.state !== follow.review) {
+        if (pr.review.state === "changes_requested") {
+          notes.push(`A reviewer requested changes on ${ref}.`);
+        } else if (pr.review.state === "approved") {
+          notes.push(`${ref} was approved.`);
+        }
+      }
+      const now = new Date().toISOString();
+      try {
+        notes.push(...(await newComments(repo, number, follow.since)));
+      } catch (error) {
+        bb.log.warn(
+          `could not read new comments on ${ref}: ${errorMessage(error)}`,
+        );
+      }
+      if (pr.state === "merged" || pr.state === "closed") {
+        notes.push(`${ref} was ${pr.state}. I stopped following it.`);
+      }
+      if (notes.length > 0) {
+        await bb.sdk.threads.send({
+          threadId: follow.threadId,
+          input: [
+            {
+              type: "text",
+              text: [`GitHub update for ${ref}:`, "", ...notes].join("\n"),
+              mentions: [],
+            },
+          ],
+          mode: "queue-if-active",
+        });
+      }
+      if (pr.state === "merged" || pr.state === "closed") {
+        await bb.storage.kv.delete(key);
+      } else {
+        await bb.storage.kv.set(key, {
+          ...follow,
+          since: notes.length > 0 ? now : follow.since,
+          checks: pr.checks.state,
+          review: pr.review.state,
+        });
+      }
     }
   }
 
@@ -1209,17 +2536,24 @@ export default async function plugin(bb: BbPluginApi) {
   async function addLink(link: ThreadLink): Promise<void> {
     const key = linkKey(link.kind, link.repo, link.number);
     const existing = (await bb.storage.kv.get<ThreadLink[]>(key)) ?? [];
+    if (existing.some((entry) => entry.threadId === link.threadId)) return;
     await bb.storage.kv.set(key, [...existing, link]);
     bb.realtime.publish("links-changed", { key });
   }
+
+  const storedLinkSchema = threadLinkSchema
+    .extend({ preset: agentPresetSchema.nullable().default(null) })
+    .strict();
 
   async function listAllLinks(): Promise<Record<string, ThreadLink[]>> {
     const keys = await bb.storage.kv.list("link:");
     const result: Record<string, ThreadLink[]> = {};
     for (const key of keys) {
-      const links = await bb.storage.kv.get<ThreadLink[]>(key);
-      if (links !== undefined && links.length > 0) {
-        result[key.slice("link:".length)] = links;
+      const parsed = z
+        .array(storedLinkSchema)
+        .safeParse((await bb.storage.kv.get(key)) ?? []);
+      if (parsed.success && parsed.data.length > 0) {
+        result[key.slice("link:".length)] = parsed.data;
       }
     }
     return result;
@@ -1235,6 +2569,94 @@ export default async function plugin(bb: BbPluginApi) {
       `No BB project is attached to ${repo}. Create a project whose checkout has ` +
         "that origin remote, or set the defaultProject plugin setting.",
     );
+  }
+
+  async function agentPromptFor(
+    repo: string,
+    number: number,
+    preset: AgentPreset,
+    branchCheckout: PresetPull["branchCheckout"],
+  ): Promise<{ prompt: string; title: string }> {
+    const item = getCachedItem("pr", repo, number);
+    if (item?.pr == null) {
+      throw new Error(
+        `${repo}#${number} is not a cached pull request. Run \`bb github sync\` first.`,
+      );
+    }
+    const pr = item.pr;
+    const pulls = listCachedItems({ kind: "pr", repo }).flatMap((entry) =>
+      entry.pr === null
+        ? []
+        : [{ repo: entry.repo, number: entry.number, pr: entry.pr }],
+    );
+    const chain = stackChain({ repo, number, pr }, pulls);
+    return {
+      prompt: presetPrompt(preset, {
+        repo,
+        number,
+        title: item.title,
+        headRefName: pr.headRefName,
+        baseRefName: pr.baseRefName,
+        failingChecks:
+          preset === "fix" ? await failingChecks(repo, number) : [],
+        issueKey: issueKeyOf(item.title, pr.headRefName),
+        stack:
+          chain?.map((entry) => ({
+            number: entry.number,
+            baseRefName: entry.pr.baseRefName,
+          })) ?? null,
+        branchCheckout,
+      } satisfies PresetPull),
+      title: agentThreadTitle(preset, repo, number, item.title),
+    };
+  }
+
+  function agentThreadTitle(
+    preset: AgentPreset,
+    repo: string,
+    number: number,
+    title: string,
+  ): string {
+    return `${presetInfo(preset).label} · ${repo}#${number}: ${title}`.slice(
+      0,
+      120,
+    );
+  }
+
+  async function spawnOnPull(
+    repo: string,
+    number: number,
+    preset: AgentPreset,
+    prompt: string | null,
+  ): Promise<{ threadId: string }> {
+    const projectId = await resolveProjectId(repo);
+    const cached = getCachedItem("pr", repo, number);
+    const seeded =
+      prompt === null || cached === null
+        ? await agentPromptFor(repo, number, preset, "checkout")
+        : {
+            prompt,
+            title: agentThreadTitle(preset, repo, number, cached.title),
+          };
+    const thread = await bb.sdk.threads.spawn({
+      projectId,
+      environment: { type: "project-default" },
+      title: seeded.title,
+      prompt: seeded.prompt,
+      pluginMetadata: { pullRequest: { repo, number, preset } },
+    });
+    await addLink({
+      kind: "pr",
+      repo,
+      number,
+      threadId: thread.id,
+      createdAt: new Date().toISOString(),
+      preset,
+    });
+    bb.log.info(
+      `spawned thread ${thread.id} (${preset}) for ${repo}#${number}`,
+    );
+    return { threadId: thread.id };
   }
 
   async function spawnOnItem(
@@ -1284,6 +2706,7 @@ export default async function plugin(bb: BbPluginApi) {
       number,
       threadId: thread.id,
       createdAt: new Date().toISOString(),
+      preset: kind === "pr" ? "review" : null,
     });
     bb.log.info(`spawned thread ${thread.id} for ${kind} ${ref}`);
     return { threadId: thread.id };
@@ -1365,6 +2788,7 @@ export default async function plugin(bb: BbPluginApi) {
         ghError: ghAuthError,
         repos,
         lastSyncedAt: cursor?.lastSyncedAt ?? null,
+        lastSyncError,
       };
     },
 
@@ -1374,13 +2798,15 @@ export default async function plugin(bb: BbPluginApi) {
 
     async listItems(input) {
       return {
-        items: listCachedItems({
-          kind: input.kind,
-          repo: input.repo,
-          query: input.query,
-          state: input.state,
-          assignee: input.mine === true ? await getViewer() : undefined,
-        }),
+        items: await withSnoozes(
+          listCachedItems({
+            kind: input.kind,
+            repo: input.repo,
+            query: input.query,
+            state: input.state,
+            assignee: input.mine === true ? await getViewer() : undefined,
+          }),
+        ),
       };
     },
 
@@ -1506,9 +2932,10 @@ export default async function plugin(bb: BbPluginApi) {
         "number,title,body,state,isDraft,author,createdAt,updatedAt,labels," +
         "assignees,url,baseRefName,headRefName,additions,deletions," +
         "changedFiles,reviewDecision,mergeStateStatus,statusCheckRollup," +
-        "comments,reviews,reviewRequests";
+        "comments,reviews,reviewRequests,mergeable,headRefOid," +
+        "isCrossRepository,closedAt,mergedAt,mergedBy";
       const [repoOwner, repoName] = repo.split("/");
-      const [viewRaw, reviewCommentsRaw, filesRaw, permissionsRaw] =
+      const [viewRaw, reviewCommentsRaw, filesRaw, detailsRaw] =
         await Promise.all([
           gh(
             ["pr", "view", String(number), "-R", repo, "--json", prFields],
@@ -1539,7 +2966,7 @@ export default async function plugin(bb: BbPluginApi) {
               "--hostname",
               GH_HOST,
               "-f",
-              `query=${pullPermissionsQuery}`,
+              `query=${pullDetailsQuery}`,
               "-f",
               `owner=${repoOwner}`,
               "-f",
@@ -1550,7 +2977,7 @@ export default async function plugin(bb: BbPluginApi) {
             30_000,
           ).catch((error: unknown) => {
             bb.log.warn(
-              `could not read permissions for ${repo}#${number}: ${errorMessage(error)}`,
+              `could not read permissions and merge settings for ${repo}#${number}: ${errorMessage(error)}`,
             );
             return null;
           }),
@@ -1566,15 +2993,24 @@ export default async function plugin(bb: BbPluginApi) {
         changedFiles?: unknown;
         reviewDecision?: unknown;
         mergeStateStatus?: unknown;
+        mergeable?: unknown;
+        headRefOid?: unknown;
+        isCrossRepository?: unknown;
+        closedAt?: unknown;
+        mergedAt?: unknown;
+        mergedBy?: { login?: unknown } | null;
         statusCheckRollup?: Array<{
           __typename?: unknown;
           name?: unknown;
           context?: unknown;
+          workflowName?: unknown;
           status?: unknown;
           conclusion?: unknown;
           state?: unknown;
           detailsUrl?: unknown;
           targetUrl?: unknown;
+          completedAt?: unknown;
+          startedAt?: unknown;
         }>;
         comments?: Array<{
           author?: { login?: unknown };
@@ -1595,31 +3031,42 @@ export default async function plugin(bb: BbPluginApi) {
       }
       const view = JSON.parse(viewRaw) as GhPullView;
 
-      const checks = (view.statusCheckRollup ?? []).map((entry) => {
-        const conclusion = String(
-          entry.conclusion ?? entry.state ?? "",
-        ).toUpperCase();
-        const running =
-          entry.conclusion === "" ||
-          ["IN_PROGRESS", "QUEUED", "PENDING", "EXPECTED", "WAITING"].includes(
-            String(entry.status ?? entry.state ?? "").toUpperCase(),
-          );
-        const status: "success" | "failure" | "pending" | "neutral" =
-          conclusion === "SUCCESS"
-            ? "success"
-            : conclusion === "FAILURE" ||
-                conclusion === "ERROR" ||
-                conclusion === "TIMED_OUT"
-              ? "failure"
-              : running
-                ? "pending"
-                : "neutral";
-        return {
-          name: String(entry.name ?? entry.context ?? "check"),
-          status,
-          url: String(entry.detailsUrl ?? entry.targetUrl ?? ""),
-        };
-      });
+      const details = parsePullDetails(detailsRaw);
+      const rollupChecks = latestChecks(
+        (view.statusCheckRollup ?? []).map((entry) => {
+          const url = String(entry.detailsUrl ?? entry.targetUrl ?? "");
+          return {
+            name: String(entry.name ?? entry.context ?? "check"),
+            workflow:
+              typeof entry.workflowName === "string" &&
+              entry.workflowName.length > 0
+                ? entry.workflowName
+                : null,
+            status: checkStatus(
+              typeof entry.status === "string" ? entry.status : null,
+              typeof entry.conclusion === "string" && entry.conclusion !== ""
+                ? entry.conclusion
+                : typeof entry.state === "string"
+                  ? entry.state
+                  : null,
+            ),
+            url,
+            runId: actionsRunId(url),
+            completedAt:
+              typeof entry.completedAt === "string" &&
+              !entry.completedAt.startsWith("0001-")
+                ? entry.completedAt
+                : null,
+            required: false,
+            annotations: [],
+            startedAt:
+              typeof entry.startedAt === "string" ? entry.startedAt : "",
+          };
+        }),
+      ).map(({ startedAt: _startedAt, ...check }) => check);
+      const checks = details.checks ?? rollupChecks;
+      const optionalString = (value: unknown): string | null =>
+        typeof value === "string" && value.length > 0 ? value : null;
 
       interface GhReviewComment {
         id?: unknown;
@@ -1715,13 +3162,34 @@ export default async function plugin(bb: BbPluginApi) {
           ),
           reviewDecision: String(view.reviewDecision ?? ""),
           mergeStateStatus: String(view.mergeStateStatus ?? ""),
+          mergeable: String(view.mergeable ?? "UNKNOWN"),
           reviewRequests: (view.reviewRequests ?? [])
             .map((entry) =>
               String(entry.login ?? entry.name ?? entry.slug ?? ""),
             )
             .filter((name) => name.length > 0),
           isDraft: view.isDraft === true,
-          ...parsePullPermissions(permissionsRaw),
+          headRefOid: String(view.headRefOid ?? ""),
+          isCrossRepository: view.isCrossRepository === true,
+          isInMergeQueue: details.isInMergeQueue,
+          headCommittedAt: details.headCommittedAt,
+          closedAt: optionalString(view.closedAt),
+          mergedAt: optionalString(view.mergedAt),
+          mergedBy: optionalString(view.mergedBy?.login),
+          viewerCanUpdate: details.viewerCanUpdate,
+          viewerCanClose: details.viewerCanClose,
+          viewerCanReopen: details.viewerCanReopen,
+          viewerCanMerge: details.viewerCanMerge,
+          viewerCanDeleteHeadRef: details.viewerCanDeleteHeadRef,
+          isMergeQueueEnabled: details.isMergeQueueEnabled,
+          headRefExists: details.headRefExists,
+          checksVerdict: details.checksVerdict,
+          mergeMethods: details.mergeMethods,
+          defaultMergeMethod: details.defaultMergeMethod,
+          deleteBranchOnMerge: details.deleteBranchOnMerge,
+          reviewVerdicts: details.reviewVerdicts,
+          events: details.events,
+          stack: details.stack,
           checks,
           comments: (view.comments ?? []).map((comment) => ({
             author: String(comment.author?.login ?? ""),
@@ -1747,6 +3215,62 @@ export default async function plugin(bb: BbPluginApi) {
     }): Promise<{ ok: true; state: PullStateTarget }> {
       await changePullState(repo, number, state);
       return { ok: true, state };
+    },
+
+    async mergePull({ repo, number, method, deleteBranch, headRefOid }) {
+      return {
+        ok: true as const,
+        ...(await mergePull(repo, number, method, deleteBranch, headRefOid)),
+      };
+    },
+
+    async rerunFailedChecks({ repo, number }) {
+      return { ok: true as const, ...(await rerunFailedChecks(repo, number)) };
+    },
+
+    async snoozePull({ repo, number, rule, until }) {
+      return {
+        ok: true as const,
+        snooze: await snoozePull(repo, number, rule, until),
+      };
+    },
+
+    async unsnoozePull({ repo, number }): Promise<{ ok: true }> {
+      await unsnoozePull(repo, number);
+      return { ok: true };
+    },
+
+    async startAgent({ repo, number, preset, prompt }) {
+      return await spawnOnPull(repo, number, preset, prompt);
+    },
+
+    async agentPrompt({ repo, number, preset, branchCheckout }) {
+      return await agentPromptFor(repo, number, preset, branchCheckout);
+    },
+
+    async linkThread({ kind, repo, number, threadId, preset }) {
+      await addLink({
+        kind,
+        repo,
+        number,
+        threadId,
+        createdAt: new Date().toISOString(),
+        preset,
+      });
+      return { ok: true as const };
+    },
+
+    async setFollow({ repo, number, threadId }) {
+      await setFollow(repo, number, threadId);
+      return { ok: true as const, threadId };
+    },
+
+    async listFollows() {
+      return { follows: await listFollows() };
+    },
+
+    async repoSettings() {
+      return { repos: Object.fromEntries(repoSettings) };
     },
 
     async commentPull({ repo, number, body }): Promise<{ ok: true }> {
@@ -1825,7 +3349,12 @@ export default async function plugin(bb: BbPluginApi) {
       const match = stdout.trim().match(/\/issues\/(\d+)\s*$/);
       const number = match !== null ? Number(match[1]) : null;
       try {
-        replaceRepoRows(input.repo, await fetchRepoItems(gh, input.repo));
+        replaceRepoRows(
+          input.repo,
+          await fetchRepoItems(gh, input.repo, (settings) =>
+            repoSettings.set(input.repo, settings),
+          ),
+        );
         bb.realtime.publish("data-changed", {});
       } catch {}
       return { number, url: stdout.trim() };
@@ -1836,7 +3365,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
 
     async startReview({ repo, number }) {
-      return await spawnOnItem("pr", repo, number);
+      return await spawnOnPull(repo, number, "review", null);
     },
 
     async listLinks() {
@@ -1956,6 +3485,38 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  function pullRefFromCli(positionals: { repo?: string; number?: string }): {
+    repo: string;
+    number: number;
+  } {
+    const repo = requireRepoName(positionals.repo);
+    const raw = positionals.number ?? "";
+    const number = Number(raw);
+    if (
+      repo === undefined ||
+      !/^[1-9]\d*$/.test(raw) ||
+      !itemNumberSchema.safeParse(number).success
+    ) {
+      throw new PluginCliError(`Invalid pull request number "${raw}".`, {
+        code: "invalid_number",
+      });
+    }
+    return { repo, number };
+  }
+
+  const pullPositionals = [
+    {
+      name: "repo",
+      description: "The pull request's owner/repo",
+      required: true,
+    },
+    {
+      name: "number",
+      description: "The pull request number",
+      required: true,
+    },
+  ] as const;
+
   function cachedItemSummary(item: CachedItem) {
     return {
       repo: item.repo,
@@ -1982,10 +3543,12 @@ export default async function plugin(bb: BbPluginApi) {
     return cliCommand({
       summary:
         kind === "pr"
-          ? "List cached open pull requests and what each needs next"
+          ? "List cached pull requests and what each needs next"
           : "List cached open issues",
       description:
-        "Reads the local cache only; run `bb github sync` to refresh it from GitHub.",
+        kind === "pr"
+          ? "Reads the local cache only; run `bb github sync` to refresh it from GitHub. --view picks the same lists as the panel's tabs: inbox (your move, ready to merge, needs fixing, in progress, snoozed), mine, all (open and closed), or merged; without it every open pull request is listed."
+          : "Reads the local cache only; run `bb github sync` to refresh it from GitHub.",
       positionals: [
         {
           name: "repo",
@@ -1998,21 +3561,54 @@ export default async function plugin(bb: BbPluginApi) {
           type: "boolean",
           description: "Emit the cached rows as JSON instead of a text table",
         },
+        ...(kind === "pr"
+          ? {
+              view: {
+                type: "enum" as const,
+                values: PULL_VIEWS.map((view) => view.id),
+                description:
+                  "inbox, mine, all, or merged, like the panel's tabs",
+              },
+            }
+          : {}),
       },
       run(input) {
         return guarded(async () => {
           const repo = requireRepoName(input.positionals.repo);
-          const items = listCachedItems({
-            kind,
-            ...(repo === undefined ? {} : { repo }),
-            state: "open",
-          });
+          const view =
+            "view" in input.options
+              ? (input.options.view as PullView | undefined)
+              : undefined;
+          const viewer = view === undefined ? null : await getViewer();
+          const listed = await withSnoozes(
+            listCachedItems({
+              kind,
+              ...(repo === undefined ? {} : { repo }),
+              ...(view === undefined ? { state: "open" as const } : {}),
+            }),
+          );
+          const items = listed.filter(
+            (item) =>
+              view === undefined ||
+              (item.pr !== null &&
+                inPullView(
+                  view,
+                  pullGroup(item.pr, item.author, viewer, {
+                    snoozed: item.snooze !== null,
+                  }),
+                  item.author,
+                  viewer,
+                )),
+          );
           if (input.options.json) {
             return {
               exitCode: 0,
               stdout: JSON.stringify({
                 ok: true,
-                items: items.map(cachedItemSummary),
+                items: items.map((item) => ({
+                  ...cachedItemSummary(item),
+                  snooze: item.snooze,
+                })),
               }),
             };
           }
@@ -2028,7 +3624,13 @@ export default async function plugin(bb: BbPluginApi) {
               .map(
                 (item) =>
                   `${item.repo}#${item.number}\t[${item.state}]\t${item.title}${
-                    item.pr === null ? "" : `\t${nextStepOf(item)}`
+                    item.pr === null
+                      ? ""
+                      : `\t${
+                          item.snooze === null
+                            ? nextStepOf(item)
+                            : `Snoozed ${snoozeLabel(item.snooze, new Date())}`
+                        }`
                   }`,
               )
               .join("\n"),
@@ -2148,6 +3750,240 @@ export default async function plugin(bb: BbPluginApi) {
                 stdout: input.options.json
                   ? JSON.stringify({ ok: true, repo, number, state })
                   : `${repo}#${number} is ${PULL_STATE_PHRASES[state]}.`,
+              };
+            });
+          },
+        }),
+        merge: cliCommand({
+          summary: "Merge a pull request",
+          description:
+            "Runs gh pr merge with the chosen method and --match-head-commit, so a push that lands meanwhile stops the merge. A pull request in a merge queue is refused. The repository's cache refreshes afterwards.",
+          positionals: [...pullPositionals],
+          options: {
+            method: {
+              type: "enum",
+              values: ["squash", "merge", "rebase"],
+              description:
+                "squash, merge (a merge commit), or rebase; defaults to the repository's default for you",
+            },
+            "delete-branch": {
+              type: "boolean",
+              description:
+                "Delete the head branch on GitHub after the merge, when you may",
+            },
+            json: {
+              type: "boolean",
+              description: "Emit the repository, number, and method as JSON",
+            },
+          },
+          run(input) {
+            return guarded(async () => {
+              const { repo, number } = pullRefFromCli(input.positionals);
+              const { method, deletedBranch } = await mergePull(
+                repo,
+                number,
+                input.options.method ?? null,
+                input.options["delete-branch"] === true,
+                null,
+              );
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify({
+                      ok: true,
+                      repo,
+                      number,
+                      method,
+                      deletedBranch,
+                    })
+                  : `Merged ${repo}#${number} (${method})${deletedBranch ? ", branch deleted" : ""}.`,
+              };
+            });
+          },
+        }),
+        rerun: cliCommand({
+          summary: "Re-run the failed checks of a pull request",
+          description:
+            "Runs gh run rerun --failed once for each GitHub Actions run with a failed job on the head commit.",
+          positionals: [...pullPositionals],
+          options: {
+            json: {
+              type: "boolean",
+              description: "Emit the number of runs and checks as JSON",
+            },
+          },
+          run(input) {
+            return guarded(async () => {
+              const { repo, number } = pullRefFromCli(input.positionals);
+              const { runs, checks } = await rerunFailedChecks(repo, number);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify({ ok: true, repo, number, runs, checks })
+                  : `Re-running ${checks} failed check${checks === 1 ? "" : "s"} in ${runs} run${runs === 1 ? "" : "s"} on ${repo}#${number}.`,
+              };
+            });
+          },
+        }),
+        snooze: cliCommand({
+          summary:
+            "Snooze a pull request out of the inbox until something changes",
+          description:
+            "checks wakes it when its checks finish differently, push when its head commit changes, reply when its linked agent thread stops or asks something, tomorrow at 8:00, monday at 8:00 next Monday, or an ISO date-time. Merging or closing it wakes it too.",
+          positionals: [...pullPositionals],
+          options: {
+            until: {
+              type: "string",
+              required: true,
+              description:
+                "checks, push, reply, tomorrow, monday, or an ISO 8601 date-time",
+            },
+            json: {
+              type: "boolean",
+              description: "Emit the snooze as JSON",
+            },
+          },
+          run(input) {
+            return guarded(async () => {
+              const { repo, number } = pullRefFromCli(input.positionals);
+              const until = input.options.until.trim().toLowerCase();
+              const now = new Date();
+              const timed =
+                until === "tomorrow"
+                  ? tomorrowMorning(now)
+                  : until === "monday"
+                    ? nextMondayMorning(now)
+                    : null;
+              let rule: SnoozeRule;
+              let at: string | null = null;
+              if (until === "checks" || until === "push" || until === "reply") {
+                rule = until;
+              } else if (timed !== null) {
+                rule = "time";
+                at = timed.toISOString();
+              } else if (Number.isFinite(Date.parse(input.options.until))) {
+                rule = "time";
+                at = new Date(input.options.until).toISOString();
+              } else {
+                throw new PluginCliError(
+                  `Unknown --until "${input.options.until}". Use checks, push, reply, tomorrow, monday, or an ISO date-time.`,
+                  { code: "invalid_until" },
+                );
+              }
+              const snooze = await snoozePull(repo, number, rule, at);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify({ ok: true, repo, number, snooze })
+                  : `${repo}#${number} snoozed ${snoozeLabel(snooze, now)}.`,
+              };
+            });
+          },
+        }),
+        unsnooze: cliCommand({
+          summary: "Bring a snoozed pull request back to the inbox",
+          positionals: [...pullPositionals],
+          options: {
+            json: { type: "boolean", description: "Emit the result as JSON" },
+          },
+          run(input) {
+            return guarded(async () => {
+              const { repo, number } = pullRefFromCli(input.positionals);
+              await unsnoozePull(repo, number);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify({ ok: true, repo, number })
+                  : `${repo}#${number} is back in the inbox.`,
+              };
+            });
+          },
+        }),
+        agent: cliCommand({
+          summary: "Start an agent thread on a pull request",
+          description: `Spawns a thread in the repository's bb project with a prompt for the preset, links it to the pull request, and prints its id. Presets: ${AGENT_PRESETS.map((preset) => `${preset.id} (${preset.label})`).join(", ")}. Without --preset the pull request's state picks one: conflicts, fix, finish for a draft, else review.`,
+          positionals: [...pullPositionals],
+          options: {
+            preset: {
+              type: "enum",
+              values: AGENT_PRESETS.map((preset) => preset.id),
+              description: "What the agent should do",
+            },
+            prompt: {
+              type: "string",
+              description: "Your own prompt instead of the preset's",
+            },
+            json: {
+              type: "boolean",
+              description: "Emit the thread id as JSON",
+            },
+          },
+          run(input) {
+            return guarded(async () => {
+              const { repo, number } = pullRefFromCli(input.positionals);
+              const cached = getCachedItem("pr", repo, number);
+              const preset =
+                input.options.preset ??
+                (cached?.pr == null ? "review" : pullPreset(cached.pr));
+              const prompt = input.options.prompt?.trim() ?? "";
+              const { threadId } = await spawnOnPull(
+                repo,
+                number,
+                preset,
+                prompt.length > 0 ? prompt : null,
+              );
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify({ ok: true, repo, number, preset, threadId })
+                  : `Started ${threadId} (${presetInfo(preset).label}) on ${repo}#${number}.`,
+              };
+            });
+          },
+        }),
+        follow: cliCommand({
+          summary:
+            "Send a pull request's CI results, reviews, and comments to an agent thread",
+          description:
+            "After each sync, new CI results, review decisions, and comments on the pull request are sent to the thread, which queues them if it is busy. Following stops when the pull request is merged or closed, or with --off.",
+          positionals: [...pullPositionals],
+          options: {
+            thread: {
+              type: "string",
+              description:
+                "The thread to notify; defaults to the most recent agent thread linked to the pull request",
+            },
+            off: { type: "boolean", description: "Stop following" },
+            json: { type: "boolean", description: "Emit the result as JSON" },
+          },
+          run(input) {
+            return guarded(async () => {
+              const { repo, number } = pullRefFromCli(input.positionals);
+              let threadId: string | null = null;
+              if (input.options.off !== true) {
+                const links =
+                  (await listAllLinks())[`pr:${repo}#${number}`] ?? [];
+                threadId =
+                  input.options.thread ??
+                  [...links].sort((a, b) =>
+                    b.createdAt.localeCompare(a.createdAt),
+                  )[0]?.threadId ??
+                  null;
+                if (threadId === null) {
+                  throw new PluginCliError(
+                    `No agent thread is linked to ${repo}#${number}. Pass --thread <id>.`,
+                    { code: "no_thread" },
+                  );
+                }
+              }
+              await setFollow(repo, number, threadId);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify({ ok: true, repo, number, threadId })
+                  : threadId === null
+                    ? `Stopped following ${repo}#${number}.`
+                    : `${threadId} now follows ${repo}#${number}.`,
               };
             });
           },

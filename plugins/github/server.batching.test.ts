@@ -60,9 +60,20 @@ function rollup(
     ],
   };
 }
+function changeFields(number: number) {
+  return {
+    headRefOid: `oid-${number}`,
+    isCrossRepository: false,
+    headRepositoryOwner: { login: "acme" },
+    additions: number,
+    deletions: 1,
+    changedFiles: 2,
+  };
+}
 function openPull(number: number, extra: Record<string, unknown> = {}) {
   return {
     ...node(number),
+    ...changeFields(number),
     isDraft: false,
     headRefName: `feature-${number}`,
     baseRefName: "main",
@@ -77,9 +88,11 @@ function openPull(number: number, extra: Record<string, unknown> = {}) {
 function closedPull(number: number, state: "CLOSED" | "MERGED") {
   return {
     ...node(number, state),
+    ...changeFields(number),
     isDraft: false,
     headRefName: `feature-${number}`,
     baseRefName: "main",
+    mergedAt: state === "MERGED" ? "2026-09-11T00:00:00Z" : null,
   };
 }
 function repository() {
@@ -151,6 +164,7 @@ it("maps all four lists into SQLite and preserves closed/merged filtering", asyn
         url: "https://github.com/acme/one/issues/1",
         updatedAt: "2026-09-10T00:00:00Z",
         pr: null,
+        snooze: null,
       },
     ],
   });
@@ -367,7 +381,7 @@ it("derives what each pull request needs next from the same list request", async
     15: "Review requested",
     16: "Queued to merge",
     17: "3 checks passed",
-    18: "No checks",
+    18: "Waiting for GitHub",
     19: "3 checks passed",
   });
   const text = await harness.runCli(["prs", "acme/one"]);
@@ -402,5 +416,109 @@ it("publishes a change when only a pull request's checks change", async () => {
     await harness.behavior.callRpc("listItems", { kind: "pr", state: "open" }),
   ).toMatchObject({
     items: [{ number: 3, pr: { attention: "checks_failed" } }],
+  });
+});
+
+it("trusts GitHub's checks verdict over superseded cancelled runs", async () => {
+  const verdictCommits = (
+    verdict: string,
+    checkRuns: Array<{ state: string; count: number }>,
+  ) => ({
+    nodes: [
+      {
+        commit: {
+          verdict: { state: verdict },
+          statusCheckRollup: {
+            contexts: {
+              checkRunCountsByState: checkRuns,
+              statusContextCountsByState: [],
+            },
+          },
+        },
+      },
+    ],
+  });
+  fake.responses.set(
+    "one",
+    response({
+      ...repository(),
+      openPrs: {
+        nodes: [
+          openPull(30, {
+            commits: verdictCommits("SUCCESS", [
+              { state: "CANCELLED", count: 11 },
+              { state: "SKIPPED", count: 10 },
+              { state: "SUCCESS", count: 38 },
+            ]),
+          }),
+          openPull(31, {
+            commits: verdictCommits("FAILURE", [
+              { state: "CANCELLED", count: 2 },
+              { state: "SUCCESS", count: 5 },
+            ]),
+          }),
+        ],
+      },
+    }),
+  );
+  const { harness } = await start();
+  await harness.behavior.callRpc("refresh");
+  const { items } = githubRpcContract.listItems.output.parse(
+    await harness.behavior.callRpc("listItems", { kind: "pr", state: "open" }),
+  );
+  const byNumber = new Map(items.map((item) => [item.number, item.pr]));
+  expect(byNumber.get(30)).toMatchObject({
+    attention: "ready_to_merge",
+    checks: { state: "passing", passed: 48, failed: 0 },
+  });
+  expect(byNumber.get(31)).toMatchObject({
+    attention: "checks_failed",
+    checks: { state: "failing", failed: 2 },
+  });
+});
+
+it("keeps GitHub's native stack, the head commit, the change size, and the merge settings", async () => {
+  fake.responses.set(
+    "one",
+    response({
+      ...repository(),
+      viewerPermission: "WRITE",
+      viewerDefaultMergeMethod: "REBASE",
+      squashMergeAllowed: true,
+      mergeCommitAllowed: false,
+      rebaseMergeAllowed: true,
+      deleteBranchOnMerge: true,
+      openPrs: {
+        nodes: [
+          openPull(3, {
+            stack: { number: 5770, size: 4 },
+            stackEntry: { position: 2 },
+          }),
+        ],
+      },
+    } as ReturnType<typeof repository>),
+  );
+  const { harness } = await start();
+  await harness.behavior.callRpc("refresh");
+  const { items } = githubRpcContract.listItems.output.parse(
+    await harness.behavior.callRpc("listItems", { kind: "pr", state: "open" }),
+  );
+  expect(items[0]?.pr).toMatchObject({
+    headRefOid: "oid-3",
+    additions: 3,
+    deletions: 1,
+    changedFiles: 2,
+    headOwner: "acme",
+    stack: { number: 5770, size: 4, position: 2 },
+  });
+  expect(await harness.behavior.callRpc("repoSettings")).toEqual({
+    repos: {
+      "acme/one": {
+        viewerCanWrite: true,
+        mergeMethods: ["squash", "rebase"],
+        defaultMergeMethod: "rebase",
+        deleteBranchOnMerge: true,
+      },
+    },
   });
 });

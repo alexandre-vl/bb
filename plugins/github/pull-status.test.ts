@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   assemblePullStatus,
+  COLLAPSED_PULL_GROUPS,
+  inPullView,
+  mergeBlockedReason,
   pullGlyph,
   pullGroup,
   pullNextStep,
+  pullPreset,
   pullStateCommands,
+  stackChain,
   stackNotes,
   type RawPullStatus,
 } from "./pull-status.js";
@@ -15,6 +20,15 @@ function raw(overrides: Partial<RawPullStatus> = {}): RawPullStatus {
     isDraft: false,
     baseRefName: "main",
     headRefName: "feature",
+    headRefOid: "0000000",
+    isCrossRepository: false,
+    additions: 10,
+    deletions: 2,
+    changedFiles: 1,
+    mergedAt: null,
+    checksVerdict: null,
+    stack: null,
+    headOwner: null,
     mergeable: "MERGEABLE",
     reviewDecision: null,
     isInMergeQueue: false,
@@ -95,6 +109,145 @@ describe("pull request groups", () => {
     expect(pullGroup(merged, "alice", "alice")).toBe("merged");
     expect(pullNextStep(merged, "merged")).toBe("Merged into release");
     expect(pullGlyph(merged, "merged").tone).toBe("merged");
+  });
+});
+
+describe("snoozed and agent-aware groups", () => {
+  it("parks a snoozed pull request in Snoozed until it is merged or closed", () => {
+    const failing = assemblePullStatus(
+      raw({ checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
+    );
+    expect(pullGroup(failing, "alice", null, { snoozed: true })).toBe(
+      "snoozed",
+    );
+    expect(pullGlyph(failing, "snoozed")).toMatchObject({
+      icon: "TimeSchedule",
+      label: "Snoozed",
+    });
+    const merged = assemblePullStatus(raw({ state: "MERGED" }));
+    expect(pullGroup(merged, "alice", null, { snoozed: true })).toBe("merged");
+  });
+
+  it("moves a waiting agent to Your move and a running one to In progress", () => {
+    const conflicting = assemblePullStatus(raw({ mergeable: "CONFLICTING" }));
+    expect(pullGroup(conflicting, "alice", null, { agent: "waiting" })).toBe(
+      "you",
+    );
+    expect(pullGlyph(conflicting, "you", "waiting")).toMatchObject({
+      icon: "MessageQuestion",
+      label: "Waiting for you",
+    });
+    expect(pullGroup(conflicting, "alice", null, { agent: "running" })).toBe(
+      "progress",
+    );
+    expect(pullGlyph(conflicting, "progress", "running").tone).toBe("working");
+    expect(pullGroup(conflicting, "alice", null, { agent: "done" })).toBe(
+      "fixing",
+    );
+  });
+
+  it("says Waiting for GitHub while mergeability is unknown", () => {
+    const unknown = assemblePullStatus(raw({ mergeable: "UNKNOWN" }));
+    expect(pullNextStep(unknown, "open")).toBe("Waiting for GitHub");
+  });
+});
+
+describe("views", () => {
+  it("keeps the inbox to what needs someone, and Mine to the viewer's own", () => {
+    expect(inPullView("inbox", "fixing", "alice", "bob")).toBe(true);
+    expect(inPullView("inbox", "snoozed", "alice", "bob")).toBe(true);
+    expect(inPullView("inbox", "review", "alice", "bob")).toBe(false);
+    expect(inPullView("inbox", "draft", "alice", "bob")).toBe(false);
+    expect(inPullView("mine", "draft", "Alice", "alice")).toBe(true);
+    expect(inPullView("mine", "draft", "alice", "bob")).toBe(false);
+    expect(inPullView("mine", "draft", "alice", null)).toBe(false);
+    expect(inPullView("all", "closed", "alice", null)).toBe(true);
+    expect(inPullView("all", "merged", "alice", null)).toBe(false);
+    expect(inPullView("merged", "merged", "alice", null)).toBe(true);
+    expect([...COLLAPSED_PULL_GROUPS.inbox]).toEqual(["snoozed"]);
+  });
+});
+
+describe("agent presets and merge reasons", () => {
+  it("picks the preset from what the pull request needs", () => {
+    expect(
+      pullPreset(assemblePullStatus(raw({ mergeable: "CONFLICTING" }))),
+    ).toBe("conflicts");
+    expect(
+      pullPreset(
+        assemblePullStatus(
+          raw({ checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
+        ),
+      ),
+    ).toBe("fix");
+    expect(pullPreset(assemblePullStatus(raw({ isDraft: true })))).toBe(
+      "finish",
+    );
+    expect(pullPreset(assemblePullStatus(raw()))).toBe("review");
+  });
+
+  it("says why a pull request cannot be merged yet", () => {
+    expect(mergeBlockedReason(assemblePullStatus(raw()))).toBeNull();
+    expect(mergeBlockedReason(assemblePullStatus(raw({ isDraft: true })))).toBe(
+      "Mark it ready first",
+    );
+    expect(
+      mergeBlockedReason(
+        assemblePullStatus(
+          raw({ checkRunCounts: [{ state: "FAILURE", count: 2 }] }),
+        ),
+      ),
+    ).toBe("2 checks failing");
+    expect(
+      mergeBlockedReason(assemblePullStatus(raw({ mergeable: "CONFLICTING" }))),
+    ).toBe("Conflicts with main");
+    expect(
+      mergeBlockedReason(assemblePullStatus(raw({ isInMergeQueue: true }))),
+    ).toBe("Queued to merge");
+  });
+});
+
+describe("stack chains", () => {
+  const pull = (
+    number: number,
+    head: string,
+    base: string,
+    state = "OPEN",
+  ) => ({
+    repo: "acme/one",
+    number,
+    pr: assemblePullStatus(
+      raw({
+        state: state as RawPullStatus["state"],
+        headRefName: head,
+        baseRefName: base,
+      }),
+    ),
+  });
+
+  it("walks down to the root and up through the first child", () => {
+    const pulls = [
+      pull(1, "a", "main"),
+      pull(2, "b", "a"),
+      pull(3, "c", "b"),
+      pull(4, "x", "b"),
+      pull(5, "lone", "main"),
+      pull(6, "d", "c", "MERGED"),
+    ];
+    const numbers = (index: number) =>
+      stackChain(pulls[index]!, pulls)?.map((entry) => entry.number) ?? null;
+    expect(numbers(0)).toEqual([1, 2, 3]);
+    expect(numbers(1)).toEqual([1, 2, 3]);
+    expect(numbers(3)).toEqual([1, 2, 4]);
+    expect(numbers(4)).toBeNull();
+    expect(numbers(5)).toBeNull();
+  });
+
+  it("stops on a cycle", () => {
+    const pulls = [pull(1, "a", "b"), pull(2, "b", "a")];
+    expect(stackChain(pulls[0]!, pulls)?.map((entry) => entry.number)).toEqual([
+      2, 1,
+    ]);
   });
 });
 

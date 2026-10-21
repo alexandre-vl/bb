@@ -10,46 +10,100 @@ bb plugin install github
 
 ## What it does
 
-- **Sidebar panel** (GitHub logo, full width): Issues and Pull requests tabs
-  across every tracked repo, with a repo filter (persisted in localStorage)
-  and a New issue form.
+- **Sidebar panel** (GitHub logo, full width) opens on the pull request
+  inbox. Its views are Inbox (what needs you), Mine, All, Merged, and Issues;
+  switch with the tab bar, `[` and `]`, or ← and →. The panel's badge counts
+  the pull requests that need you.
 - **Pull request inbox**: pull requests are grouped by what each needs next —
-  Your move (your review is requested, or changes were requested on yours),
-  Ready to merge, Needs fixing (conflicts, failing checks, changes requested),
-  In progress (checks running, merge queue), Waiting for review, Open, Drafts —
-  with one status glyph and the reason on a second line, such as
-  `#12 · 2 checks failing · draft` or `#14 · 3 checks passed · stacked on #12`.
-- **Pull request header**: the status pill is a menu. It offers Draft, Open
-  (ready for review), and Closed only where GitHub's `viewerCanUpdate`,
-  `viewerCanClose`, and `viewerCanReopen` allow it, read with one extra
-  GraphQL request when the detail opens. A closed draft reopens as a draft;
-  marking it ready as well needs `viewerCanUpdate`. Closing takes a second
-  press. The pill spins while GitHub answers and stays focused, the success
-  toast offers Undo when undoing restores the exact state, and a failure says
-  why and reloads the pull request. Merged pull requests, and those you cannot
-  change, keep a plain pill. The diff stat uses core's
-  `text-diff-added`/`text-diff-removed` colours and its five-block size bar,
-  splits the change into code, tests, docs, and generated files on hover and
-  above the file list (files GitHub does not list count as Not listed), and
-  scrolls to the files on click. The head branch is a copy chip.
-- **Issue detail**: markdown body, comments, comment box, status,
-  assignee, and label editing, plus "Send agent".
-  Deep-linkable via the URL hash: `#/issues/<owner>/<repo>/<number>`.
-- **Send agent / Review with agent**: spawns a BB worker thread on the issue
-  (or a review thread on the PR) in the repo's BB project. The issue/PR then
-  shows a ⚡ pill linking to the thread.
-- **Homepage section**: recent open issues with the same Send agent buttons.
+  Your move (your review is requested, an agent asked you something, or
+  changes were requested on yours), Ready to merge, Needs fixing (conflicts,
+  failing checks, changes requested), In progress (checks running, merge
+  queue, an agent at work), Waiting for review, Open, Drafts, Snoozed — with
+  one status glyph and the reason on a second line, such as
+  `#12 · 2 checks failing` or `#14 · 3 checks passed · stacked on #12`.
+  Hovering a row shows its next action (answer the agent, open its thread,
+  merge, fix or resolve with an agent, start an agent) and a menu to change
+  the status, snooze, copy the branch, or open it on GitHub. Space peeks at a
+  row's failing checks and agent without opening it.
+- **Display menu** (⇧V): group by next step, author, or not at all;
+  comfortable or compact rows; which facts show on a row (author, checks,
+  stack, issue key, diff size). Choices persist per browser.
+- **Filter** (`/`): free text plus qualifiers (`is:`, `ci:`, `author:`,
+  `assignee:`, `label:`, `base:`, `stack:`, `agent:`, `repo:`), with
+  suggestions as you type. Each token shows as a removable chip beside the
+  number of matching pull requests.
+- **Keyboard**: `j`/`k` or ↑/↓ move, Enter opens, `x` selects, and `a`
+  (agent), `m` (merge), `r` (ready), `s` (status), `z` (snooze), `t` (agent
+  thread), `c` (copy branch), and `o` (open on GitHub) act on the focused row
+  or the open pull request. Esc steps back one level; `?` lists every
+  shortcut.
+- **Bulk actions**: selected rows can start agents, be marked ready, or be
+  snoozed together. A group's Merge all merges each ready pull request after a
+  confirmation.
+- **Snooze**: until the checks change, a new push, the linked agent replies,
+  tomorrow at 8:00, or next Monday at 8:00. Merging or closing wakes it.
+- **Pull request detail**: beside the list on a wide panel, full width on a
+  narrow one. The header carries the status menu (Draft, Open, Closed where
+  GitHub's `viewerCanUpdate`, `viewerCanClose`, and `viewerCanReopen` allow
+  it, plus Merge…), the author, a copy chip for the head branch, and the diff
+  stat. Closing takes a second press; the pill spins while GitHub answers and
+  keeps focus; Undo is offered when it restores the exact state, and a
+  failure says why and reloads. The diff stat uses core's
+  `text-diff-added`/`text-diff-removed` colours and five-block size bar,
+  breaks the change into code, tests, docs, and generated files on hover
+  (files GitHub does not list count as Not listed), and opens the Files tab.
+- **Next step card**: one card says what the pull request needs now and
+  offers the action: merge, fix the failing checks with an agent or re-run
+  them, resolve conflicts, mark a draft ready, review it, or reopen it. While
+  an agent works on it the card shows its progress; when the agent asks a
+  question, the card shows the question and its options, and the answer goes
+  straight back to the agent. A switch follows the pull request: new CI
+  results, reviews, and comments are sent to the agent's thread.
+- **Tabs**: Activity tells the story (commits grouped by author, CI, reviews,
+  review threads, comments, Linear links) and ends in a reply box that posts
+  to GitHub or messages the agent; Files lists the files in reading order
+  (code, docs, tests, generated) with their diffs and links into the bb
+  worktree that holds the branch; Checks lists failed checks first, with their
+  logs and Re-run failed. Stacked pull requests show their chain and offer to
+  restack it with an agent.
+- **Merge dialog**: the repository's allowed methods, its default first, and
+  whether the head branch is deleted. A branch that a bb worktree holds, or
+  that lives in a fork, is kept. When a bb environment holds the branch, the
+  merge goes through bb's own merge path.
+- **Start an agent**: a sheet with presets (Fix checks, Resolve conflicts,
+  Review, Finish draft, Restack, Custom) and bb's new-thread composer, seeded
+  with the preset's prompt and placed in the bb worktree already on the
+  branch, else a new worktree from `origin/<head>`. The thread is linked to
+  the pull request.
+- **In threads**: a thread linked to a pull request shows it in its header
+  (unless bb already does) and its next step on its sidebar row. The GitHub
+  PR panel shows the same detail, or a picker when no pull request is linked.
+- **Home page**: what the inbox holds (`2 your move · 1 ready · 1 need
+fixing`) and its first four rows.
+- **Command palette**: GitHub: Open the inbox, GitHub: Find a pull request…,
+  and GitHub: Open this thread's pull request.
+- **Issues view and issue detail**: open and closed issues; the detail has the
+  markdown body, comments, a comment box, status, assignee, and label editing,
+  plus Start an agent. Deep links: `issues/<owner>/<repo>/<number>` and
+  `pulls/<owner>/<repo>/<number>` under the panel's route.
 - **Mentions**: `@` or `#` in any composer completes GitHub issues and PRs; the
   selected item's title/body/state is attached as agent context at send time.
 - **`bb github` CLI**: `repos`, `issues [repo]`, `prs [repo]`,
-  `pr-state <repo> <number> --state open|draft|closed`, `sync` — also
+  `pr-state <repo> <number> --state open|draft|closed`,
+  `merge <repo> <number> [--method squash|merge|rebase] [--delete-branch]`,
+  `rerun <repo> <number>`,
+  `snooze <repo> <number> --until checks|push|reply|tomorrow|monday|<ISO>`,
+  `unsnooze <repo> <number>`,
+  `agent <repo> <number> [--preset …] [--prompt …]`,
+  `follow <repo> <number> [--thread <id>] [--off]`, and `sync` — also
   discoverable by agents through the plugin-commands skill. `prs` adds what
   each pull request needs next: a fourth tab-separated column in text, and
   `nextStep` plus a `pr` status object in `--json`. `pr-state` runs
   `gh pr ready`, `gh pr ready --undo`, `gh pr close`, or `gh pr reopen` as
   needed, reopening a closed pull request first, and refuses a merged one.
-  A tracked repository's cache then refreshes in the background, also after
-  a change that fails partway. Each command takes
+  `merge` runs `gh pr merge` with `--match-head-commit`, so a push that lands
+  meanwhile stops it. A tracked repository's cache then refreshes in the
+  background, also after a change that fails partway. Each command takes
   `--json` (`{"ok":true,…}` on success, `{"ok":false,"error":{…}}` on failure)
   and `--help`, which prints its arguments and options and exits 0.
 
