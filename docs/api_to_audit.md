@@ -3255,3 +3255,21 @@ current result as `RenderedSlotInspectionState.experimental_pageTitle`;
 audit test-host lifecycle parity before stabilization.
 Before stabilization, audit focus changes, same-plugin splits, loading,
 back/forward navigation, crash/reload recovery, links and overflow.
+
+## Project default environment
+
+`bb.sdk.projects.update` accepts `defaultEnvironment`: a provider environment,
+or null to return the project to Automatic. Project responses expose
+`defaultEnvironment` and `defaultEnvironmentProblem`, the server's reason the
+stored default cannot start a thread. These are data fields on existing SDK
+methods, so they carry no prefix. A thread created with `project-default`
+starts in the stored environment; a Project checkout default gives it a fresh
+worktree on that machine instead, and an unusable default refuses creation
+with HTTP 409 `project_default_environment_unavailable`. The root composer,
+Project settings, `bb project default-environment`, and the Automations plugin
+read and write these same fields.
+
+Audit before stabilization: providers, compositions, and machines removed
+while they are a default; compositions whose machine inputs become required;
+the composer's precedence over browser memory; and whether a default should
+ever carry inputs.
