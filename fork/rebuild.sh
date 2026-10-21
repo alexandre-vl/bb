@@ -120,7 +120,7 @@ while read -r branch options || [[ -n ${branch:-} ]]; do
     ddl=$(git diff --unified=0 "$upstream...$sha" -- . ":(exclude)$migrations_path" ':(glob,exclude)**/__tests__/**' ':(glob,exclude)**/*.test.*' ':(glob,exclude)**/*.md' |
       grep -m1 -oE "^\+[^+].*[\`\"'] *(CREATE|ALTER|DROP) +(TABLE|(UNIQUE +)?INDEX|VIEW|TRIGGER)" || true)
     if [[ -n $ddl ]]; then
-      rows+=("| \`$branch\` | $short | held back: adds storage statements (\`${ddl:1:60}\`) |")
+      rows+=("| \`$branch\` | $short | held back: adds storage statements |")
       held=$((held + 1))
       continue
     fi
