@@ -1501,7 +1501,7 @@ describe("automations server plugin harness", () => {
     expect(disabled).toMatchObject({
       enabled: false,
       nextRunAt: null,
-      lastError: "target thread deleted",
+      lastError: "Target thread thr_target was deleted",
     });
 
     await harness.dispose();
