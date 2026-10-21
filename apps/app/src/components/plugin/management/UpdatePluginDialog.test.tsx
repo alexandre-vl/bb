@@ -121,19 +121,20 @@ describe("UpdatePluginDialog", () => {
   });
 
   it("opens persisted failure details and retries an available update", async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json(
-        {
-          job: {
-            id: "update-1",
-            pluginId: "linear",
-            displayName: "Linear",
-            state: "running",
-            phase: "preparing",
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json(
+          {
+            job: {
+              id: "update-1",
+              pluginId: "linear",
+              displayName: "Linear",
+              state: "running",
+              phase: "preparing",
+            },
           },
-        },
-        { status: 202 },
-      ),
+          { status: 202 },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
     const onOpenChange = vi.fn();
@@ -169,6 +170,9 @@ describe("UpdatePluginDialog", () => {
     );
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      expectedVersion: "1.8.0",
+    });
     await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
@@ -202,8 +206,9 @@ describe("UpdatePluginDialog", () => {
       state: "running",
       phase: "checking",
     };
-    const fetchMock = vi.fn(async () =>
-      Response.json({ job }, { status: 202 }),
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({ job }, { status: 202 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const { wrapper, queryClient } = createDialogTestHarness();
@@ -220,6 +225,9 @@ describe("UpdatePluginDialog", () => {
     await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(queryClient.getQueryData(pluginUpdateJobsQueryKey())).toEqual([job]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      expectedVersion: "1.7.0",
+    });
     expect(getNotifications()).toHaveLength(0);
   });
 

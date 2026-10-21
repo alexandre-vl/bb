@@ -44,6 +44,7 @@ import {
 } from "../server-move/freeze-state.js";
 import {
   pluginUpdateCheckEntrySchema,
+  type PluginApplyUpdateRequest,
   type PluginSourceDetail,
   type PluginUpdateCheckEntry,
 } from "@bb/server-contract";
@@ -74,7 +75,10 @@ export interface PluginUpdates {
   stopPeriodicUpdateChecks(): Promise<void>;
   listUpdateResults(): PluginUpdateCheckEntry[];
   getSource(id: string): Promise<PluginSourceDetail | undefined>;
-  applyUpdate(id: string): Promise<PluginApplyUpdateOutcome>;
+  applyUpdate(
+    id: string,
+    request?: PluginApplyUpdateRequest,
+  ): Promise<PluginApplyUpdateOutcome>;
 }
 
 interface PluginUpdatesContext {
@@ -169,6 +173,26 @@ export function createPluginUpdates(
     if (!changed) {
       throw new Error(`plugin "${entry.id}" disappeared during update check`);
     }
+  }
+
+  function expectedVersionRefusal(args: {
+    expectedVersion: string | undefined;
+    installed: PluginResolvedUpdateVersion;
+    resolution: PluginUpdateResolution;
+  }): string | null {
+    const { expectedVersion, installed, resolution } = args;
+    if (expectedVersion === undefined) return null;
+    if (resolution.outcome === "update-available") {
+      return resolution.candidate.version === expectedVersion
+        ? null
+        : `update refused: expected ${expectedVersion}, but the current candidate is ${resolution.candidate.display}; check for updates again and review it`;
+    }
+    if (resolution.outcome === "current") {
+      return installed.version === expectedVersion
+        ? null
+        : `update refused: expected ${expectedVersion}, but no update is available now (installed ${installed.display}); check for updates again`;
+    }
+    return null;
   }
 
   async function legacyGitRefEvidence(args: {
@@ -561,7 +585,7 @@ export function createPluginUpdates(
       };
     },
 
-    async applyUpdate(id) {
+    async applyUpdate(id, request = {}) {
       return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {
         const row = getInstalledPlugin(deps.db, id);
         if (!row) return { ok: false, error: `unknown plugin "${id}"` };
@@ -585,6 +609,12 @@ export function createPluginUpdates(
         });
         const checked = checkEntryFromResolution(id, from, resolution);
         persistUpdateEntry(checked);
+        const refusal = expectedVersionRefusal({
+          expectedVersion: request.expectedVersion,
+          installed: from,
+          resolution,
+        });
+        if (refusal !== null) return { ok: false, error: refusal };
 
         if (resolution.outcome === "pinned") {
           return {

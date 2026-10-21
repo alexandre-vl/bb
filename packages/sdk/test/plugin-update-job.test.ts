@@ -35,6 +35,20 @@ function server(final: object) {
   return { sdk, requests };
 }
 
+function rejectingServer(error: string) {
+  return createBbSdk({
+    transport: createHttpTransport({
+      baseUrl: "http://bb.test",
+      runtime: "node",
+      fetch: async () =>
+        new Response(JSON.stringify({ error }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+    }),
+  });
+}
+
 describe("background plugin updates", () => {
   it.each([
     result,
@@ -76,6 +90,53 @@ describe("background plugin updates", () => {
       sdk.plugins.experimental_startUpdate({ pluginId: "notes" }),
     ).resolves.toMatchObject({ state: "running", phase: "checking" });
     expect(requests).toHaveLength(1);
+  });
+
+  it("sends the reviewed version so the server can refuse a different release", async () => {
+    const { sdk, requests } = server({ state: "completed", result });
+    await sdk.plugins.applyUpdate({
+      pluginId: "notes",
+      expectedVersion: "1.1.0",
+    });
+    await sdk.plugins.experimental_startUpdate({
+      pluginId: "notes",
+      expectedVersion: "1.1.0",
+    });
+    await sdk.plugins.experimental_startUpdate({ pluginId: "notes" });
+    const bodies = await Promise.all(
+      requests
+        .filter((request) => request.method === "POST")
+        .map((request) => request.json()),
+    );
+    expect(bodies).toEqual([
+      { expectedVersion: "1.1.0" },
+      { expectedVersion: "1.1.0" },
+      {},
+    ]);
+  });
+
+  it.each(["applyUpdate", "experimental_startUpdate"] as const)(
+    "asks to upgrade a server that cannot honor %s's expectedVersion",
+    async (method) => {
+      const sdk = rejectingServer("expected an empty JSON object");
+      await expect(
+        sdk.plugins[method]({ pluginId: "notes", expectedVersion: "1.1.0" }),
+      ).rejects.toThrow(
+        "update not started; this BB server predates reviewed-release updates and cannot guarantee it installs 1.1.0. Upgrade the BB server, then try again",
+      );
+    },
+  );
+
+  it("keeps other rejected update requests as the server reported them", async () => {
+    const sdk = rejectingServer('expected { "expectedVersion"?: string }');
+    await expect(
+      sdk.plugins.applyUpdate({ pluginId: "notes", expectedVersion: "1.1.0" }),
+    ).rejects.toThrow('HTTP 400: expected { "expectedVersion"?: string }');
+    await expect(
+      rejectingServer("expected an empty JSON object").plugins.applyUpdate({
+        pluginId: "notes",
+      }),
+    ).rejects.toThrow("HTTP 400: expected an empty JSON object");
   });
 
   it("reports a failed job instead of a successful update", async () => {

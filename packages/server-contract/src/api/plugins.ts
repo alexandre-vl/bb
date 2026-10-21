@@ -55,7 +55,12 @@ export const pluginUpdateCheckResponseSchema = z.object({
   results: z.array(pluginUpdateCheckEntrySchema),
 });
 
-export const pluginApplyUpdateRequestSchema = z.object({}).strict();
+export const pluginApplyUpdateRequestSchema = z
+  .object({ expectedVersion: z.string().min(1).optional() })
+  .strict();
+export type PluginApplyUpdateRequest = z.infer<
+  typeof pluginApplyUpdateRequestSchema
+>;
 
 export const pluginApplyUpdateResultSchema = z.object({
   applied: z.boolean(),

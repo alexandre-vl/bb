@@ -50,7 +50,8 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
   bb plugin update <id> | --all  Apply compatible updates for one plugin or
                                  every tracking plugin. Same confirmation as
                                  install (--yes skips; non-TTY refuses
-                                 without --yes)
+                                 without --yes). Applies only the release
+                                 the check showed
   bb plugin list                 Status, services, schedules, handler timings,
                                  and contributed CLI commands. `bb status`
                                  also names enabled plugins that are
@@ -342,4 +343,4 @@ plugins.
 
 `bb plugin update <id> --yes` starts a server job and waits by polling, so the activation stability check does not hold one HTTP request open. Add `--no-wait` to return immediately. Use `bb plugin update-jobs [job-id] --json` for progress and results, including automatic rollback. Queued/running updates continue after the CLI or app disconnects. Finished jobs remain for ten minutes; jobs do not survive server restarts. Running updates cannot be cancelled midway through activation.
 
-SDK: `plugins.applyUpdate({ pluginId })` waits; `plugins.experimental_startUpdate({ pluginId })` returns the job. Inspect with `plugins.experimental_updateJobs.list()` or `.get({ jobId })`. Raw HTTP callers opt in with `Prefer: respond-async`; legacy callers still receive the completed result.
+SDK: `plugins.applyUpdate({ pluginId, expectedVersion? })` waits; `plugins.experimental_startUpdate({ pluginId, expectedVersion? })` returns the job. `expectedVersion` is the `candidate.version` a check returned: when the release the server would install is no longer that one, it refuses and leaves the installation untouched (the fresh check result is still saved). Without it the newest compatible release is applied. Inspect with `plugins.experimental_updateJobs.list()` or `.get({ jobId })`. Raw HTTP callers opt in with `Prefer: respond-async`; legacy callers still receive the completed result.

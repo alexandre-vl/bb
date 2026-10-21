@@ -1407,6 +1407,75 @@ describe("plugin update service and routes", () => {
     ]);
   });
 
+  it("applies only the release the caller reviewed", async () => {
+    const tagged = await taggedRepo();
+    await service.install(`git:${tagged}@semver:^1.0.0`, { kind: "root" });
+    const reviewedCommit = await releaseTag(tagged, "v1.1.0");
+    expect(await service.checkForUpdates("tagged")).toMatchObject([
+      { candidate: { version: reviewedCommit } },
+    ]);
+    const newerCommit = await releaseTag(tagged, "v1.2.0");
+    const before = getInstalledPluginRegistration(db, "tagged");
+    const artifactsBefore = listPluginArtifacts(db, "tagged").map(
+      (artifact) => artifact.id,
+    );
+    const update = (body: object) =>
+      app.request("/plugins/tagged/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    const refused = await update({ expectedVersion: reviewedCommit });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({
+      error: `update refused: expected ${reviewedCommit}, but the current candidate is ${tagged}@v1.2.0 (${newerCommit.slice(0, 12)}); check for updates again and review it`,
+    });
+    expect(getInstalledPluginRegistration(db, "tagged")).toMatchObject({
+      version: before?.version,
+      rootDir: before?.rootDir,
+      activeArtifactId: before?.activeArtifactId,
+      sourceGitResolvedTag: "v1.0.0",
+      gitResolvedCommit: before?.gitResolvedCommit,
+      lastFailureVersion: null,
+    });
+    expect(
+      listPluginArtifacts(db, "tagged").map((artifact) => artifact.id),
+    ).toEqual(artifactsBefore);
+    expect(
+      service.list().find((entry) => entry.id === "tagged")?.updateState,
+    ).toMatchObject({ availableVersion: newerCommit });
+
+    for (const body of [{ expectedVersion: "" }, { version: newerCommit }]) {
+      expect((await update(body)).status).toBe(400);
+    }
+
+    const accepted = await update({ expectedVersion: newerCommit });
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({
+      applied: true,
+      to: { version: newerCommit },
+    });
+    expect(getInstalledPluginRegistration(db, "tagged")).toMatchObject({
+      sourceGitResolvedTag: "v1.2.0",
+      gitResolvedCommit: newerCommit,
+    });
+
+    const stale = await update({ expectedVersion: reviewedCommit });
+    expect(stale.status).toBe(422);
+    expect(await stale.json()).toEqual({
+      error: expect.stringContaining(
+        `expected ${reviewedCommit}, but no update is available now`,
+      ),
+    });
+    const repeated = await update({ expectedVersion: newerCommit });
+    expect(repeated.status).toBe(200);
+    expect(await repeated.json()).toMatchObject({
+      applied: false,
+      outcome: "current",
+    });
+  });
+
   it("refuses to resolve a release tag that was moved to another commit", async () => {
     const tagged = await taggedRepo();
     await service.install(`git:${tagged}@semver:^1.0.0`, { kind: "root" });

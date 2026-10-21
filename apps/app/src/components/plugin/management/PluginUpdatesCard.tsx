@@ -45,7 +45,8 @@ export function PluginDetailReleaseControl({
   const failure = plugin.updateState.lastFailure;
   const retry = useMutation({
     meta: { showErrorToast: false },
-    mutationFn: () => startPluginUpdate(plugin.id),
+    mutationFn: (expectedVersion: string) =>
+      startPluginUpdate({ pluginId: plugin.id, expectedVersion }),
     onSuccess: (job) => {
       applyPluginUpdateJob({ queryClient, job });
     },
@@ -70,7 +71,7 @@ export function PluginDetailReleaseControl({
         disabled={retry.isPending}
         aria-busy={retry.isPending}
         aria-label={`Retry update to ${displayPluginVersion(availableVersion)}`}
-        onClick={() => retry.mutate()}
+        onClick={() => retry.mutate(availableVersion)}
       >
         {retry.isPending ? (
           <Icon name="Spinner" className="size-3.5 animate-spin" aria-hidden />

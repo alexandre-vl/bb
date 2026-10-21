@@ -124,7 +124,7 @@ describe("PluginDetailReleaseControl", () => {
   it("retries a failed update from the release action without opening a modal", async () => {
     let completeUpdate: (() => void) | undefined;
     const fetchMock = vi.fn(
-      () =>
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Promise<Response>((resolve) => {
           completeUpdate = () =>
             resolve(
@@ -197,6 +197,9 @@ describe("PluginDetailReleaseControl", () => {
     });
     fireEvent.click(retry);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      expectedVersion: "1.9.0",
+    });
     expect(retry.getAttribute("aria-busy")).toBe("true");
     expect(retry).toHaveProperty("disabled", true);
     completeUpdate?.();

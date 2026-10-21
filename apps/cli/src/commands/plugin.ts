@@ -1414,11 +1414,16 @@ export function registerPluginCommands(
               "Refusing to update without confirmation — re-run with --yes.",
               opts.yes === true,
             );
+            const updateArgs = {
+              pluginId: result.id,
+              ...(result.candidate === undefined
+                ? {}
+                : { expectedVersion: result.candidate.version }),
+            };
 
             if (opts.wait === false) {
-              const job = await sdk.plugins.experimental_startUpdate({
-                pluginId: result.id,
-              });
+              const job =
+                await sdk.plugins.experimental_startUpdate(updateArgs);
               console.log(
                 `Updating ${job.displayName} in the background (job ${job.id}).`,
               );
@@ -1430,9 +1435,7 @@ export function registerPluginCommands(
 
             let mutation: PluginApplyUpdateResult;
             try {
-              mutation = await sdk.plugins.applyUpdate({
-                pluginId: result.id,
-              });
+              mutation = await sdk.plugins.applyUpdate(updateArgs);
             } catch (error) {
               exitWithError({ error: sdkErrorMessage(error) });
             }

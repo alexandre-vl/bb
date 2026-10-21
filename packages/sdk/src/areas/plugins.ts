@@ -64,6 +64,7 @@ import {
   type PluginUpdateCheckEntry,
 } from "@bb/server-contract";
 import { z } from "zod";
+import { BbHttpError } from "../response.js";
 import type { CreateSdkAreaArgs } from "./common.js";
 
 /**
@@ -114,6 +115,10 @@ export type PluginMutationResponse = z.infer<
 
 export interface PluginIdArgs {
   pluginId: string;
+}
+
+export interface PluginApplyUpdateArgs extends PluginIdArgs {
+  expectedVersion?: string;
 }
 
 export interface PluginInstallArgs {
@@ -300,8 +305,10 @@ export interface PluginsArea {
   experimental_pruneCache(
     args?: PluginPruneCacheArgs,
   ): Promise<PluginPruneCacheResult>;
-  applyUpdate(args: PluginIdArgs): Promise<PluginApplyUpdateResult>;
-  experimental_startUpdate(args: PluginIdArgs): Promise<PluginUpdateJob>;
+  applyUpdate(args: PluginApplyUpdateArgs): Promise<PluginApplyUpdateResult>;
+  experimental_startUpdate(
+    args: PluginApplyUpdateArgs,
+  ): Promise<PluginUpdateJob>;
   experimental_updateJobs: PluginUpdateJobsArea;
   callRpc<TOutput>(args: PluginRpcArgs<TOutput>): Promise<TOutput>;
   checkUpdates(
@@ -336,6 +343,16 @@ function pluginSourceSelection(
   }
   if (args.plugin !== undefined) return { kind: "entry", name: args.plugin };
   return undefined;
+}
+
+function serverRejectedUpdateFields(error: unknown): boolean {
+  return (
+    error instanceof BbHttpError &&
+    error.status === 400 &&
+    z
+      .object({ error: z.literal("expected an empty JSON object") })
+      .safeParse(error.body).success
+  );
 }
 
 function pluginPath(pluginId: string, suffix = ""): string {
@@ -391,19 +408,36 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     },
   };
 
-  function requestUpdate(input: PluginIdArgs) {
-    return requestParsed(
-      pluginPath(input.pluginId, "/update"),
-      z.union([pluginUpdateJobResponseSchema, pluginApplyUpdateResultSchema]),
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          prefer: "respond-async",
-        },
-        body: JSON.stringify(pluginApplyUpdateRequestSchema.parse({})),
-      },
+  async function requestUpdate(input: PluginApplyUpdateArgs) {
+    const body = pluginApplyUpdateRequestSchema.parse(
+      input.expectedVersion === undefined
+        ? {}
+        : { expectedVersion: input.expectedVersion },
     );
+    try {
+      return await requestParsed(
+        pluginPath(input.pluginId, "/update"),
+        z.union([pluginUpdateJobResponseSchema, pluginApplyUpdateResultSchema]),
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            prefer: "respond-async",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+    } catch (error) {
+      if (
+        input.expectedVersion !== undefined &&
+        serverRejectedUpdateFields(error)
+      ) {
+        throw new Error(
+          `update not started; this BB server predates reviewed-release updates and cannot guarantee it installs ${input.expectedVersion}. Upgrade the BB server, then try again`,
+        );
+      }
+      throw error;
+    }
   }
 
   const installJobs: PluginInstallJobsArea = {

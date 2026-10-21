@@ -263,6 +263,9 @@ describe("bb plugin update commands", () => {
       register,
     );
     expect(fetch).toHaveBeenCalledTimes(3);
+    expect(
+      JSON.parse(String(vi.mocked(fetch).mock.calls[2]?.[1]?.body)),
+    ).toEqual({ expectedVersion: "1.1.0" });
     expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
       "bb plugin update-jobs update-1",
     );
@@ -312,7 +315,9 @@ describe("bb plugin update commands", () => {
     expect(output).toContain("pin: skipped — pinned");
     expect(output).toContain("bad: skipped — incompatible: requires newer bb");
     expect(output).toContain("good: updated and activated 1 → 2");
-    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({});
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      expectedVersion: "2",
+    });
   });
 
   it("renders a rolled-back server result", async () => {

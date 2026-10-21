@@ -63,7 +63,8 @@ function UpdatePluginDialogContent({
   const state = plugin.updateState;
   const update = useMutation({
     meta: { showErrorToast: false },
-    mutationFn: () => startPluginUpdate(plugin.id),
+    mutationFn: (expectedVersion: string) =>
+      startPluginUpdate({ pluginId: plugin.id, expectedVersion }),
     onSuccess: (job) => {
       applyPluginUpdateJob({ queryClient, job });
       onOpenChange(false);
@@ -134,7 +135,7 @@ function UpdatePluginDialogContent({
               disabled={update.isPending}
               aria-busy={update.isPending}
               aria-label={`Retry update to ${retryVersion}`}
-              onClick={() => update.mutate()}
+              onClick={() => update.mutate(retryVersion)}
             >
               {update.isPending ? (
                 <Icon name="Spinner" className="animate-spin" />
@@ -191,7 +192,7 @@ function UpdatePluginDialogContent({
             type="button"
             disabled={update.isPending}
             aria-busy={update.isPending}
-            onClick={() => update.mutate()}
+            onClick={() => update.mutate(candidate)}
           >
             {update.isPending ? (
               <Icon name="Spinner" className="animate-spin" />
