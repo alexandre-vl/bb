@@ -202,6 +202,58 @@ describe("npm update candidate selection", () => {
     });
   });
 
+  it("stays current when a dist-tag moves below the installed version", async () => {
+    const installed = { version: "2.0.0", display: "bb-plugin-matrix@2.0.0" };
+    const resolve = (versions: Record<string, { bb?: string }>) =>
+      resolveNpmUpdate({
+        intent: npmIntent("next", "tag"),
+        current: installed,
+        appVersion: "1.0.0",
+        run: createNpmResolverRun({
+          fetch: packumentFetch(versions, { next: "1.0.0" }),
+        }),
+      });
+
+    expect(await resolve({ "2.0.0": {}, "1.0.0": {} })).toEqual({
+      outcome: "current",
+      current: installed,
+    });
+    expect(await resolve({ "2.0.0": {}, "1.0.0": { bb: ">=99" } })).toEqual({
+      outcome: "current",
+      current: installed,
+    });
+  });
+
+  it("never offers an npm release older than the installed one", async () => {
+    const installed = { version: "1.5.0", display: "bb-plugin-matrix@1.5.0" };
+    const resolve = (
+      versions: Record<string, { bb?: string }>,
+      spec: string,
+      specKind: "default" | "range",
+    ) =>
+      resolveNpmUpdate({
+        intent: npmIntent(spec, specKind),
+        current: installed,
+        appVersion: "1.0.0",
+        run: createNpmResolverRun({ fetch: packumentFetch(versions) }),
+      });
+
+    expect(
+      await resolve(
+        { "1.6.0": { bb: ">=99" }, "1.4.0": {}, "1.0.0": {} },
+        "^1.0.0",
+        "range",
+      ),
+    ).toMatchObject({
+      outcome: "current",
+      current: installed,
+      blocked: { version: { version: "1.6.0" } },
+    });
+    expect(
+      await resolve({ "1.4.0": { bb: ">=99" }, "1.3.0": {} }, "", "default"),
+    ).toEqual({ outcome: "current", current: installed });
+  });
+
   it("binds a registry version when the registry omits integrity", async () => {
     const resolution = await resolveNpmUpdate({
       intent: npmIntent("next", "tag"),

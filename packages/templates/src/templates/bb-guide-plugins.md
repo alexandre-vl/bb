@@ -283,6 +283,10 @@ deletes settings, secrets, and schedules) and a fresh install. Edit a local
 path plugin in place and `bb plugin reload <id>`, or move it with
 `bb plugin install path:<new dir>`; both keep its configuration.
 
+An npm update only moves forward: when a dist-tag moves back to an older
+version, or the newest compatible version is older than the installed one,
+the plugin stays on its installed version.
+
 Managed git:/npm: installs refuse engines.bb and engines.bbPluginSdk
 mismatches, manifest and artifact identity mismatches, and ids reserved by
 bundled plugins. Git and path installs build the plugin on install (git

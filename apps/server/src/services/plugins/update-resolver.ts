@@ -264,6 +264,13 @@ function npmDisplay(packageName: string, version: string): string {
   return `${packageName}@${version}`;
 }
 
+function isNewerRelease(candidate: string, installed: string): boolean {
+  if (semver.valid(candidate) === null || semver.valid(installed) === null) {
+    return candidate !== installed;
+  }
+  return semver.gt(candidate, installed);
+}
+
 export async function selectNpmCandidate(args: {
   intent: NpmSourceIntentForResolution;
   appVersion: string;
@@ -386,6 +393,9 @@ export async function resolveNpmUpdate(args: {
     return { outcome: "unavailable", detail: selected.detail, ...flags };
   }
   if (selected.outcome === "incompatible") {
+    if (!isNewerRelease(selected.newest.version, args.current.version)) {
+      return { outcome: "current", current: args.current, ...flags };
+    }
     return {
       outcome: "incompatible",
       current: args.current,
@@ -396,7 +406,8 @@ export async function resolveNpmUpdate(args: {
   }
   const extra = {
     ...flags,
-    ...(selected.blocked
+    ...(selected.blocked !== undefined &&
+    isNewerRelease(selected.blocked.candidate.version, args.current.version)
       ? {
           blocked: {
             version: selected.blocked.candidate,
@@ -408,7 +419,7 @@ export async function resolveNpmUpdate(args: {
       ? { packagedBuildProblems: selected.packagedBuildProblems }
       : {}),
   };
-  if (selected.candidate.version === args.current.version) {
+  if (!isNewerRelease(selected.candidate.version, args.current.version)) {
     return { outcome: "current", current: args.current, ...extra };
   }
   return {

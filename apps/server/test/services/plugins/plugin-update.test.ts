@@ -528,6 +528,66 @@ describe("plugin update service and routes", () => {
     expect(fetched.filter((url) => url.includes("api.github.com"))).toEqual([]);
   });
 
+  it("keeps an npm plugin on its release when its dist-tag moves back", async () => {
+    upsertInstalledPlugin(db, {
+      id: "tagged-npm",
+      source: "npm:bb-plugin-tagged-npm@next",
+      provenance: { kind: "direct" },
+      sourceIntent: {
+        kind: "npm",
+        packageName: "bb-plugin-tagged-npm",
+        registry: "https://tagged-npm.test",
+        requestedSpec: "next",
+        specKind: "tag",
+      },
+      exactResolution: {
+        kind: "npm",
+        version: "2.0.0",
+        integrity: "sha512-current",
+      },
+      updateState: {
+        lastCheckAt: null,
+        availableCompatibleVersion: null,
+        newestIncompatibleVersion: null,
+        statusDetail: null,
+      },
+      activeArtifactId: null,
+      rootDir: join(workDir, "tagged-npm"),
+      version: "2.0.0",
+      enabled: false,
+      enabledFollowsDefault: false,
+    });
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(
+          JSON.stringify({
+            versions: {
+              "2.0.0": { version: "2.0.0", dist: { integrity: "sha512-a" } },
+              "1.0.0": { version: "1.0.0", dist: { integrity: "sha512-b" } },
+            },
+            "dist-tags": { next: "1.0.0" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+
+    expect(await service.checkForUpdates("tagged-npm")).toEqual([
+      expect.objectContaining({ id: "tagged-npm", outcome: "current" }),
+    ]);
+    expect(
+      service.list().find((entry) => entry.id === "tagged-npm")?.updateState,
+    ).not.toHaveProperty("availableVersion");
+    await expect(service.applyUpdate("tagged-npm")).resolves.toMatchObject({
+      ok: true,
+      result: { applied: false, outcome: "current" },
+    });
+    expect(getInstalledPluginRegistration(db, "tagged-npm")).toMatchObject({
+      version: "2.0.0",
+      npmResolvedVersion: "2.0.0",
+    });
+  });
+
   async function restorePhaseOneCloneHistory(
     pluginId: string,
     sourceRepo: string,
