@@ -194,12 +194,19 @@ function outsideRangeRelease<T extends { version: string }>(args: {
   display: (release: T) => string;
 }): PluginOutsideRangeRelease | undefined {
   if (semver.valid(args.installed) === null) return undefined;
+  let newestAdmitted = args.installed;
+  for (const release of args.releases) {
+    if (semver.valid(release.version) === null) continue;
+    if (!semver.satisfies(release.version, args.range)) continue;
+    if (semver.gt(release.version, newestAdmitted)) {
+      newestAdmitted = release.version;
+    }
+  }
   let newest: T | undefined;
   for (const release of args.releases) {
     if (semver.valid(release.version) === null) continue;
     if (semver.prerelease(release.version) !== null) continue;
-    if (!semver.gt(release.version, args.installed)) continue;
-    if (semver.satisfies(release.version, args.range)) continue;
+    if (!semver.gt(release.version, newestAdmitted)) continue;
     if (newest === undefined || semver.gt(release.version, newest.version)) {
       newest = release;
     }

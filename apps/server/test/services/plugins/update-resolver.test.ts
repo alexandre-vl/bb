@@ -921,33 +921,109 @@ describe("releases outside the installed range", () => {
     ).toEqual({ outcome: "current", current: installed });
   });
 
-  it("names the newest release a disjoint range skips, not only the newest release overall", async () => {
+  it("keeps a gap release unreported while a newer release in the range exists, even an incompatible one", async () => {
     const installed = { version: "1.0.0", display: "bb-plugin-matrix@1.0.0" };
 
-    expect(
-      await resolveNpmUpdate({
-        intent: npmIntent("^1.0.0 || ^3.0.0", "range"),
-        current: installed,
-        appVersion: "1.0.0",
-        run: createNpmResolverRun({
-          fetch: packumentFetch({
-            "3.0.0": { bb: ">=99" },
-            "2.0.0": {},
-            "1.0.0": {},
-          }),
+    const resolution = await resolveNpmUpdate({
+      intent: npmIntent("^1.0.0 || ^3.0.0", "range"),
+      current: installed,
+      appVersion: "1.0.0",
+      run: createNpmResolverRun({
+        fetch: packumentFetch({
+          "3.0.0": { bb: ">=99" },
+          "2.0.0": {},
+          "1.0.0": {},
         }),
       }),
-    ).toMatchObject({
+    });
+
+    expect(resolution).toMatchObject({
       outcome: "current",
       blocked: { version: { version: "3.0.0" } },
-      outsideRange: {
-        version: "2.0.0",
-        display: "bb-plugin-matrix@2.0.0",
-        breaking: true,
-        range: "^1.0.0 || ^3.0.0",
-      },
     });
+    expect(resolution).not.toHaveProperty("outsideRange");
   });
+
+  const rangeFloorCases = [
+    {
+      name: "a gap release below a newer release the range admits",
+      range: "^0.1.0||>=0.2.1",
+      installed: "0.1.9",
+      releases: ["0.1.9", "0.2.0", "0.2.1", "0.2.2", "0.2.3", "0.2.4", "0.2.5"],
+      candidate: "0.2.5",
+      outside: null,
+    },
+    {
+      name: "a gap release newer than every release the range admits",
+      range: "^1.0.0 || ^3.0.0",
+      installed: "1.0.0",
+      releases: ["1.0.0", "2.0.0"],
+      candidate: null,
+      outside: "2.0.0",
+    },
+    {
+      name: "an older release left below a higher range",
+      range: ">=2.0.0 <3.0.0",
+      installed: "1.5.0",
+      releases: ["1.5.0", "1.8.0", "2.1.0"],
+      candidate: "2.1.0",
+      outside: null,
+    },
+  ] as const;
+
+  it.each(rangeFloorCases)(
+    "reports an npm release outside the range only above every admitted release: $name",
+    async ({ range, installed, releases, candidate, outside }) => {
+      const resolution = await resolveNpmUpdate({
+        intent: npmIntent(range, "range"),
+        current: {
+          version: installed,
+          display: `bb-plugin-matrix@${installed}`,
+        },
+        appVersion: "1.0.0",
+        run: createNpmResolverRun({
+          fetch: packumentFetch(
+            Object.fromEntries(releases.map((version) => [version, {}])),
+          ),
+        }),
+      });
+
+      expect(
+        resolution.outcome === "update-available"
+          ? resolution.candidate.version
+          : null,
+      ).toBe(candidate);
+      expect(resolution.outsideRange?.version ?? null).toBe(outside);
+    },
+  );
+
+  it.each(rangeFloorCases)(
+    "reports a git release outside the range only above every admitted release: $name",
+    async ({ range, installed, releases, candidate, outside }) => {
+      const { repo, commitOf } = await releaseRepo(
+        releases.map((version) => `v${version}`),
+      );
+
+      const resolution = await resolveGitUpdate({
+        url: repo,
+        intent: {
+          kind: "range",
+          range,
+          tagPrefix: "",
+          resolvedTag: `v${installed}`,
+        },
+        currentCommit: commitOf.get(`v${installed}`) ?? "",
+        probeCandidate: compatibleProbe,
+      });
+
+      expect(
+        resolution.outcome === "update-available"
+          ? (resolution.candidateRelease ?? null)
+          : null,
+      ).toBe(candidate);
+      expect(resolution.outsideRange?.version ?? null).toBe(outside);
+    },
+  );
 
   it("treats a 0.0.x patch as breaking, as a caret range does", async () => {
     const run = createNpmResolverRun({
