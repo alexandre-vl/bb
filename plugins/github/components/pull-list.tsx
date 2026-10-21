@@ -18,6 +18,7 @@ import {
   type PullStateName,
 } from "../app-logic.js";
 import {
+  checksWords,
   PULL_VIEWS,
   pullGlyph,
   pullNextStep,
@@ -115,6 +116,18 @@ export function rowGlyph(
   }
 }
 
+export function rowFailing(
+  row: PullRowModel,
+  activity: Activity | null,
+): string | null {
+  const { pr } = row;
+  if (activity !== null || row.group === "snoozed") return null;
+  if (pr.checks.state !== "failing") return null;
+  const reviewing = row.group === "you" && pr.attention !== "changes_requested";
+  if (!reviewing && pr.attention !== "conflicts") return null;
+  return checksWords("failing");
+}
+
 export function rowReason(
   row: PullRowModel,
   activity: Activity | null,
@@ -125,6 +138,16 @@ export function rowReason(
     return `Snoozed ${snoozeLabel(row.item.snooze, new Date(now))}`;
   }
   return pullNextStep(row.pr, row.group);
+}
+
+export function FailingAside({ text }: { text: string | null }) {
+  if (text === null) return null;
+  return (
+    <span className="shrink-0 whitespace-pre">
+      {" · "}
+      <span className="text-destructive-text">{text}</span>
+    </span>
+  );
 }
 
 function quickAction(
@@ -182,6 +205,7 @@ export function PullListRow({
   const state = rowState(row, activity);
   const glyph = rowGlyph(row, activity);
   const reason = rowReason(row, activity, context.now);
+  const failing = rowFailing(row, activity);
   const busy = isInFlight(activity);
   const quick =
     activity !== null || context.touch ? null : quickAction(row, permissions);
@@ -242,7 +266,7 @@ export function PullListRow({
           data-row-button=""
           tabIndex={context.tabbableKey === row.key ? 0 : -1}
           aria-current={isOpen ? "true" : undefined}
-          aria-label={`#${row.item.number} ${row.item.title}: ${reason}`}
+          aria-label={`#${row.item.number} ${row.item.title}: ${reason}${failing === null ? "" : ` · ${failing}`}`}
           onClick={() => actions.open(row)}
           onFocus={() => actions.focus(row)}
           className="absolute inset-0 scroll-mt-9 cursor-default rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring max-md:pointer-coarse:scroll-mt-11"
@@ -261,13 +285,18 @@ export function PullListRow({
           <span className="truncate text-sm font-medium text-foreground @max-[35rem]/github:line-clamp-2 @max-[35rem]/github:whitespace-normal">
             <RowTitle title={row.item.title} />
           </span>
-          <span className="truncate text-xs text-subtle-foreground">
-            {context.showRepo ? row.item.repo : ""}#{row.item.number}
-            {" · "}
-            <span className={busy ? "animate-shine" : undefined}>{reason}</span>
-            {row.pr.state === "draft" && row.group !== "draft"
-              ? " · Draft"
-              : ""}
+          <span className="flex min-w-0 text-xs text-subtle-foreground">
+            <span className="truncate">
+              {context.showRepo ? row.item.repo : ""}#{row.item.number}
+              {" · "}
+              <span className={busy ? "animate-shine" : undefined}>
+                {reason}
+              </span>
+              {row.pr.state === "draft" && row.group !== "draft"
+                ? " · Draft"
+                : ""}
+            </span>
+            <FailingAside text={failing} />
           </span>
         </span>
         <span

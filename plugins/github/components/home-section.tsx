@@ -15,7 +15,7 @@ import {
   type PullRowModel,
 } from "../app-logic.js";
 import { useActivities, type Activity } from "./pull-actions.js";
-import { rowGlyph, rowReason } from "./pull-list.js";
+import { FailingAside, rowFailing, rowGlyph, rowReason } from "./pull-list.js";
 import {
   AgentGlyph,
   compactAge,
@@ -107,8 +107,11 @@ function HomeRow({
           )}
           {text}
         </span>
-        <span className="truncate text-xs text-subtle-foreground">
-          {showRepo ? row.item.repo : ""}#{row.item.number} · {reason}
+        <span className="flex min-w-0 text-xs text-subtle-foreground">
+          <span className="truncate">
+            {showRepo ? row.item.repo : ""}#{row.item.number} · {reason}
+          </span>
+          <FailingAside text={rowFailing(row, activity)} />
         </span>
       </span>
       <span className="flex h-5 shrink-0 items-center gap-2 text-xs text-subtle-foreground tabular-nums">

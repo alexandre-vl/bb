@@ -246,7 +246,14 @@ function cardShape(
   if (status === null) return shape;
   if (status.state === "merged") return { ...shape, actions: 0 };
   if (status.state === "closed") return { ...shape, actions: 1 };
-  const open = { ...shape, agent: agent !== null };
+  const failed =
+    status.checks.state === "failing" ? Math.max(status.checks.failed, 1) : 0;
+  const open = {
+    ...shape,
+    rows: Math.min(failed, FAILING_SHOWN),
+    more: failed > FAILING_SHOWN,
+    agent: agent !== null,
+  };
   const startAgent = agent !== null && agent.state !== "idle" ? 0 : 1;
   const merge = canMerge && hardMergeBlock(status) === null ? 1 : 0;
   const mine = isViewerReviewRequested(status, viewer);
@@ -257,15 +264,8 @@ function cardShape(
   ) {
     case "queued":
       return { ...open, actions: 0 };
-    case "checks_failed": {
-      const failed = Math.max(status.checks.failed, 1);
-      return {
-        ...open,
-        rows: Math.min(failed, FAILING_SHOWN),
-        more: failed > FAILING_SHOWN,
-        actions: 1 + merge + startAgent,
-      };
-    }
+    case "checks_failed":
+      return { ...open, actions: 1 + merge + startAgent };
     case "conflicts":
     case "draft":
     case "ready_to_merge":
@@ -570,6 +570,10 @@ export function NextStepCard({
             title={`Conflicts with ${pull.baseRefName}`}
             detail="Resolve them before merging."
           />
+          <FailingList
+            checks={pull.checks}
+            onShowChecks={handlers.onShowChecks}
+          />
           <CardActions>
             <GitHubLink
               url={`${pull.url}/conflicts`}
@@ -701,6 +705,10 @@ export function NextStepCard({
                   ? `Requested from ${pull.reviewRequests.join(", ")}`
                   : "A review is required before merging"
             }
+          />
+          <FailingList
+            checks={pull.checks}
+            onShowChecks={handlers.onShowChecks}
           />
           {mine || mergeable ? (
             <CardActions>

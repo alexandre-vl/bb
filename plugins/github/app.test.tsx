@@ -411,6 +411,40 @@ function toaster() {
 }
 
 describe("GitHub pull request inbox", () => {
+  it("says checks are failing on rows whose reason is something else", async () => {
+    const slot = renderPanel("pulls/all", {
+      listItems: () => ({
+        items: [
+          pull(7, "Review the shard fix", "hubot", {
+            requestedReviewers: ["octocat"],
+            checkRunCounts: FAILING,
+          }),
+          pull(8, "Rebase the shard fix", "hubot", {
+            mergeable: "CONFLICTING",
+            checkRunCounts: FAILING,
+          }),
+          pull(2, "Fix the flaky shard", "hubot", { checkRunCounts: FAILING }),
+        ],
+      }),
+    });
+
+    expect(
+      await slot.findByRole("button", {
+        name: "#7 Review the shard fix: Your review is requested · Checks failing",
+      }),
+    ).toBeTruthy();
+    expect(
+      slot.getByRole("button", {
+        name: "#8 Rebase the shard fix: Merge conflicts · Checks failing",
+      }),
+    ).toBeTruthy();
+    expect(
+      slot.getByRole("button", {
+        name: "#2 Fix the flaky shard: Checks failing",
+      }),
+    ).toBeTruthy();
+  });
+
   it("keeps the inbox to what needs the viewer and says why in words", async () => {
     const slot = renderPanel();
 
@@ -1002,6 +1036,11 @@ describe("GitHub pull request detail", () => {
     expect(card.textContent).toContain(
       "hubot asked you to review · 1 check failing",
     );
+    expect(
+      within(card)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["lintLog"]);
     expect(
       within(card)
         .getAllByRole("button")
