@@ -1,0 +1,80 @@
+name: Fork Sync
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - fork-infra
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync main and rebuild alex
+    if: github.repository == 'alexandre-vl/bb'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require the push token
+        env:
+          FORK_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          if [ -z "$FORK_SYNC_TOKEN" ]; then
+            echo "::error::Set the FORK_SYNC_TOKEN secret: a fine-grained token for alexandre-vl/bb with Contents and Workflows read and write. See fork/README.md."
+            exit 1
+          fi
+      - name: Checkout fork-infra
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fork-infra
+          fetch-depth: 0
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+      - name: Rebuild alex
+        id: rebuild
+        env:
+          FORK_REPORT: ${{ runner.temp }}/fork-report.md
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash fork/rebuild.sh --push
+          cat "$FORK_REPORT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep upstream workflows off
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow list --repo "$GITHUB_REPOSITORY" --all --json id,path,state \
+            --jq '.[] | select(.state == "active" and (.path | startswith(".github/workflows/")) and (.path | startswith(".github/workflows/fork-") | not)) | .id' |
+            while read -r id; do gh workflow disable "$id" --repo "$GITHUB_REPOSITORY"; done
+          gh run list --repo "$GITHUB_REPOSITORY" --status queued --limit 100 --json databaseId,workflowName \
+            --jq '.[] | select(.workflowName | startswith("Fork ") | not) | .databaseId' |
+            while read -r run; do gh run cancel "$run" --repo "$GITHUB_REPOSITORY" || true; done
+      - name: Report skipped layers
+        if: ${{ !cancelled() && steps.rebuild.outcome != 'skipped' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORK_REPORT: ${{ runner.temp }}/fork-report.md
+          SKIPPED: ${{ steps.rebuild.outputs.skipped }}
+          OUTCOME: ${{ steps.rebuild.outcome }}
+        run: |
+          title="alex rebuild needs attention"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ "$OUTCOME" = "failure" ] || [ "${SKIPPED:-0}" != "0" ]; then
+            body="$RUNNER_TEMP/issue.md"
+            { [ -f "$FORK_REPORT" ] && cat "$FORK_REPORT" || echo "The rebuild failed before writing a report."; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; } > "$body"
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
+            fi
+          elif [ -n "$number" ]; then
+            gh issue close "$number" --repo "$GITHUB_REPOSITORY" --comment "Every layer merges again: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
