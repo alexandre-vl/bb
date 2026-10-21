@@ -81,23 +81,31 @@ release older than the installed one. An update applies only the release the
 user reviewed: `bb plugin update` and the app send the candidate the check
 showed, and when the range resolves to another release by the time it
 applies, bb refuses until the user checks again. A candidate that may break,
-a new major or a new minor before 1.0, is flagged before the user confirms.
+a new major, a new minor before 1.0, or a new patch before 0.1, is flagged
+before the user confirms.
 
-When your newest stable release falls outside a user's range, such as a 0.x
-minor under `^0.y.z` or a new major under `^x.y.z`, `bb plugin outdated`,
-`bb plugin update`, and the plugin's page name it and say whether it may
-break, but never install it: bb has not checked its compatibility. An install
-keeps the range it was installed with, so a range you later change in your
-marketplace entry reaches new installs only. Users move an existing git
-semver-range or npm install to another range in place with
-`bb plugin track <id> <range>`, or Change range in the plugin's details, which
-suggests a range that includes the release outside the current one; both keep
-its settings, secrets, schedules, and data. bb previews what the range offers,
-refuses a bare version or a range that would only offer releases older than
-the installed one, warns when the range has no upper bound so every future
-major release would be offered, and installs nothing until the user updates.
-Name the range to track in your release notes, for example
-`bb plugin track <id> '>=0.2.0 <1.0.0'`.
+When your newest stable release is newer than every release a user's range
+admits, such as a 0.x minor under `^0.y.z` or a new major under `^x.y.z`,
+`bb plugin outdated`, `bb plugin update`, and the plugin's page name it and
+say whether it may break, but never install it: bb has not checked its
+compatibility. An install keeps the range it was installed with, so a range
+you later change in your marketplace entry reaches new installs only. Users
+move an existing git semver-range or npm install to another range in place
+with `bb plugin track <id> <range>`, or Change range in the plugin's details.
+For that release, bb suggests `>=<installed> <N.0.0`, where N is one above its
+major version, when it is newer than every version the range admits; when the
+range also admits higher versions with no release yet, such as
+`^1.0.0 || ^3.0.0` while only 2.x is out, bb adds `>=<release> <N.0.0` to the
+range as another alternative instead, so nothing it allowed is dropped. The
+CLI prints the suggestion as the `bb plugin track` command to run, and Change
+range opens on it. Both keep the plugin's settings, secrets, schedules, and
+data. bb previews what the range offers, refuses a bare version, a range that
+admits no version, or one that admits neither the installed release nor a
+newer one, warns when the range has no upper bound so every future major
+release would be offered, and installs nothing until the user updates. Name
+the range to track in your release notes, in double quotes, which protect
+`<`, `>`, and `|` in POSIX shells, PowerShell, and cmd.exe:
+`bb plugin track <id> ">=0.2.0 <1.0.0"`.
 
 ### Releasing a git plugin with semver tags
 

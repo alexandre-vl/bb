@@ -48,7 +48,8 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  updates (--json for raw results), including
                                  newer releases blocked by engine ranges and
                                  the newest release outside the installed
-                                 range (compatibility not checked)
+                                 range (compatibility not checked) with the
+                                 `bb plugin track` command that follows it
   bb plugin update <id> | --all  Apply compatible updates for one plugin or
                                  every tracking plugin. Same confirmation as
                                  install (--yes skips; non-TTY refuses
@@ -289,12 +290,12 @@ managed plugin is refused; use `bb plugin update`. A failed activation restores
 the previous version and leaves the failure visible.
 
 Updates stay inside the range recorded at install and never move to a release
-older than the installed one. When a newer stable release falls outside that
-range, `bb plugin outdated`, `bb plugin update`, and the plugin's page name it
-and say whether it may break (a new major, a new minor before 1.0, or a new
-patch before 0.1); bb does not check its compatibility and never installs it
-as an update. `^0.y.z` with y above 0 admits only 0.y patches, and `^0.0.z`
-admits only 0.0.z itself.
+older than the installed one. `bb plugin outdated`, `bb plugin update`, and
+the plugin's page also name the newest stable release newer than every release
+the range admits, if there is one, and say whether it may break (a new major,
+a new minor before 1.0, or a new patch before 0.1); bb does not check its
+compatibility and never installs it as an update. `^0.y.z` with y above 0
+admits only 0.y patches, and `^0.0.z` admits only 0.0.z itself.
 
 Exact npm versions, Git tags and commits, path sources, and bundled official
 plugins are pinned. npm ranges, dist-tags, and omitted specs, omitted Git refs
@@ -306,13 +307,29 @@ An install keeps the range it was installed with, including a marketplace
 entry's range when the listing changes later. `bb plugin track <id> <range>`
 changes the range of a git semver-range install or of an npm install (an exact
 version, dist-tag, or omitted spec becomes that range) and keeps its settings,
-secrets, schedules, and data; `>=0.2.0 <1.0.0` follows every 0.x release, and
-a 0.x minor may break. It refuses a bare version and a range that would only
-offer releases older than the installed one, because bb does not downgrade,
-and warns before applying a range with no upper bound, such as `>=0.2.0`:
-every future major release will be offered as an update. The app's Change
-range suggests a range that includes the newest release outside the current
-one. To move a Git branch, tag, or commit install to a semver range,
+secrets, schedules, and data. Put the range in double quotes, which protect
+`<`, `>`, and `|` in POSIX shells, PowerShell, and cmd.exe:
+
+  bb plugin track notes ">=0.2.0 <1.0.0"
+
+That range follows every 0.x release, and a 0.x minor may break. The command
+refuses a bare version, a range that admits no version, and a range that
+admits neither the installed release nor a newer one, because bb does not
+downgrade, and warns before applying a range with no upper bound, such as
+`>=0.2.0`: every future major release will be offered as an update. An npm
+install that an earlier bb placed in a directory named after its version spec
+cannot change its range in place: its next update moves a tracking install
+to managed storage, and a pinned one must be removed (which deletes its
+settings, secrets, and schedules) and installed again with a range. For the
+release named outside the range, bb suggests `>=<installed> <N.0.0`, where N
+is one above that release's major version, when it is newer than every
+version the range admits; when the range also admits higher versions with no
+release yet, such as `^1.0.0 || ^3.0.0` while only 2.x is out, bb adds
+`>=<release> <N.0.0` to the range as another alternative instead, so nothing
+the range allowed is dropped. It suggests nothing for an install that
+`bb plugin track` refuses. `bb plugin outdated` and `bb plugin update` print
+the suggestion as a `bb plugin track` command, and the app's Change range
+opens on it. To move a Git branch, tag, or commit install to a semver range,
 `bb plugin remove` it (which deletes settings, secrets, and schedules) and
 install it again.
 
