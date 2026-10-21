@@ -2,32 +2,29 @@ import { describe, expect, it } from "vitest";
 import {
   addQueryToken,
   buildSuggestions,
+  checkCounts,
   detailPullStatus,
+  diffSizeBlocks,
   groupPullEvents,
   inboxCount,
+  inboxRows,
   issueGroups,
   linearLinkback,
-  openedAsDraft,
-  pullEventText,
-  pullRowModels,
-  pullViewGroups,
-  readingOrder,
-  changeBreakdown,
-  changeKind,
-  DEFAULT_DISPLAY,
-  diffSizeBlocks,
-  issueKeyOf,
   matchesQuery,
   middleTruncate,
-  parseDisplay,
+  openedAsDraft,
+  parseCollapsed,
   parseQuery,
   parseSubPath,
-  pullStateOptions,
+  pullEventText,
+  pullRowModels,
+  pullStateActions,
+  pullViewGroups,
   queryChips,
   removeQueryToken,
   routeToSubPath,
   splitTitle,
-  unlistedChange,
+  type DetailStatusInput,
   type Item,
   type Route,
 } from "./app-logic.js";
@@ -48,6 +45,44 @@ const issue: Item = {
   pr: null,
   snooze: null,
 };
+
+function raw(overrides: Partial<RawPullStatus> = {}): RawPullStatus {
+  return {
+    state: "OPEN",
+    isDraft: false,
+    baseRefName: "main",
+    headRefName: "feature/cache",
+    headRefOid: "0000000",
+    isCrossRepository: false,
+    additions: 10,
+    deletions: 2,
+    changedFiles: 1,
+    mergedAt: null,
+    checksVerdict: null,
+    stack: null,
+    headOwner: null,
+    mergeable: "MERGEABLE",
+    reviewDecision: null,
+    isInMergeQueue: false,
+    requestedReviewers: [],
+    checkRunCounts: [{ state: "SUCCESS", count: 4 }],
+    statusContextCounts: [],
+    ...overrides,
+  };
+}
+
+function pull(overrides: Partial<RawPullStatus> = {}, author = "alice"): Item {
+  return {
+    ...issue,
+    kind: "pr",
+    number: 42,
+    title: "feat(cache): drop stale entries",
+    author,
+    labels: [],
+    assignees: [],
+    pr: assemblePullStatus(raw(overrides)),
+  };
+}
 
 describe("github panel routes", () => {
   it("round-trips list, create, issue, and pull routes", () => {
@@ -88,9 +123,20 @@ describe("github panel routes", () => {
       tab: "inbox",
     });
   });
+
+  it("reads remembered collapsed groups, ignoring anything malformed", () => {
+    expect([...parseCollapsed('["draft","closed"]')]).toEqual([
+      "draft",
+      "closed",
+    ]);
+    expect([...parseCollapsed('["draft",3]')]).toEqual(["draft"]);
+    expect(parseCollapsed("{").size).toBe(0);
+    expect(parseCollapsed('{"draft":true}').size).toBe(0);
+    expect(parseCollapsed(null).size).toBe(0);
+  });
 });
 
-describe("github panel query engine", () => {
+describe("filter queries", () => {
   it("parses quoted qualifiers and matches viewer-relative filters", () => {
     const parsed = parseQuery(
       'is:open assignee:@me author:alice label:"good first issue" repo:acme/widgets #7',
@@ -99,10 +145,7 @@ describe("github panel query engine", () => {
     expect(parsed).toEqual({
       states: ["OPEN"],
       flags: [],
-      ci: [],
-      agents: [],
       bases: [],
-      stack: null,
       assignees: ["@me"],
       authors: ["alice"],
       labels: ["good first issue"],
@@ -128,18 +171,66 @@ describe("github panel query engine", () => {
     expect(matchesQuery(issue, parseQuery("state:"), "octocat")).toBe(true);
   });
 
-  it("builds bounded qualifier values without losing labels containing spaces", () => {
+  it("finds drafts, ready, conflicting, failing, and snoozed pull requests", () => {
+    const matches = (item: Item, query: string) =>
+      matchesQuery(item, parseQuery(query), "octocat");
+    const draft = pull({ isDraft: true });
+    expect(draft.state).toBe("OPEN");
+    expect(matches(draft, "is:draft")).toBe(true);
+    expect(matches(draft, "is:open is:draft")).toBe(true);
+    expect(matches(pull(), "is:draft")).toBe(false);
+    expect(matches(issue, "is:draft")).toBe(false);
+    expect(matches(pull(), "is:ready")).toBe(true);
+    expect(matches(pull({ mergeable: "CONFLICTING" }), "is:conflicts")).toBe(
+      true,
+    );
+    const failing = pull({ checkRunCounts: [{ state: "FAILURE", count: 2 }] });
+    expect(matches(failing, "is:failing")).toBe(true);
+    expect(matches(failing, "is:ready")).toBe(false);
+    expect(
+      matches(
+        { ...pull(), snooze: { rule: "checks", until: null } },
+        "is:snoozed",
+      ),
+    ).toBe(true);
+    expect(matches(pull(), "is:snoozed")).toBe(false);
+  });
+
+  it("matches base:, author:me, and the head branch as plain text", () => {
+    const matches = (item: Item, query: string) =>
+      matchesQuery(item, parseQuery(query), "octocat");
+    expect(matches(pull(), "base:main")).toBe(true);
+    expect(matches(pull(), "base:dev")).toBe(false);
+    expect(matches(pull({}, "octocat"), "author:me")).toBe(true);
+    expect(matches(pull({}, "octocat"), "author:@me")).toBe(true);
+    expect(matches(pull(), "author:me")).toBe(false);
+    expect(matches(pull(), "feature/cache")).toBe(true);
+  });
+
+  it("has no agent, CI, or stack qualifiers: they are plain text", () => {
+    expect(parseQuery("ci:failing agent:running stack:yes").text).toEqual([
+      "ci:failing",
+      "agent:running",
+      "stack:yes",
+    ]);
+    expect(queryChips("ci:failing", "octocat").map((chip) => chip.key)).toEqual(
+      ["Contains"],
+    );
+  });
+
+  it("suggests only the qualifiers and values that apply to the kind", () => {
     const vocab = {
       users: ["alice", "octocat"],
       labels: ["bug", "good first issue"],
       repos: ["acme/widgets"],
+      bases: ["main", "release"],
     };
-    const compact = (token: string, kind: "issue" | "pr") =>
+    const labels = (token: string, kind: "issue" | "pr") =>
       buildSuggestions(token, vocab, kind, "octocat").map(
-        ({ insert, label }) => ({ insert, label }),
+        (suggestion) => suggestion.label,
       );
 
-    expect(compact("is:", "pr").map(({ label }) => label)).toEqual([
+    expect(labels("is:", "pr")).toEqual([
       "open",
       "closed",
       "merged",
@@ -147,31 +238,41 @@ describe("github panel query engine", () => {
       "ready",
       "conflict",
       "failing",
-      "stacked",
       "snoozed",
     ]);
-    expect(compact("is:", "issue").map(({ label }) => label)).toEqual([
-      "open",
-      "closed",
+    expect(labels("is:", "issue")).toEqual(["open", "closed"]);
+    expect(
+      buildSuggestions("is:", vocab, "pr", "octocat").map(
+        (suggestion) => suggestion.hint,
+      ),
+    ).toEqual([
+      "is open",
+      "is closed",
+      "is merged",
+      "is a draft",
+      "is ready to merge",
+      "has conflicts",
+      "checks are failing",
+      "is snoozed",
     ]);
-    expect(compact("ci:fa", "pr")).toEqual([
-      { insert: "ci:failing ", label: "failing" },
+    expect(labels("", "pr")).toEqual([
+      "is:",
+      "author:",
+      "assignee:",
+      "label:",
+      "base:",
+      "repo:",
+      "no:",
     ]);
-    expect(compact("ci:", "issue")).toEqual([]);
-    expect(compact("", "issue").map(({ label }) => label)).not.toContain("ci:");
-    expect(compact("label:good", "issue")).toEqual([
-      {
-        insert: 'label:"good first issue" ',
-        label: "good first issue",
-      },
+    expect(labels("", "issue")).not.toContain("base:");
+    expect(labels("base:re", "pr")).toEqual(["release"]);
+    expect(labels("base:", "issue")).toEqual([]);
+    expect(labels("ci:", "pr")).toEqual([]);
+    expect(buildSuggestions("label:good", vocab, "issue", "octocat")).toEqual([
+      { insert: 'label:"good first issue" ', label: "good first issue" },
     ]);
-    expect(compact("assignee:@", "issue")).toEqual([
-      { insert: "assignee:@me ", label: "@me (octocat)" },
-    ]);
-    expect(compact("no:l", "issue")).toEqual([
-      { insert: "no:label ", label: "no:label" },
-    ]);
-    expect(compact("unknown:value", "issue")).toEqual([]);
+    expect(labels("assignee:@", "issue")).toEqual(["@me (octocat)"]);
+    expect(labels("no:l", "issue")).toEqual(["no:label"]);
     expect(buildSuggestions("is:o", vocab, "pr", "octocat")[0]?.icon).toEqual({
       kind: "state",
       itemKind: "pr",
@@ -183,250 +284,55 @@ describe("github panel query engine", () => {
   });
 });
 
-function raw(overrides: Partial<RawPullStatus> = {}): RawPullStatus {
-  return {
-    state: "OPEN",
-    isDraft: false,
-    baseRefName: "main",
-    headRefName: "feature/cache",
-    headRefOid: "0000000",
-    isCrossRepository: false,
-    additions: 10,
-    deletions: 2,
-    changedFiles: 1,
-    mergedAt: null,
-    checksVerdict: null,
-    stack: null,
-    headOwner: null,
-    mergeable: "MERGEABLE",
-    reviewDecision: null,
-    isInMergeQueue: false,
-    requestedReviewers: [],
-    checkRunCounts: [{ state: "SUCCESS", count: 4 }],
-    statusContextCounts: [],
-    ...overrides,
-  };
-}
-
-function pull(overrides: Partial<RawPullStatus> = {}, author = "alice"): Item {
-  return {
-    ...issue,
-    kind: "pr",
-    number: 42,
-    title: "feat(cache): drop stale entries",
-    author,
-    labels: [],
-    assignees: [],
-    pr: assemblePullStatus(raw(overrides)),
-  };
-}
-
-describe("pull request qualifiers", () => {
-  const matches = (
-    item: Item,
-    query: string,
-    extra: Parameters<typeof matchesQuery>[3] = {},
-  ) => matchesQuery(item, parseQuery(query), "octocat", extra);
-
-  it("finds drafts with is:draft, although GitHub reports them as open", () => {
-    const draft = pull({ isDraft: true });
-    expect(draft.state).toBe("OPEN");
-    expect(matches(draft, "is:draft")).toBe(true);
-    expect(matches(draft, "is:open is:draft")).toBe(true);
-    expect(matches(pull(), "is:draft")).toBe(false);
-    expect(matches(issue, "is:draft")).toBe(false);
-  });
-
-  it("matches readiness, conflicts, and failing checks from the list status", () => {
-    expect(matches(pull(), "is:ready")).toBe(true);
-    expect(matches(pull({ mergeable: "CONFLICTING" }), "is:conflict")).toBe(
-      true,
-    );
-    expect(matches(pull({ mergeable: "CONFLICTING" }), "is:conflicts")).toBe(
-      true,
-    );
-    const failing = pull({ checkRunCounts: [{ state: "FAILURE", count: 2 }] });
-    expect(matches(failing, "is:failing")).toBe(true);
-    expect(matches(failing, "is:ready")).toBe(false);
-    expect(matches(failing, "is:draft is:failing")).toBe(false);
-  });
-
-  it("matches ci: by the checks state and ORs repeated values", () => {
-    const running = pull({
-      checkRunCounts: [{ state: "IN_PROGRESS", count: 1 }],
-    });
-    expect(matches(running, "ci:running")).toBe(true);
-    expect(matches(running, "ci:pending")).toBe(true);
-    expect(matches(running, "ci:failing")).toBe(false);
-    expect(matches(running, "ci:failing ci:running")).toBe(true);
-    expect(matches(pull(), "ci:passing")).toBe(true);
-    expect(matches(pull({ checkRunCounts: [] }), "ci:none")).toBe(true);
-  });
-
-  it("uses the caller's stack, snooze, and agent facts", () => {
-    expect(matches(pull(), "stack:yes", { stacked: true })).toBe(true);
-    expect(matches(pull(), "stack:no", { stacked: true })).toBe(false);
-    expect(matches(pull(), "is:stacked")).toBe(false);
-    expect(matches(pull(), "is:snoozed", { snoozed: true })).toBe(true);
-    expect(matches(pull(), "agent:none")).toBe(true);
-    expect(matches(pull(), "agent:any", { agent: "waiting" })).toBe(true);
-    expect(matches(pull(), "agent:running", { agent: "waiting" })).toBe(false);
-    expect(matches(pull(), "agent:bogus", { agent: "waiting" })).toBe(false);
-  });
-
-  it("matches base:, author:me, and the head branch as plain text", () => {
-    expect(matches(pull(), "base:main")).toBe(true);
-    expect(matches(pull(), "base:dev")).toBe(false);
-    expect(matches(pull({}, "octocat"), "author:me")).toBe(true);
-    expect(matches(pull({}, "octocat"), "author:@me")).toBe(true);
-    expect(matches(pull(), "author:me")).toBe(false);
-    expect(matches(pull(), "feature/cache")).toBe(true);
-  });
-});
-
 describe("filter chips", () => {
-  it("describes each token and removes one at a time", () => {
-    const query = "is:draft author:me ci:failing cache ";
+  it("describes each token in words and removes one at a time", () => {
+    const query = "is:draft author:me is:failing cache ";
     expect(queryChips(query, "octocat")).toEqual([
       { index: 0, key: "Is", value: "a draft" },
       { index: 1, key: "Author is", value: "octocat" },
       { index: 2, key: "Checks are", value: "failing" },
       { index: 3, key: "Contains", value: "cache" },
     ]);
-    expect(removeQueryToken(query, 1)).toBe("is:draft ci:failing cache ");
+    expect(removeQueryToken(query, 1)).toBe("is:draft is:failing cache ");
     expect(removeQueryToken("is:draft", 0)).toBe("");
-    expect(addQueryToken("is:draft", "stack:yes")).toBe("is:draft stack:yes ");
-    expect(addQueryToken("", "ci:failing")).toBe("ci:failing ");
+    expect(addQueryToken("is:draft", "label:bug")).toBe("is:draft label:bug ");
+    expect(addQueryToken("", "is:failing")).toBe("is:failing ");
+  });
+
+  it("shows no chip for a qualifier that is still being typed", () => {
+    expect(queryChips("author: label:", "octocat")).toEqual([]);
+    expect(queryChips("author:@me", null)).toEqual([
+      { index: 0, key: "Author is", value: "you" },
+    ]);
   });
 });
 
-describe("titles and branches", () => {
-  it("splits the conventional prefix and the trailing issue key", () => {
-    expect(splitTitle("feat(api): add retries (LIN-123)")).toEqual({
+describe("titles", () => {
+  it("splits a conventional commit prefix from the title", () => {
+    expect(splitTitle("feat(api): add retries")).toEqual({
       prefix: "feat(api):",
       text: "add retries",
-      issueKey: "LIN-123",
     });
-    expect(splitTitle("Add retries")).toEqual({
+    expect(splitTitle("fix!: stop the loop")).toEqual({
+      prefix: "fix!:",
+      text: "stop the loop",
+    });
+    expect(splitTitle("Add retries (LIN-123)")).toEqual({
       prefix: null,
-      text: "Add retries",
-      issueKey: null,
+      text: "Add retries (LIN-123)",
     });
-    expect(issueKeyOf("Add retries", "alex/lin-77-retries")).toBe("LIN-77");
-    expect(issueKeyOf("Add retries", "feature/retries")).toBeNull();
   });
 
-  it("truncates a branch in the middle", () => {
+  it("truncates in the middle", () => {
     expect(middleTruncate("short", 10)).toBe("short");
-    expect(middleTruncate("alexandre/very-long-branch-name", 11)).toBe(
-      "alexa…-name",
+    expect(middleTruncate("someone/very-long-branch-name", 11)).toBe(
+      "someo…-name",
     );
-  });
-});
-
-describe("display preferences", () => {
-  it("falls back to the defaults for missing or malformed values", () => {
-    expect(parseDisplay(null)).toEqual(DEFAULT_DISPLAY);
-    expect(parseDisplay("not json")).toEqual(DEFAULT_DISPLAY);
-    expect(
-      parseDisplay(
-        JSON.stringify({
-          groupBy: "author",
-          density: "compact",
-          show: { checks: true, author: "yes" },
-        }),
-      ),
-    ).toEqual({
-      groupBy: "author",
-      density: "compact",
-      show: { ...DEFAULT_DISPLAY.show, checks: true },
-    });
-  });
-});
-
-describe("pull request diff stat", () => {
-  it("sorts changed files into code, tests, docs, and generated files", () => {
-    expect(
-      Object.fromEntries(
-        [
-          "plugins/github/app.tsx",
-          "plugins/github/app.test.tsx",
-          "plugins/github/testing/fake-gh.ts",
-          "src/__tests__/cache.ts",
-          "pkg/cache_test.go",
-          "tests/test_cache.py",
-          "README.md",
-          "docs/plugins/github.mdx",
-          "LICENSE",
-          "pnpm-lock.yaml",
-          "packages/sdk/dist/index.js",
-          "src/__snapshots__/view.test.tsx.snap",
-          "src/schema.generated.ts",
-          "src/latest.ts",
-          "src/contest.ts",
-        ].map((path) => [path, changeKind(path)]),
-      ),
-    ).toEqual({
-      "plugins/github/app.tsx": "code",
-      "plugins/github/app.test.tsx": "tests",
-      "plugins/github/testing/fake-gh.ts": "tests",
-      "src/__tests__/cache.ts": "tests",
-      "pkg/cache_test.go": "tests",
-      "tests/test_cache.py": "tests",
-      "README.md": "docs",
-      "docs/plugins/github.mdx": "docs",
-      LICENSE: "docs",
-      "pnpm-lock.yaml": "generated",
-      "packages/sdk/dist/index.js": "generated",
-      "src/__snapshots__/view.test.tsx.snap": "generated",
-      "src/schema.generated.ts": "generated",
-      "src/latest.ts": "code",
-      "src/contest.ts": "code",
-    });
-  });
-
-  it("totals each kind in a fixed order and leaves out kinds with no files", () => {
-    expect(
-      changeBreakdown([
-        { path: "README.md", additions: 4, deletions: 1 },
-        { path: "src/a.ts", additions: 10, deletions: 2 },
-        { path: "src/a.test.ts", additions: 7, deletions: 0 },
-        { path: "src/b.ts", additions: 3, deletions: 5 },
-      ]),
-    ).toEqual([
-      { kind: "code", additions: 13, deletions: 7, files: 2 },
-      { kind: "tests", additions: 7, deletions: 0, files: 1 },
-      { kind: "docs", additions: 4, deletions: 1, files: 1 },
-    ]);
-    expect(changeBreakdown([])).toEqual([]);
-  });
-
-  it("accounts for files GitHub did not list, so the rows add up to the total", () => {
-    const rows = changeBreakdown([
-      { path: "src/a.ts", additions: 10, deletions: 2 },
-      { path: "src/a.test.ts", additions: 5, deletions: 1 },
-    ]);
-    expect(
-      unlistedChange({ additions: 15, deletions: 3, changedFiles: 2 }, rows),
-    ).toBeNull();
-    expect(
-      unlistedChange({ additions: 40, deletions: 9, changedFiles: 5 }, rows),
-    ).toEqual({ additions: 25, deletions: 6, files: 3 });
-    expect(
-      unlistedChange({ additions: 1, deletions: 0, changedFiles: 3 }, rows),
-    ).toEqual({ additions: 0, deletions: 0, files: 1 });
   });
 
   it("fills the same five blocks as core's DiffSizeBar", () => {
     expect(diffSizeBlocks(0, 0)).toEqual([
       "empty",
-      "empty",
-      "empty",
-      "empty",
-      "empty",
-    ]);
-    expect(diffSizeBlocks(1, 0)).toEqual([
-      "added",
       "empty",
       "empty",
       "empty",
@@ -449,74 +355,53 @@ describe("pull request diff stat", () => {
   });
 });
 
-describe("pull request status menu", () => {
+describe("pull request status actions", () => {
   const allowed = {
     isDraft: false,
     viewerCanUpdate: true,
     viewerCanClose: true,
     viewerCanReopen: true,
   };
+  const labels = (pullState: Parameters<typeof pullStateActions>[0]) =>
+    pullStateActions(pullState).map((action) => [action.label, action.target]);
 
-  it("offers only the states the viewer may move the pull request to", () => {
-    expect(pullStateOptions({ ...allowed, state: "OPEN" })).toEqual([
-      { target: "draft", hint: "Convert to draft" },
-      { target: "closed", hint: "Close without merging" },
+  it("names each move with core's verbs", () => {
+    expect(labels({ ...allowed, state: "OPEN" })).toEqual([
+      ["Convert to draft", "draft"],
+      ["Close pull request", "closed"],
     ]);
-    expect(
-      pullStateOptions({ ...allowed, isDraft: true, state: "DRAFT" }),
-    ).toEqual([
-      { target: "open", hint: "Ready for review" },
-      { target: "closed", hint: "Close without merging" },
+    expect(labels({ ...allowed, isDraft: true, state: "DRAFT" })).toEqual([
+      ["Mark ready", "open"],
+      ["Close pull request", "closed"],
     ]);
-    expect(pullStateOptions({ ...allowed, state: "CLOSED" })).toEqual([
-      { target: "open", hint: "Reopen" },
-      { target: "draft", hint: "Reopen as a draft" },
+    expect(labels({ ...allowed, state: "CLOSED" })).toEqual([
+      ["Reopen pull request", "open"],
     ]);
-    expect(pullStateOptions({ ...allowed, state: "MERGED" })).toEqual([]);
-  });
-
-  it("reopens a closed draft as a draft, and marks it ready only with the right to update it", () => {
-    const closedDraft = { ...allowed, isDraft: true, state: "CLOSED" };
-    expect(pullStateOptions(closedDraft)).toEqual([
-      { target: "draft", hint: "Reopen as a draft" },
-      { target: "open", hint: "Reopen and mark ready" },
+    expect(labels({ ...allowed, isDraft: true, state: "CLOSED" })).toEqual([
+      ["Reopen pull request", "draft"],
     ]);
-    expect(
-      pullStateOptions({ ...closedDraft, viewerCanUpdate: false }),
-    ).toEqual([{ target: "draft", hint: "Reopen as a draft" }]);
+    expect(labels({ ...allowed, state: "MERGED" })).toEqual([]);
   });
 
   it("hides what GitHub says the viewer cannot do", () => {
     expect(
-      pullStateOptions({ ...allowed, viewerCanUpdate: false, state: "OPEN" }),
-    ).toEqual([{ target: "closed", hint: "Close without merging" }]);
+      labels({ ...allowed, viewerCanUpdate: false, state: "OPEN" }),
+    ).toEqual([["Close pull request", "closed"]]);
     expect(
-      pullStateOptions({
+      labels({
         ...allowed,
         isDraft: true,
         viewerCanClose: false,
         state: "DRAFT",
       }),
-    ).toEqual([{ target: "open", hint: "Ready for review" }]);
+    ).toEqual([["Mark ready", "open"]]);
     expect(
-      pullStateOptions({ ...allowed, viewerCanUpdate: false, state: "CLOSED" }),
-    ).toEqual([{ target: "open", hint: "Reopen" }]);
-    expect(
-      pullStateOptions({ ...allowed, viewerCanReopen: false, state: "CLOSED" }),
-    ).toEqual([]);
-    expect(
-      pullStateOptions({
-        state: "OPEN",
-        isDraft: false,
-        viewerCanUpdate: false,
-        viewerCanClose: false,
-        viewerCanReopen: false,
-      }),
+      labels({ ...allowed, viewerCanReopen: false, state: "CLOSED" }),
     ).toEqual([]);
   });
 });
 
-describe("pull request rows", () => {
+describe("pull request lists", () => {
   const at = (
     number: number,
     author: string,
@@ -530,78 +415,78 @@ describe("pull request rows", () => {
   });
   const items = [
     at(1, "octocat"),
-    at(2, "hubot", { baseRefName: "branch-1" }),
-    at(3, "hubot", { checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
+    at(2, "octocat", { baseRefName: "branch-1" }),
+    at(3, "octocat", { checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
     at(4, "octocat", { isDraft: true }),
     at(5, "hubot", { requestedReviewers: ["octocat"] }),
     at(6, "hubot", { state: "MERGED", mergedAt: "2026-08-19T00:00:00Z" }),
     at(7, "hubot", { state: "MERGED", mergedAt: "2026-08-21T00:00:00Z" }),
     at(
       8,
-      "app/renovate",
-      {},
+      "hubot",
+      { requestedReviewers: ["octocat"] },
       {
         snooze: { rule: "checks", until: null },
       },
     ),
+    at(9, "octocat", { checkRunCounts: [{ state: "IN_PROGRESS", count: 1 }] }),
+    at(10, "hubot"),
+    at(11, "hubot", { checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
   ];
+  const rows = pullRowModels(items, "octocat");
+  const ids = (groups: ReturnType<typeof pullViewGroups>) =>
+    groups.map((group) => [group.id, group.rows.map((row) => row.item.number)]);
 
-  it("links stacked pull requests both ways and keeps agents per key", () => {
-    const rows = pullRowModels(
-      items,
-      "octocat",
-      new Map([["acme/widgets#3", "running" as const]]),
-    );
+  it("links stacked pull requests both ways", () => {
     const byNumber = new Map(rows.map((row) => [row.item.number, row]));
-    expect(byNumber.get(1)?.note).toBe("has #2 on top");
-    expect(byNumber.get(2)?.note).toBe("stacked on #1");
     expect(byNumber.get(2)?.chain).toEqual([1, 2]);
-    expect(byNumber.get(3)?.agent).toBe("running");
-    expect(byNumber.get(3)?.group).toBe("progress");
+    expect(byNumber.get(1)?.chain).toEqual([1, 2]);
     expect(byNumber.get(8)?.group).toBe("snoozed");
     expect(
       rows.every((row) => row.key === `acme/widgets#${row.item.number}`),
     ).toBe(true);
   });
 
-  it("groups each view by attention, author, or not at all", () => {
-    const rows = pullRowModels(items, "octocat", new Map());
-    const ids = (groups: ReturnType<typeof pullViewGroups>) =>
-      groups.map((group) => [
-        group.id,
-        group.rows.map((row) => row.item.number),
-      ]);
+  it("keeps the inbox to what needs the viewer, not everyone's pull requests", () => {
     expect(
-      ids(
-        pullViewGroups(rows, "inbox", parseQuery(""), "octocat", "attention"),
-      ),
+      ids(pullViewGroups(rows, "inbox", parseQuery(""), "octocat")),
     ).toEqual([
       ["you", [5]],
       ["ready", [1, 2]],
       ["fixing", [3]],
+      ["progress", [9]],
       ["snoozed", [8]],
     ]);
-    expect(
-      ids(pullViewGroups(rows, "merged", parseQuery(""), "octocat", "none")),
-    ).toEqual([["all", [7, 6]]]);
-    const byAuthor = pullViewGroups(
-      rows,
-      "all",
-      parseQuery(""),
-      "octocat",
-      "author",
+    expect(ids(pullViewGroups(rows, "all", parseQuery(""), "octocat"))).toEqual(
+      [
+        ["you", [5]],
+        ["ready", [1, 2, 10]],
+        ["fixing", [3, 11]],
+        ["progress", [9]],
+        ["draft", [4]],
+        ["snoozed", [8]],
+      ],
     );
-    expect(byAuthor.map((group) => group.label)).toEqual([
-      "octocat",
-      "hubot",
-      "renovate",
+    expect(ids(pullViewGroups(rows, "inbox", parseQuery(""), null))).toEqual(
+      [],
+    );
+  });
+
+  it("counts the same rows for the tab, the badge, and the home section", () => {
+    expect(inboxRows(rows, "octocat").map((row) => row.item.number)).toEqual([
+      5, 1, 2, 3,
     ]);
-    expect(
-      ids(
-        pullViewGroups(rows, "all", parseQuery("is:draft"), "octocat", "none"),
-      ),
-    ).toEqual([["all", [4]]]);
     expect(inboxCount(rows, "octocat")).toBe(4);
+    expect(inboxCount(rows, "hubot")).toBe(2);
+  });
+
+  it("orders merged pull requests newest first and filters every view", () => {
+    expect(
+      ids(pullViewGroups(rows, "merged", parseQuery(""), "octocat")),
+    ).toEqual([["merged", [7, 6]]]);
+    expect(
+      ids(pullViewGroups(rows, "mine", parseQuery("is:draft"), "octocat")),
+    ).toEqual([["draft", [4]]]);
   });
 
   it("splits issues into open and closed after the filter", () => {
@@ -622,7 +507,7 @@ describe("pull request rows", () => {
 });
 
 describe("pull request detail facts", () => {
-  const detail = {
+  const detail: DetailStatusInput = {
     state: "OPEN",
     isDraft: false,
     baseRefName: "main",
@@ -638,12 +523,25 @@ describe("pull request detail facts", () => {
     isInMergeQueue: false,
     reviewRequests: [],
     checksVerdict: null,
-    checks: [{ status: "success" as const }, { status: "neutral" as const }],
+    checks: [{ status: "success" }, { status: "skipped" }],
     stack: null,
   };
 
-  it("reads the list's status from the detail payload", () => {
+  it("counts skipped checks apart, so they never read as failing or running", () => {
+    expect(
+      checkCounts([
+        { status: "success" },
+        { status: "skipped" },
+        { status: "failure" },
+        { status: "pending" },
+        { status: "skipped" },
+      ]),
+    ).toEqual({ passed: 1, failed: 1, pending: 1, skipped: 2 });
     expect(detailPullStatus(detail).attention).toBe("ready_to_merge");
+    expect(detailPullStatus(detail).checks.state).toBe("passing");
+  });
+
+  it("reads the list's status from the detail payload", () => {
     expect(
       detailPullStatus({
         ...detail,
@@ -689,7 +587,7 @@ describe("pull request detail facts", () => {
         kind: "commit" as const,
         actor: "hubot",
         createdAt: "2026-08-20T04:00:00Z",
-        detail: "Third",
+        detail: null,
       },
       {
         kind: "closed" as const,
@@ -702,7 +600,7 @@ describe("pull request detail facts", () => {
     expect(grouped.map((event) => pullEventText(event))).toEqual([
       "pushed 2 commits",
       "marked this pull request as ready for review",
-      "pushed Third",
+      "pushed a commit",
       "merged this pull request",
     ]);
     expect(grouped[0]?.createdAt).toBe("2026-08-20T02:00:00Z");
@@ -722,23 +620,5 @@ describe("pull request detail facts", () => {
       url: "https://linear.app/acme/issue/ENG-12/fix-cache",
     });
     expect(linearLinkback("Plain comment about ENG-12")).toBeNull();
-  });
-
-  it("orders files for reading: code, then docs, tests, and generated files", () => {
-    expect(
-      readingOrder([
-        { path: "pnpm-lock.yaml" },
-        { path: "src/cache.test.ts" },
-        { path: "README.md" },
-        { path: "src/cache.ts" },
-        { path: "src/store.ts" },
-      ]).map((file) => file.path),
-    ).toEqual([
-      "src/cache.ts",
-      "src/store.ts",
-      "README.md",
-      "src/cache.test.ts",
-      "pnpm-lock.yaml",
-    ]);
   });
 });

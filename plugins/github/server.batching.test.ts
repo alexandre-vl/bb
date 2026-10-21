@@ -373,20 +373,20 @@ it("derives what each pull request needs next from the same list request", async
   expect(
     Object.fromEntries(rows.map((row) => [row.number, row.nextStep])),
   ).toEqual({
-    10: "Conflicts with main",
-    11: "2 checks failing",
-    12: "1 check failing",
-    13: "Checks running · 3 of 5 done",
-    14: "3 checks passed",
+    10: "Merge conflicts",
+    11: "Checks failing",
+    12: "Checks failing",
+    13: "Checks running",
+    14: "Checks passing",
     15: "Review requested",
     16: "Queued to merge",
-    17: "3 checks passed",
-    18: "Waiting for GitHub",
-    19: "3 checks passed",
+    17: "Checks passing",
+    18: "No checks",
+    19: "Checks passing",
   });
   const text = await harness.runCli(["prs", "acme/one"]);
   expect(text.stdout.split("\n")).toContain(
-    "acme/one#10\t[OPEN]\tTitle 10\tConflicts with main",
+    "acme/one#10\t[OPEN]\tTitle 10\tMerge conflicts",
   );
 });
 

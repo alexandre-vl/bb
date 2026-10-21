@@ -2,21 +2,26 @@
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { act } from "react";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { Toaster } from "sonner";
 import { makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import {
   loadPluginApp,
-  mountPluginContentScripts,
   renderSlot,
-  type PluginSdkTestFakes,
   type RenderSlotOptions,
 } from "@get-bb/plugin-sdk/testing/app";
 import type {
   PluginCommandContext,
   PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
-import { GITHUB_COMMANDS } from "./components/ambient";
+import { THREAD_PULL_COMMAND } from "./app";
+import { setActivity } from "./components/pull-actions";
 import { assemblePullStatus, type RawPullStatus } from "./pull-status";
 
 const app = await loadPluginApp(() => import("./app"));
@@ -24,6 +29,9 @@ const app = await loadPluginApp(() => import("./app"));
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  for (const number of [1, 2, 3, 4, 5, 6, 42]) {
+    setActivity(`get-bb/bb#${number}`, null);
+  }
 });
 
 function pull(
@@ -77,9 +85,9 @@ function issue(number: number, title: string, state = "OPEN") {
     kind: "issue",
     title,
     state,
-    author: "octocat",
+    author: "monalisa",
     labels: [],
-    assignees: [],
+    assignees: [] as string[],
     url: `https://github.com/get-bb/bb/issues/${number}`,
     body: "",
     updatedAt: "2026-08-20T00:00:00.000Z",
@@ -88,17 +96,23 @@ function issue(number: number, title: string, state = "OPEN") {
   };
 }
 
-const INBOX = [
+const FAILING = [
+  { state: "FAILURE", count: 2 },
+  { state: "SUCCESS", count: 3 },
+];
+
+const PULLS = [
   pull(1, "feat(list): Ship the inbox", "octocat"),
-  pull(2, "Fix the flaky shard", "hubot", {
-    checkRunCounts: [
-      { state: "FAILURE", count: 2 },
-      { state: "SUCCESS", count: 3 },
-    ],
-  }),
+  pull(2, "Fix the flaky shard", "hubot", { checkRunCounts: FAILING }),
   pull(3, "Review me", "hubot", { requestedReviewers: ["octocat"] }),
   pull(4, "Still a draft", "octocat", { isDraft: true }),
   pull(5, "Build on the inbox", "hubot", { baseRefName: "branch-1" }),
+  pull(6, "Fix my own shard", "octocat", { checkRunCounts: FAILING }),
+];
+
+const ISSUES = [
+  issue(42, "Route-backed issue"),
+  issue(41, "Old issue", "CLOSED"),
 ];
 
 const STATUS = {
@@ -108,29 +122,24 @@ const STATUS = {
   repos: [{ repo: "get-bb/bb", projectId: "project-1" }],
   lastSyncedAt: "2026-10-21T00:00:00.000Z",
   lastSyncError: null,
+  defaultProjectId: null,
 };
 
 type Handler = (input: unknown) => unknown;
-type InteractionFakes = NonNullable<
-  NonNullable<PluginSdkTestFakes["threads"]>["interactions"]
->;
-type PendingInteraction = Awaited<
-  ReturnType<NonNullable<InteractionFakes["list"]>>
->[number];
+
+function field(input: unknown, key: string): unknown {
+  return typeof input === "object" && input !== null
+    ? Reflect.get(input, key)
+    : undefined;
+}
 
 function rpc(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
     status: () => STATUS,
     viewer: () => ({ login: "octocat" }),
     listItems: (input) =>
-      typeof input === "object" &&
-      input !== null &&
-      "kind" in input &&
-      input.kind === "issue"
-        ? { items: [] }
-        : { items: INBOX },
+      field(input, "kind") === "issue" ? { items: ISSUES } : { items: PULLS },
     listLinks: () => ({ links: {} }),
-    listFollows: () => ({ follows: {} }),
     repoSettings: () => ({
       repos: {
         "get-bb/bb": {
@@ -141,13 +150,25 @@ function rpc(overrides: Record<string, Handler> = {}): Record<string, Handler> {
         },
       },
     }),
+    mergePull: (input) => ({
+      ok: true,
+      method: field(input, "method"),
+      deletedBranch: field(input, "deleteBranch") === true,
+    }),
+    setPullState: (input) => ({ ok: true, state: field(input, "state") }),
+    snoozePull: (input) => ({
+      ok: true,
+      snooze: { rule: field(input, "rule"), until: null },
+    }),
+    unsnoozePull: () => ({ ok: true }),
+    refresh: () => ({ repos: 1, items: PULLS.length }),
     ...overrides,
   };
 }
 
 function check(
   name: string,
-  status: "success" | "failure" | "pending" | "neutral",
+  status: "success" | "failure" | "pending" | "skipped",
   runId: number | null = 7,
 ) {
   return {
@@ -158,7 +179,6 @@ function check(
     runId,
     completedAt: status === "pending" ? null : "2026-08-20T00:00:00.000Z",
     required: true,
-    annotations: [],
   };
 }
 
@@ -210,29 +230,7 @@ function pullDetail(overrides: Record<string, unknown> = {}) {
     comments: [],
     reviews: [],
     reviewThreads: [],
-    files: [
-      {
-        path: "plugins/github/app.tsx",
-        status: "modified",
-        additions: 1000,
-        deletions: 50,
-        patch: null,
-      },
-      {
-        path: "plugins/github/app.test.tsx",
-        status: "modified",
-        additions: 200,
-        deletions: 6,
-        patch: null,
-      },
-      {
-        path: "plugins/github/README.md",
-        status: "modified",
-        additions: 34,
-        deletions: 0,
-        patch: null,
-      },
-    ],
+    files: [],
     ...overrides,
   };
 }
@@ -242,9 +240,9 @@ function sidebarThread(
 ): PluginSidebarThread {
   return {
     projectId: "project-1",
-    title: "Fix · get-bb/bb#2",
+    title: "Fix · get-bb/bb#6",
     titleFallback: null,
-    displayTitle: "Fix · get-bb/bb#2",
+    displayTitle: "Fix · get-bb/bb#6",
     parentThreadId: null,
     lifecycleOwnerThreadId: null,
     sourceThreadId: null,
@@ -283,49 +281,33 @@ function sidebarThread(
   };
 }
 
-function userQuestion(threadId: string): PendingInteraction {
-  return {
-    id: "int-1",
-    threadId,
-    status: "pending",
-    statusReason: null,
-    createdAt: 1,
-    resolvedAt: null,
-    turnId: "turn-1",
-    providerId: "codex",
-    providerThreadId: "provider-thread-1",
-    providerRequestId: "request-1",
-    payload: {
-      kind: "user_question",
-      questions: [
-        {
-          id: "q1",
-          prompt: "Rebase on main or merge it in?",
-          multiSelect: false,
-          allowFreeText: true,
-          options: [
-            { value: "rebase", label: "Rebase" },
-            { value: "merge", label: "Merge main" },
-          ],
-        },
-      ],
+function worktreeThread(projectId: string): PluginSidebarThread {
+  return sidebarThread({
+    id: "thr-worktree",
+    projectId,
+    environment: {
+      id: "env-status-menu",
+      name: "status-menu",
+      branchName: "status-menu",
+      path: null,
+      isWorktree: true,
+      providerId: null,
+      workspaceDisplayKind: null,
     },
-    resolution: null,
-  };
+  });
 }
 
-function link(threadId: string, number: number, preset: string | null) {
+function link(kind: "pr" | "issue", threadId: string, number: number) {
   return {
-    kind: "pr",
+    kind,
     repo: "get-bb/bb",
     number,
     threadId,
     createdAt: "2026-10-21T00:00:00.000Z",
-    preset,
   };
 }
 
-function renderInbox(
+function renderPanel(
   subPath = "pulls",
   overrides: Record<string, Handler> = {},
   options: Omit<RenderSlotOptions, "rpc"> = {},
@@ -334,17 +316,6 @@ function renderInbox(
     app.navPanels[0]!,
     { subPath },
     { ...options, rpc: rpc(overrides) },
-  );
-}
-
-function renderPull(
-  github: Record<string, Handler>,
-  options: Omit<RenderSlotOptions, "rpc"> = {},
-) {
-  return renderInbox(
-    "pulls/get-bb/bb/42",
-    { listItems: () => ({ items: [] }), ...github },
-    options,
   );
 }
 
@@ -359,10 +330,7 @@ function fakeGithub(
       if (options.failWith !== undefined) {
         return Promise.reject(new Error(options.failWith));
       }
-      const target =
-        typeof input === "object" && input !== null && "state" in input
-          ? input.state
-          : null;
+      const target = field(input, "state");
       const closed = target === "closed";
       const isDraft =
         target === "draft" ? true : target === "open" ? false : detail.isDraft;
@@ -375,6 +343,17 @@ function fakeGithub(
       return { ok: true, state: target };
     },
   };
+}
+
+function renderPull(
+  github: Record<string, Handler>,
+  options: Omit<RenderSlotOptions, "rpc"> = {},
+) {
+  return renderPanel(
+    "pulls/get-bb/bb/42",
+    { listItems: () => ({ items: [] }), ...github },
+    options,
+  );
 }
 
 function calls(slot: ReturnType<typeof renderSlot>, method: string) {
@@ -395,21 +374,14 @@ async function nextStepCard(
   return slot.getByRole("region", { name: "Next step" });
 }
 
-function openWithKeyboard(trigger: HTMLElement) {
-  trigger.focus();
-  fireEvent.keyDown(trigger, { key: "Enter" });
+function regions(slot: ReturnType<typeof renderSlot>): Array<string | null> {
+  return slot
+    .getAllByRole("region")
+    .map((region) => region.getAttribute("aria-label"));
 }
 
-function stubResizeObserver() {
-  const original = globalThis.ResizeObserver;
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-  onTestFinished(() => {
-    globalThis.ResizeObserver = original;
-  });
+function press(key: string) {
+  fireEvent.keyDown(document.activeElement ?? document.body, { key });
 }
 
 function stubScrollIntoView() {
@@ -432,26 +404,34 @@ function stubScrollIntoView() {
   return scrollIntoView;
 }
 
+function toaster() {
+  const view = render(<Toaster />);
+  onTestFinished(() => view.unmount());
+  return view;
+}
+
 describe("GitHub pull request inbox", () => {
-  it("groups the inbox by what each pull request needs next and says why", async () => {
-    const slot = renderInbox();
+  it("keeps the inbox to what needs the viewer and says why in words", async () => {
+    const slot = renderPanel();
 
     await slot.findByText("Ship the inbox");
     await act(async () => {});
-    expect(
-      slot
-        .getAllByRole("region")
-        .map((region) => region.getAttribute("aria-label")),
-    ).toEqual(["Your move", "Ready to merge", "Needs fixing"]);
-    expect(slot.getByRole("tab", { name: /^Inbox/ }).textContent).toBe(
-      "Inbox4",
-    );
+    expect(regions(slot)).toEqual([
+      "Your move",
+      "Ready to merge",
+      "Needs fixing",
+    ]);
+    const inboxTab = slot.getByRole("button", { name: /^Inbox/ });
+    expect(inboxTab.textContent).toBe("Inbox3");
+    expect(inboxTab.getAttribute("aria-current")).toBe("page");
     expect(slot.getByText("feat(list):")).toBeTruthy();
-    expect(slot.getByText("Your review is requested")).toBeTruthy();
-    expect(slot.getByText("2 checks failing")).toBeTruthy();
-    expect(slot.getByText("has #5 on top")).toBeTruthy();
-    expect(slot.getByText("stacked on #1")).toBeTruthy();
+    expect(
+      slot.getByRole("button", { name: "#6 Fix my own shard: Checks failing" }),
+    ).toBeTruthy();
+    expect(slot.queryByText("Fix the flaky shard")).toBeNull();
+    expect(slot.queryByText("Build on the inbox")).toBeNull();
     expect(slot.queryByText("Still a draft")).toBeNull();
+    expect(slot.queryByText(/\d+ checks? failing/)).toBeNull();
 
     await act(async () =>
       slot
@@ -466,16 +446,18 @@ describe("GitHub pull request inbox", () => {
       options: { subPath: "pulls/get-bb/bb/3" },
     });
 
-    await act(async () => slot.getByRole("tab", { name: "Mine" }).click());
-    expect(slot.navigateCalls).toContainEqual({
+    await act(async () =>
+      fireEvent.click(slot.getByRole("button", { name: "Mine" })),
+    );
+    expect(slot.navigateCalls.at(-1)).toEqual({
       method: "toPluginPanel",
       path: "github",
-      options: { subPath: "pulls/mine" },
+      options: { subPath: "pulls/mine", replace: true },
     });
   });
 
   it("shows the viewer's drafts under Mine, collapsed until asked", async () => {
-    const slot = renderInbox("pulls/mine");
+    const slot = renderPanel("pulls/mine");
 
     await slot.findByText("Ship the inbox");
     expect(slot.queryByText("Still a draft")).toBeNull();
@@ -486,100 +468,272 @@ describe("GitHub pull request inbox", () => {
     expect(slot.queryByText("Review me")).toBeNull();
   });
 
-  it("walks the rows with j and k, opens with Enter, and switches views with ]", async () => {
-    const slot = renderInbox();
+  it("walks the rows with j and k, opens with Enter, and switches views with ] in place", async () => {
+    const slot = renderPanel();
     await slot.findByText("Ship the inbox");
     await act(async () => {});
 
-    await act(async () => fireEvent.keyDown(document.body, { key: "j" }));
+    await act(async () => press("j"));
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "#3 Review me: Your review is requested",
     );
-    await act(async () =>
-      fireEvent.keyDown(document.activeElement ?? document.body, { key: "j" }),
-    );
+    await act(async () => press("j"));
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "#1 feat(list): Ship the inbox: 5 checks passed",
+      "#1 feat(list): Ship the inbox: Checks passing",
     );
-    await act(async () =>
-      fireEvent.keyDown(document.activeElement ?? document.body, { key: "k" }),
-    );
+    await act(async () => press("k"));
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "#3 Review me: Your review is requested",
     );
-    await act(async () =>
-      fireEvent.keyDown(document.activeElement ?? document.body, {
-        key: "Enter",
-      }),
-    );
-    expect(slot.navigateCalls).toContainEqual({
+    await act(async () => press("Enter"));
+    expect(slot.navigateCalls.at(-1)).toEqual({
       method: "toPluginPanel",
       path: "github",
       options: { subPath: "pulls/get-bb/bb/3" },
     });
 
+    await act(async () => press("]"));
+    expect(slot.navigateCalls.at(-1)).toEqual({
+      method: "toPluginPanel",
+      path: "github",
+      options: { subPath: "pulls/mine", replace: true },
+    });
+  });
+
+  it("merges the cursor row with m through the same method menu as the row", async () => {
+    const toasts = toaster();
+    const slot = renderPanel();
+    await slot.findByText("Ship the inbox");
+    await act(async () => {});
+
+    await act(async () => press("j"));
+    await act(async () => press("j"));
+    await act(async () => press("m"));
+    expect(
+      slot.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["Squash merge", "Merge"]);
+    const remove = slot.getByRole("menuitemcheckbox", {
+      name: "Delete the branch",
+    });
+    expect(remove.getAttribute("aria-checked")).toBe("false");
+
     await act(async () =>
-      fireEvent.keyDown(document.activeElement ?? document.body, { key: "]" }),
+      fireEvent.click(slot.getByRole("menuitem", { name: "Squash merge" })),
+    );
+    expect(calls(slot, "mergePull")).toEqual([
+      {
+        repo: "get-bb/bb",
+        number: 1,
+        method: "squash",
+        deleteBranch: false,
+        headRefOid: "sha-1",
+      },
+    ]);
+    await toasts.findByText("Squash-merged #1 into main");
+    expect(
+      slot.getByRole("button", {
+        name: "#1 feat(list): Ship the inbox: Merged into main",
+      }),
+    ).toBeTruthy();
+    expect(slot.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens a pull request only GitHub can rule on with m, and asks there", async () => {
+    const slot = renderPanel("pulls", {
+      getPull: () => ({
+        pull: pullDetail({
+          number: 3,
+          title: "Review me",
+          author: "hubot",
+          reviewRequests: ["octocat"],
+        }),
+      }),
+    });
+    await slot.findByText("Review me");
+    await act(async () => {});
+
+    await act(async () => press("j"));
+    await act(async () => press("m"));
+    expect(slot.queryByRole("menu")).toBeNull();
+    expect(slot.navigateCalls.at(-1)).toEqual({
+      method: "toPluginPanel",
+      path: "github",
+      options: { subPath: "pulls/get-bb/bb/3" },
+    });
+
+    const Panel = app.navPanels[0]!.component;
+    slot.lifecycle.rerender(<Panel subPath="pulls/get-bb/bb/3" />);
+    expect(
+      await slot.findByRole("menuitem", { name: "Squash merge" }),
+    ).toBeTruthy();
+    expect(calls(slot, "mergePull")).toEqual([]);
+  });
+
+  it("offers Merge… in the row menu wherever m works, and asks in the detail", async () => {
+    const slot = renderPanel("pulls", {
+      getPull: () => ({
+        pull: pullDetail({
+          number: 3,
+          title: "Review me",
+          author: "hubot",
+          reviewRequests: ["octocat"],
+        }),
+      }),
+    });
+    await slot.findByText("Review me");
+    await act(async () => {});
+
+    fireEvent.pointerDown(slot.getByRole("button", { name: "Actions for #3" }));
+    await act(async () =>
+      fireEvent.click(await slot.findByRole("menuitem", { name: /^Merge…/ })),
     );
     expect(slot.navigateCalls.at(-1)).toEqual({
       method: "toPluginPanel",
       path: "github",
-      options: { subPath: "pulls/mine" },
+      options: { subPath: "pulls/get-bb/bb/3" },
     });
+
+    const Panel = app.navPanels[0]!.component;
+    slot.lifecycle.rerender(<Panel subPath="pulls/get-bb/bb/3" />);
+    expect(
+      await slot.findByRole("menuitem", { name: "Squash merge" }),
+    ).toBeTruthy();
   });
 
-  it("snoozes a pull request from its row menu until its checks change", async () => {
-    const toaster = render(<Toaster />);
-    const slot = renderInbox("pulls", {
-      snoozePull: (input) => ({
-        ok: true,
-        snooze:
-          typeof input === "object" && input !== null && "rule" in input
-            ? { rule: input.rule, until: null }
-            : null,
+  it("says why when the detail GitHub rules on can't merge after all", async () => {
+    const toasts = toaster();
+    const slot = renderPanel("pulls", {
+      getPull: () => ({
+        pull: pullDetail({
+          number: 3,
+          title: "Review me",
+          author: "hubot",
+          reviewRequests: ["octocat"],
+          mergeStateStatus: "BLOCKED",
+        }),
       }),
-      unsnoozePull: () => ({ ok: true }),
     });
-    await slot.findByText("Fix the flaky shard");
+    await slot.findByText("Review me");
+    await act(async () => {});
 
-    fireEvent.pointerDown(
-      slot.getByRole("button", { name: "More actions for #2" }),
-    );
+    await act(async () => press("j"));
+    await act(async () => press("m"));
+    const Panel = app.navPanels[0]!.component;
+    slot.lifecycle.rerender(<Panel subPath="pulls/get-bb/bb/3" />);
+    await toasts.findByText("#3 can't be merged yet");
+    expect(slot.queryByRole("menu")).toBeNull();
+  });
+
+  it("says it can't tell which pull requests are yours when GitHub won't name the viewer", async () => {
+    const slot = renderPanel("pulls", {
+      viewer: () => {
+        throw new Error("gh api user failed");
+      },
+    });
+
+    expect(
+      await slot.findByText("Can't tell which pull requests are yours"),
+    ).toBeTruthy();
+    expect(slot.queryByText("Nothing needs you")).toBeNull();
+  });
+
+  it("says why m can't merge when the viewer can't write to the repository", async () => {
+    const toasts = toaster();
+    const slot = renderPanel("pulls", {
+      repoSettings: () => ({
+        repos: {
+          "get-bb/bb": {
+            viewerCanWrite: false,
+            mergeMethods: ["squash"],
+            defaultMergeMethod: "squash",
+            deleteBranchOnMerge: false,
+          },
+        },
+      }),
+    });
+    await slot.findByText("Review me");
+    await act(async () => {});
+
+    await act(async () => press("j"));
+    await act(async () => press("m"));
+    await toasts.findByText("#3 can't be merged yet");
+    await toasts.findByText("You can't merge in get-bb/bb");
+    expect(slot.queryByRole("menu")).toBeNull();
+    expect(slot.navigateCalls).toEqual([]);
+  });
+
+  it("snoozes from the row menu, with a way back to the first step", async () => {
+    const toasts = toaster();
+    const slot = renderPanel();
+    await slot.findByText("Fix my own shard");
+
+    fireEvent.pointerDown(slot.getByRole("button", { name: "Actions for #6" }));
     fireEvent.click(await slot.findByRole("menuitem", { name: /^Snooze…/ }));
     expect(
       slot.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(/^Until checks change/),
-        expect.stringMatching(/^Until a new push/),
-        expect.stringMatching(/^Tomorrow/),
-        expect.stringMatching(/^Next week/),
-      ]),
-    );
+    ).toEqual([
+      "Back",
+      "Until checks change",
+      "Until a new push",
+      "Until tomorrow",
+      "Until next week",
+    ]);
+    fireEvent.click(slot.getByRole("menuitem", { name: "Back" }));
+    fireEvent.click(await slot.findByRole("menuitem", { name: /^Snooze…/ }));
     await act(async () =>
       fireEvent.click(
-        slot.getByRole("menuitem", { name: /^Until checks change/ }),
+        slot.getByRole("menuitem", { name: "Until checks change" }),
       ),
     );
     expect(calls(slot, "snoozePull")).toEqual([
-      { repo: "get-bb/bb", number: 2, rule: "checks", until: null },
+      { repo: "get-bb/bb", number: 6, rule: "checks", until: null },
     ]);
-    await toaster.findByText(/^#2 snoozed/);
+    await toasts.findByText("#6 snoozed until checks change");
     await act(async () =>
-      fireEvent.click(toaster.getByRole("button", { name: "Undo" })),
+      fireEvent.click(toasts.getByRole("button", { name: "Undo" })),
     );
     expect(calls(slot, "unsnoozePull")).toEqual([
-      { repo: "get-bb/bb", number: 2 },
+      { repo: "get-bb/bb", number: 6 },
     ]);
-    toaster.unmount();
+  });
+
+  it("changes a row's status at once, keeps it shown until GitHub catches up, and undoes it", async () => {
+    const toasts = toaster();
+    const slot = renderPanel();
+    await slot.findByText("Ship the inbox");
+
+    fireEvent.pointerDown(slot.getByRole("button", { name: "Actions for #1" }));
+    await act(async () =>
+      fireEvent.click(
+        await slot.findByRole("menuitem", { name: "Convert to draft" }),
+      ),
+    );
+    expect(calls(slot, "setPullState")).toEqual([
+      { repo: "get-bb/bb", number: 1, state: "draft" },
+    ]);
+    await toasts.findByText("#1 is a draft now");
+    expect(
+      slot.getByRole("button", {
+        name: "#1 feat(list): Ship the inbox: Converted to draft",
+      }),
+    ).toBeTruthy();
+
+    await act(async () =>
+      fireEvent.click(toasts.getByRole("button", { name: "Undo" })),
+    );
+    expect(calls(slot, "setPullState")).toEqual([
+      { repo: "get-bb/bb", number: 1, state: "draft" },
+      { repo: "get-bb/bb", number: 1, state: "open" },
+    ]);
+    await toasts.findByText("#1 is ready for review");
   });
 
   it("filters with / and shows each qualifier as a removable chip", async () => {
-    const slot = renderInbox("pulls/all");
+    const slot = renderPanel("pulls/all");
     await slot.findByText("Ship the inbox");
     await act(async () => {});
 
-    await act(async () => fireEvent.keyDown(document.body, { key: "/" }));
+    await act(async () => press("/"));
     const input = slot.getByRole("combobox");
     await waitFor(() => expect(document.activeElement).toBe(input));
     await act(async () =>
@@ -597,12 +751,34 @@ describe("GitHub pull request inbox", () => {
     expect(slot.getByText("Ship the inbox")).toBeTruthy();
   });
 
+  it("leaves the filter with Esc without clearing it", async () => {
+    const slot = renderPanel("pulls/all");
+    await slot.findByText("Ship the inbox");
+    await act(async () => {});
+
+    await act(async () => press("/"));
+    const input = slot.getByRole("combobox");
+    await act(async () =>
+      fireEvent.change(input, { target: { value: "author:hubot " } }),
+    );
+    await act(async () => fireEvent.keyDown(input, { key: "Escape" }));
+    await act(async () => fireEvent.keyDown(input, { key: "Escape" }));
+    expect(document.activeElement).not.toBe(input);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "#3 Review me: Your review is requested",
+    );
+    expect(
+      slot.getByRole("button", { name: 'Remove "Author is hubot"' }),
+    ).toBeTruthy();
+    expect(slot.queryByText("Ship the inbox")).toBeNull();
+  });
+
   it("restores a saved filter as chips without taking focus", async () => {
     window.localStorage.setItem(
-      "bb-plugin-github:v3:query:pr",
+      "bb-plugin-github:v4:query:pr",
       "author:hubot ",
     );
-    const slot = renderInbox("pulls/all");
+    const slot = renderPanel("pulls/all");
 
     await slot.findByText("Review me");
     await act(async () => {});
@@ -614,152 +790,14 @@ describe("GitHub pull request inbox", () => {
     expect(slot.queryByRole("listbox")).toBeNull();
   });
 
-  it("merges every ready pull request of a group after a confirmation", async () => {
-    const toaster = render(<Toaster />);
-    const slot = renderInbox("pulls", {
-      mergePull: (input) => ({
-        ok: true,
-        method:
-          typeof input === "object" && input !== null && "method" in input
-            ? input.method
-            : "squash",
-        deletedBranch: false,
-      }),
-      refresh: () => ({ repos: 1, items: 5 }),
-    });
-    await slot.findByText("Ship the inbox");
-
-    fireEvent.pointerDown(slot.getByRole("button", { name: "Merge all" }));
-    expect(calls(slot, "mergePull")).toEqual([]);
-    const confirmMerge = await slot.findByRole("menuitem", {
-      name: /^Merge 2/,
-    });
-    await act(async () => fireEvent.click(confirmMerge));
-    await waitFor(() =>
-      expect(calls(slot, "mergePull")).toEqual([
-        {
-          repo: "get-bb/bb",
-          number: 1,
-          method: "squash",
-          deleteBranch: false,
-          headRefOid: "sha-1",
-        },
-        {
-          repo: "get-bb/bb",
-          number: 5,
-          method: "squash",
-          deleteBranch: false,
-          headRefOid: "sha-5",
-        },
-      ]),
-    );
-    await toaster.findByText("2 pull requests merged");
-    toaster.unmount();
-  });
-
-  it("sums up a bulk merge that partly failed in one toast", async () => {
-    const toaster = render(<Toaster />);
-    const slot = renderInbox("pulls", {
-      mergePull: (input) =>
-        typeof input === "object" &&
-        input !== null &&
-        "number" in input &&
-        input.number === 5
-          ? Promise.reject(new Error("Base branch was modified"))
-          : { ok: true, method: "squash", deletedBranch: false },
-      refresh: () => ({ repos: 1, items: 5 }),
-    });
-    await slot.findByText("Ship the inbox");
-
-    fireEvent.pointerDown(slot.getByRole("button", { name: "Merge all" }));
-    const confirmMerge = await slot.findByRole("menuitem", {
-      name: /^Merge 2/,
-    });
-    await act(async () => fireEvent.click(confirmMerge));
-    await toaster.findByText("Merged 1 of 2");
-    expect(toaster.getByText("#5: Base branch was modified")).toBeTruthy();
-    expect(toaster.queryByText("2 pull requests merged")).toBeNull();
-    toaster.unmount();
-  });
-
-  it("changes a row's status from its menu and undoes it from the toast", async () => {
-    const toaster = render(<Toaster />);
-    const slot = renderInbox("pulls", {
-      setPullState: (input) => ({
-        ok: true,
-        state:
-          typeof input === "object" && input !== null && "state" in input
-            ? input.state
-            : null,
-      }),
-    });
-    await slot.findByText("Ship the inbox");
-
-    fireEvent.pointerDown(
-      slot.getByRole("button", { name: "More actions for #1" }),
-    );
-    fireEvent.click(
-      await slot.findByRole("menuitem", { name: /^Change status…/ }),
-    );
-    const draft = await slot.findByRole("menuitemradio", { name: /^Draft/ });
-    await act(async () => fireEvent.click(draft));
-    expect(calls(slot, "setPullState")).toEqual([
-      { repo: "get-bb/bb", number: 1, state: "draft" },
-    ]);
-    await toaster.findByText("#1 is a draft now");
-    await act(async () =>
-      fireEvent.click(toaster.getByRole("button", { name: "Undo" })),
-    );
-    expect(calls(slot, "setPullState")).toEqual([
-      { repo: "get-bb/bb", number: 1, state: "draft" },
-      { repo: "get-bb/bb", number: 1, state: "open" },
-    ]);
-    await toaster.findByText("#1 is ready for review");
-    toaster.unmount();
-  });
-
-  it("puts a waiting agent's question on its row", async () => {
-    const slot = renderInbox(
-      "pulls",
-      {
-        listLinks: () => ({
-          links: { "pr:get-bb/bb#2": [link("thr-ask", 2, "fix")] },
-        }),
-      },
-      {
-        sidebarThreads: {
-          threads: [
-            sidebarThread({
-              id: "thr-ask",
-              status: "active",
-              hasPendingInteraction: true,
-            }),
-          ],
-        },
-        sdk: {
-          threads: {
-            interactions: { list: async () => [userQuestion("thr-ask")] },
-          },
-        },
-      },
-    );
-
-    expect(
-      await slot.findByRole("button", {
-        name: "#2 Fix the flaky shard: Agent asks: Rebase on main or merge it in?",
-      }),
-    ).toBeTruthy();
-  });
-
   it("keeps the last sync on screen while GitHub is unreachable", async () => {
-    const slot = renderInbox("pulls", {
+    const slot = renderPanel("pulls", {
       status: () => ({
         ...STATUS,
         ghOk: false,
         ghState: "unavailable",
         ghError: "connect ETIMEDOUT 140.82.112.6:443",
       }),
-      refresh: () => ({ repos: 1, items: 5 }),
     });
 
     await slot.findByText("Ship the inbox");
@@ -773,12 +811,12 @@ describe("GitHub pull request inbox", () => {
     expect(calls(slot, "refresh")).toHaveLength(1);
   });
 
-  it("marks a running agent on its row and opens its thread", async () => {
-    const slot = renderInbox(
+  it("leaves a pull request in its group while an agent works on it, and opens the thread with t", async () => {
+    const slot = renderPanel(
       "pulls",
       {
         listLinks: () => ({
-          links: { "pr:get-bb/bb#2": [link("thr-fix", 2, "fix")] },
+          links: { "pr:get-bb/bb#6": [link("pr", "thr-fix", 6)] },
         }),
       },
       {
@@ -787,20 +825,20 @@ describe("GitHub pull request inbox", () => {
         },
       },
     );
-    const row = await slot.findByRole("button", {
-      name: /^#2 Fix the flaky shard: Agent/,
-    });
-    expect(row.getAttribute("aria-label")).toMatch(
-      /Agent is fixing the failing checks/,
-    );
+    await slot.findByTitle("Fix · get-bb/bb#6");
+    expect(regions(slot)).toEqual([
+      "Your move",
+      "Ready to merge",
+      "Needs fixing",
+    ]);
     expect(
-      slot
-        .getAllByRole("region")
-        .map((region) => region.getAttribute("aria-label")),
-    ).toContain("In progress");
-    await act(async () =>
-      slot.getByRole("button", { name: "Open the agent's thread" }).click(),
-    );
+      slot.getByRole("region", { name: "Needs fixing" }).textContent,
+    ).toContain("Fix my own shard");
+
+    await act(async () => press("j"));
+    await act(async () => press("j"));
+    await act(async () => press("j"));
+    await act(async () => press("t"));
     expect(slot.navigateCalls).toContainEqual({
       method: "toThread",
       threadId: "thr-fix",
@@ -809,48 +847,48 @@ describe("GitHub pull request inbox", () => {
 });
 
 describe("GitHub pull request detail", () => {
-  it("says what the pull request needs next and merges it with the chosen method", async () => {
-    stubResizeObserver();
-    const toaster = render(<Toaster />);
-    let merged = false;
-    const slot = renderPull({
-      getPull: () => ({
-        pull: pullDetail(
-          merged
-            ? {
-                state: "MERGED",
-                mergedAt: "2026-08-21T00:00:00.000Z",
-                mergedBy: "octocat",
-              }
-            : {},
-        ),
-      }),
-      mergePull: () => {
-        merged = true;
-        return { ok: true, method: "merge", deletedBranch: true };
-      },
-    });
+  it("merges from the card's split button with the repo's default method, with no dialog", async () => {
+    const toasts = toaster();
+    const slot = renderPull(fakeGithub());
 
+    const card = await nextStepCard(slot, "Ready to merge");
+    await act(async () =>
+      fireEvent.click(slot.getByRole("button", { name: "Squash merge" })),
+    );
+    expect(slot.queryByRole("dialog")).toBeNull();
+    expect(calls(slot, "mergePull")).toEqual([
+      {
+        repo: "get-bb/bb",
+        number: 42,
+        method: "squash",
+        deleteBranch: false,
+        headRefOid: "abc123",
+      },
+    ]);
+    await toasts.findByText("Squash-merged #42 into main");
+    await waitFor(() => expect(card.textContent).toContain("Merged into main"));
+    expect(slot.queryByRole("button", { name: "Squash merge" })).toBeNull();
+  });
+
+  it("merges with another method from the split button's menu and deletes the branch only when asked", async () => {
+    const slot = renderPull(fakeGithub());
     await nextStepCard(slot, "Ready to merge");
-    await act(async () =>
-      fireEvent.click(slot.getByRole("button", { name: "Merge" })),
+
+    fireEvent.pointerDown(
+      slot.getByRole("button", { name: "Choose pull request merge method" }),
     );
-    const dialog = await slot.findByRole("dialog");
-    expect(dialog.textContent).toContain("Merge #42 into main");
-    await act(async () =>
-      fireEvent.click(
-        slot.getByRole("radio", { name: /Create a merge commit/ }),
-      ),
-    );
+    const remove = await slot.findByRole("menuitemcheckbox", {
+      name: "Delete the branch",
+    });
+    expect(remove.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(remove);
     expect(
       slot
-        .getByRole("checkbox", { name: /Delete status-menu/ })
+        .getByRole("menuitemcheckbox", { name: "Delete the branch" })
         .getAttribute("aria-checked"),
     ).toBe("true");
     await act(async () =>
-      fireEvent.click(
-        slot.getByRole("button", { name: "Create a merge commit" }),
-      ),
+      fireEvent.click(slot.getByRole("menuitem", { name: "Merge" })),
     );
     expect(calls(slot, "mergePull")).toEqual([
       {
@@ -861,17 +899,88 @@ describe("GitHub pull request detail", () => {
         headRefOid: "abc123",
       },
     ]);
-    await toaster.findByText("Merged #42 into main, branch deleted");
-    await waitFor(() =>
-      expect(slot.queryByRole("button", { name: /^Status:/ })).toBeNull(),
-    );
-    expect(slot.getAllByText("Merged").length).toBeGreaterThan(0);
-    expect(slot.queryByRole("button", { name: "Merge" })).toBeNull();
-    toaster.unmount();
+    expect(
+      window.localStorage.getItem("bb-plugin-github:v4:delete-branch"),
+    ).toBe("1");
   });
 
-  it("lists the failing checks and starts an agent from the sheet", async () => {
-    const toaster = render(<Toaster />);
+  it("keeps the branch a bb worktree of the repository's project holds", async () => {
+    window.localStorage.setItem("bb-plugin-github:v4:delete-branch", "1");
+    const slot = renderPull(fakeGithub(), {
+      sidebarThreads: { threads: [worktreeThread("project-1")] },
+    });
+    await nextStepCard(slot, "Ready to merge");
+    fireEvent.pointerDown(
+      slot.getByRole("button", { name: "Choose pull request merge method" }),
+    );
+    await slot.findByRole("menuitem", { name: "Merge" });
+    expect(
+      slot.queryByRole("menuitemcheckbox", { name: "Delete the branch" }),
+    ).toBeNull();
+    await act(async () =>
+      fireEvent.click(slot.getByRole("menuitem", { name: "Squash merge" })),
+    );
+    expect(calls(slot, "mergePull")).toEqual([
+      {
+        repo: "get-bb/bb",
+        number: 42,
+        method: "squash",
+        deleteBranch: false,
+        headRefOid: "abc123",
+      },
+    ]);
+  });
+
+  it("ignores a worktree of another project that has the same branch name", async () => {
+    window.localStorage.setItem("bb-plugin-github:v4:delete-branch", "1");
+    const slot = renderPull(
+      {
+        ...fakeGithub(),
+        status: () => ({
+          ...STATUS,
+          repos: [{ repo: "get-bb/bb", projectId: null }],
+        }),
+      },
+      { sidebarThreads: { threads: [worktreeThread("project-2")] } },
+    );
+    await nextStepCard(slot, "Ready to merge");
+    await waitFor(() => expect(calls(slot, "status").length).toBe(1));
+    await act(async () => {});
+    await act(async () =>
+      fireEvent.click(slot.getByRole("button", { name: "Squash merge" })),
+    );
+    expect(calls(slot, "mergePull")).toEqual([
+      {
+        repo: "get-bb/bb",
+        number: 42,
+        method: "squash",
+        deleteBranch: true,
+        headRefOid: "abc123",
+      },
+    ]);
+  });
+
+  it("leads with the viewer's review when it is requested, like the row, and names the failing checks", async () => {
+    const slot = renderPull(
+      fakeGithub({
+        author: "hubot",
+        reviewRequests: ["octocat"],
+        checks: [check("lint", "failure", 9), check("build", "success")],
+      }),
+    );
+    const card = await nextStepCard(slot, "Your review is requested");
+    expect(card.textContent).toContain(
+      "hubot asked you to review · 1 check failing",
+    );
+    expect(
+      within(card)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Review on GitHub", "Squash merge", "", "Start an agent…"]);
+  });
+
+  it("lists the failing checks and starts an agent seeded from the pull request", async () => {
+    const toasts = toaster();
     const spawn = vi.fn(async (request: { title?: string }) =>
       makeThreadResponse({ id: "thr-new", title: request.title ?? null }),
     );
@@ -882,11 +991,8 @@ describe("GitHub pull request detail", () => {
             check("lint", "failure", 9),
             check("unit (shard 2)", "failure", 9),
             check("build", "success"),
+            check("docs", "skipped"),
           ],
-        }),
-        agentPrompt: (input) => ({
-          prompt: `Fix the failing checks (${JSON.stringify(input)})`,
-          title: "Fix · get-bb/bb#42: Status menu",
         }),
         linkThread: () => ({ ok: true }),
       },
@@ -894,30 +1000,23 @@ describe("GitHub pull request detail", () => {
     );
 
     const card = await nextStepCard(slot, "2 checks failing");
+    expect(card.textContent).toContain("1 passed · 1 skipped");
     expect(card.textContent).toContain("lint");
     expect(card.textContent).toContain("unit (shard 2)");
 
     await act(async () =>
-      fireEvent.click(slot.getByRole("button", { name: "Fix with an agent" })),
+      fireEvent.click(slot.getByRole("button", { name: "Start an agent…" })),
     );
     const dialog = await slot.findByRole("dialog");
-    expect(dialog.textContent).toContain(
-      "On #42; the agent checks out status-menu first",
-    );
-    expect(
-      slot
-        .getByRole("radio", { name: "Fix checks" })
-        .getAttribute("aria-checked"),
-    ).toBe("true");
-    const composer = await slot.findByTestId("bb-new-thread-composer");
-    expect(composer.getAttribute("data-draft-key")).toBe(
-      "github:get-bb/bb#42:fix",
-    );
-    expect(
-      (slot.getByTestId("bb-new-thread-composer-input") as HTMLTextAreaElement)
-        .value,
-    ).toBe(
-      'Fix the failing checks ({"repo":"get-bb/bb","number":42,"preset":"fix","branchCheckout":"checkout"})',
+    expect(dialog.textContent).toContain("#42 · checks out status-menu first");
+    expect(slot.queryByRole("radio")).toBeNull();
+    const prompt = (
+      (await slot.findByTestId(
+        "bb-new-thread-composer-input",
+      )) as HTMLTextAreaElement
+    ).value;
+    expect(prompt).toContain(
+      "Fix the failing checks on get-bb/bb#42 (status-menu → main).",
     );
 
     await act(async () =>
@@ -925,67 +1024,34 @@ describe("GitHub pull request detail", () => {
     );
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(spawn.mock.calls[0]?.[0]).toMatchObject({
-      title: "Fix · get-bb/bb#42: Status menu",
-      pluginMetadata: {
-        pullRequest: { repo: "get-bb/bb", number: 42, preset: "fix" },
-      },
+      title: "Fix checks · get-bb/bb#42: Status menu",
     });
     expect(calls(slot, "linkThread")).toEqual([
-      {
-        kind: "pr",
-        repo: "get-bb/bb",
-        number: 42,
-        threadId: "thr-new",
-        preset: "fix",
-      },
+      { kind: "pr", repo: "get-bb/bb", number: 42, threadId: "thr-new" },
     ]);
-    await toaster.findByText("Agent started on #42");
+    await toasts.findByText("Agent started on #42");
     await waitFor(() => expect(slot.queryByRole("dialog")).toBeNull());
-    toaster.unmount();
   });
 
-  it("puts the agent's question on the card and answers it in place", async () => {
-    const question = userQuestion("thr-agent");
-    const resolve = vi.fn(async () => question);
-    const slot = renderPull(
-      {
-        ...fakeGithub({ checks: [check("lint", "failure", 9)] }),
-        listLinks: () => ({
-          links: { "pr:get-bb/bb#42": [link("thr-agent", 42, "fix")] },
-        }),
-      },
-      {
-        sidebarThreads: {
-          threads: [
-            sidebarThread({
-              id: "thr-agent",
-              status: "active",
-              hasPendingInteraction: true,
-              displayTitle: "Fix · get-bb/bb#42",
-            }),
-          ],
-        },
-        sdk: {
-          threads: {
-            interactions: { list: async () => [question], resolve },
-          },
-        },
-      },
-    );
-
-    const card = await nextStepCard(slot, "Rebase on main or merge it in?");
-    expect(card.textContent).toContain("The agent needs your answer");
-    await act(async () =>
-      fireEvent.click(slot.getByRole("button", { name: "Rebase" })),
-    );
-    expect(resolve).toHaveBeenCalledWith({
-      threadId: "thr-agent",
-      interactionId: "int-1",
-      resolution: {
-        kind: "user_answer",
-        answers: { q1: { selected: ["rebase"] } },
-      },
+  it("re-runs the failed checks from the card", async () => {
+    const toasts = toaster();
+    const slot = renderPull({
+      ...fakeGithub({
+        checks: [check("lint", "failure", 9), check("build", "success")],
+      }),
+      rerunFailedChecks: () => ({ ok: true, runs: 1, checks: 1 }),
     });
+
+    await nextStepCard(slot, "1 check failing");
+    await act(async () =>
+      fireEvent.click(
+        slot.getByRole("button", { name: "Re-run failed checks" }),
+      ),
+    );
+    expect(calls(slot, "rerunFailedChecks")).toEqual([
+      { repo: "get-bb/bb", number: 42 },
+    ]);
+    await toasts.findByText("Re-running 1 failed check on #42");
   });
 
   it("offers Reopen on a closed pull request", async () => {
@@ -1005,7 +1071,7 @@ describe("GitHub pull request detail", () => {
     ]);
   });
 
-  it("tells the story on Activity and replies to GitHub", async () => {
+  it("tells the story on Activity and comments on GitHub", async () => {
     const github = fakeGithub({
       events: [
         {
@@ -1037,31 +1103,9 @@ describe("GitHub pull request detail", () => {
         },
       ],
     });
-    const posted: Array<{ author: string; body: string; createdAt: string }> =
-      [];
-    let finishComment = () => {};
     const slot = renderPull({
       ...github,
-      getPull: () => {
-        const { pull: detail } = github.getPull();
-        return {
-          pull: { ...detail, comments: [...detail.comments, ...posted] },
-        };
-      },
-      commentPull: (input) =>
-        new Promise((resolve) => {
-          finishComment = () => {
-            posted.push({
-              author: "octocat",
-              body:
-                typeof input === "object" && input !== null && "body" in input
-                  ? String(input.body)
-                  : "",
-              createdAt: "2026-10-21T00:00:00.000Z",
-            });
-            resolve({ ok: true });
-          };
-        }),
+      commentPull: () => ({ ok: true }),
     });
 
     const activity = await slot.findByRole("tabpanel");
@@ -1069,64 +1113,29 @@ describe("GitHub pull request detail", () => {
     expect(activity.textContent).toContain("pushed 2 commits");
     expect(activity.textContent).toContain("approved");
 
-    const reply = slot.getByRole("textbox", { name: "Reply" });
+    const box = slot.getByRole("textbox", { name: "Comment" });
     await act(async () =>
-      fireEvent.change(reply, { target: { value: "Thanks, merging." } }),
+      fireEvent.change(box, { target: { value: "Thanks, merging." } }),
     );
     await act(async () =>
-      fireEvent.click(slot.getByRole("button", { name: "Send" })),
+      fireEvent.keyDown(box, { key: "Enter", metaKey: true }),
     );
     expect(calls(slot, "commentPull")).toEqual([
       { repo: "get-bb/bb", number: 42, body: "Thanks, merging." },
     ]);
-    expect(slot.getByRole("tabpanel").textContent).toMatch(
-      /You commented.*sending….*Thanks, merging\./,
-    );
-    await act(async () => finishComment());
     await waitFor(() => expect(calls(slot, "getPull")).toHaveLength(2));
-    expect(
-      slot.getByRole("tabpanel").textContent?.split("Thanks, merging.").length,
-    ).toBe(2);
+    expect((box as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("shows the checks with their logs and re-runs the failed ones", async () => {
-    const slot = renderPull({
-      ...fakeGithub({
-        checks: [check("lint", "failure", 9), check("build", "success")],
-      }),
-      rerunFailedChecks: () => ({ ok: true, runs: 1, checks: 1 }),
-    });
-
-    const checksTab = await slot.findByRole("tab", { name: /^Checks/ });
-    await act(async () => fireEvent.click(checksTab));
-    const panel = slot.getByRole("tabpanel");
-    expect(panel.textContent).toContain("lint");
-    expect(panel.textContent).toContain("Failed");
-    const reruns = slot.getAllByRole("button", { name: "Re-run failed" });
-    await act(async () => fireEvent.click(reruns.at(-1)!));
-    expect(calls(slot, "rerunFailedChecks")).toEqual([
-      { repo: "get-bb/bb", number: 42 },
-    ]);
-  });
-
-  it("colours the diff stat like core, breaks it down by kind, and opens the files", async () => {
+  it("colours the diff stat like core and opens the files from it", async () => {
     const scrollIntoView = stubScrollIntoView();
-    const slot = renderPull(fakeGithub({ changedFiles: 4, additions: 1300 }));
+    const slot = renderPull(fakeGithub());
 
     const stat = await slot.findByRole("button", {
-      name: "1300 lines added and 56 removed in 4 files. Show the files",
+      name: "1,234 lines added and 56 removed in 3 files. Show the files",
     });
-    expect(stat.querySelector(".text-diff-added")?.textContent).toBe("+1,300");
+    expect(stat.querySelector(".text-diff-added")?.textContent).toBe("+1,234");
     expect(stat.querySelector(".text-diff-removed")?.textContent).toBe("-56");
-    expect(stat.querySelectorAll(".bg-diff-added")).toHaveLength(5);
-
-    fireEvent.keyDown(document, { key: "Tab" });
-    fireEvent.focus(stat);
-    const tooltip = await slot.findByRole("tooltip");
-    expect(tooltip.textContent).toBe(
-      "Code+1,000-501 fileTests+200-61 fileDocs+34-01 fileNot listed+66-01 fileTotal+1,300-564 files",
-    );
-
     await act(async () => fireEvent.click(stat));
     expect(
       slot.getByRole("tab", { name: /^Files/ }).getAttribute("aria-selected"),
@@ -1134,31 +1143,8 @@ describe("GitHub pull request detail", () => {
     expect(scrollIntoView).toHaveBeenCalled();
   });
 
-  it("opens the Linear issue named in the title from the header", async () => {
-    const slot = renderPull(
-      fakeGithub({
-        title: "Status menu [ENG-123]",
-        comments: [
-          {
-            author: "linear",
-            body: '<!-- linear-linkback --><a href="https://linear.app/acme/issue/ENG-123/status-menu">ENG-123 Status menu</a>',
-            createdAt: "2026-08-20T00:00:00.000Z",
-          },
-        ],
-      }),
-    );
-
-    const key = await slot.findByRole("button", {
-      name: "Open ENG-123 in Linear",
-    });
-    await act(async () => key.click());
-    expect(slot.navigateCalls).toContainEqual({
-      method: "openUrl",
-      url: "https://linear.app/acme/issue/ENG-123/status-menu",
-    });
-  });
-
-  it("copies the head branch name from its chip", async () => {
+  it("copies the head branch name from its chip, like c and the row menu", async () => {
+    const toasts = toaster();
     const slot = renderPull(fakeGithub());
 
     const chip = await slot.findByRole("button", {
@@ -1168,63 +1154,77 @@ describe("GitHub pull request detail", () => {
     expect(slot.experimental_clipboardWrites).toEqual([
       { text: "status-menu" },
     ]);
-    expect(slot.getByText("Branch name copied")).toBeTruthy();
+    await toasts.findByText("Copied the branch name");
   });
 });
 
-describe("GitHub pull request status menu", () => {
-  it("changes the status from its menu, keeps focus on the pill, and undoes it from the toast", async () => {
-    const toaster = render(<Toaster />);
+describe("GitHub pull request status pill", () => {
+  it("changes the status at once, shows it while GitHub catches up, and undoes it", async () => {
+    const toasts = toaster();
     const slot = renderPull(fakeGithub());
 
-    openWithKeyboard(
+    fireEvent.pointerDown(
       await slot.findByRole("button", {
         name: "Status: Open. Change the status",
       }),
     );
     expect(
-      slot
-        .getByRole("menuitemradio", { name: /^Open/ })
-        .getAttribute("aria-checked"),
-    ).toBe("true");
-    expect(
-      slot.getAllByRole("menuitemradio").map((item) => item.textContent),
-    ).toEqual([
-      "DraftConvert to draft",
-      "Open",
-      "ClosedClose without merging",
-      "MergedMerge…M",
-    ]);
-
+      slot.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["Convert to draft", "Close pull request"]);
     await act(async () =>
-      fireEvent.keyDown(
-        slot.getByRole("menuitemradio", { name: /Convert to draft/ }),
-        { key: "Enter" },
-      ),
+      fireEvent.click(slot.getByRole("menuitem", { name: "Convert to draft" })),
     );
-    const draft = await slot.findByRole("button", {
-      name: "Status: Draft. Change the status",
-    });
-    await waitFor(() => expect(document.activeElement).toBe(draft));
     expect(calls(slot, "setPullState")).toEqual([
       { repo: "get-bb/bb", number: 42, state: "draft" },
     ]);
+    expect(
+      await slot.findByRole("button", {
+        name: "Status: Draft. Change the status",
+      }),
+    ).toBeTruthy();
 
-    await toaster.findByText("#42 is a draft now");
+    await toasts.findByText("#42 is a draft now");
     await act(async () =>
-      fireEvent.click(toaster.getByRole("button", { name: "Undo" })),
+      fireEvent.click(toasts.getByRole("button", { name: "Undo" })),
     );
-    await slot.findByRole("button", {
-      name: "Status: Open. Change the status",
-    });
+    expect(
+      await slot.findByRole("button", {
+        name: "Status: Open. Change the status",
+      }),
+    ).toBeTruthy();
     expect(calls(slot, "setPullState")).toEqual([
       { repo: "get-bb/bb", number: 42, state: "draft" },
       { repo: "get-bb/bb", number: 42, state: "open" },
     ]);
-    toaster.unmount();
   });
 
-  it("keeps the menu shut while a change is in flight", async () => {
+  it("closes with one press and then offers Reopen", async () => {
+    const slot = renderPull(fakeGithub());
+
+    fireEvent.pointerDown(
+      await slot.findByRole("button", {
+        name: "Status: Open. Change the status",
+      }),
+    );
+    await act(async () =>
+      fireEvent.click(
+        slot.getByRole("menuitem", { name: "Close pull request" }),
+      ),
+    );
+    expect(calls(slot, "setPullState")).toEqual([
+      { repo: "get-bb/bb", number: 42, state: "closed" },
+    ]);
+    fireEvent.pointerDown(
+      await slot.findByRole("button", {
+        name: "Status: Closed. Change the status",
+      }),
+    );
+    expect(
+      slot.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["Reopen pull request"]);
+  });
+
+  it("shows the change in flight on the pill and keeps its menu shut", async () => {
     let finish = () => {};
     const github = fakeGithub();
     const slot = renderPull({
@@ -1235,22 +1235,18 @@ describe("GitHub pull request status menu", () => {
         }),
     });
 
-    openWithKeyboard(
+    fireEvent.pointerDown(
       await slot.findByRole("button", {
         name: "Status: Open. Change the status",
       }),
     );
     await act(async () =>
-      fireEvent.keyDown(
-        slot.getByRole("menuitemradio", { name: /Convert to draft/ }),
-        { key: "Enter" },
-      ),
+      fireEvent.click(slot.getByRole("menuitem", { name: "Convert to draft" })),
     );
-    const busy = slot.getByRole("button", { name: "Converting…" });
-    expect(busy.getAttribute("aria-busy")).toBe("true");
-    await waitFor(() => expect(document.activeElement).toBe(busy));
-    fireEvent.pointerDown(busy);
-    expect(slot.queryByRole("menuitemradio")).toBeNull();
+    const pill = slot.getByRole("button", { name: "Converting to draft…" });
+    expect(pill.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.pointerDown(pill);
+    expect(slot.queryByRole("menu")).toBeNull();
 
     await act(async () => finish());
     expect(
@@ -1260,85 +1256,8 @@ describe("GitHub pull request status menu", () => {
     ).toBeTruthy();
   });
 
-  it("closes only after a second press and then offers Reopen", async () => {
-    const slot = renderPull(fakeGithub());
-
-    fireEvent.pointerDown(
-      await slot.findByRole("button", {
-        name: "Status: Open. Change the status",
-      }),
-    );
-    fireEvent.click(
-      slot.getByRole("menuitemradio", { name: /Close without merging/ }),
-    );
-    const confirm = slot.getByRole("menuitemradio", {
-      name: /Close without merging\?/,
-    });
-    expect(confirm.textContent).toBe("Close without merging?Press again");
-    expect(
-      slot.getByText("Press Closed again to close #42 without merging"),
-    ).toBeTruthy();
-    expect(calls(slot, "setPullState")).toEqual([]);
-
-    await act(async () => fireEvent.click(confirm));
-    fireEvent.pointerDown(
-      await slot.findByRole("button", {
-        name: "Status: Closed. Change the status",
-      }),
-    );
-    expect(
-      slot.getAllByRole("menuitemradio").map((item) => item.textContent),
-    ).toEqual(["DraftReopen as a draft", "OpenReopen", "Closed"]);
-    expect(calls(slot, "setPullState")).toEqual([
-      { repo: "get-bb/bb", number: 42, state: "closed" },
-    ]);
-  });
-
-  it("shows a plain Closed status when GitHub will not let the viewer reopen it", async () => {
-    const slot = renderPull(fakeGithub({}, { canReopen: false }));
-
-    fireEvent.pointerDown(
-      await slot.findByRole("button", {
-        name: "Status: Open. Change the status",
-      }),
-    );
-    fireEvent.click(
-      slot.getByRole("menuitemradio", { name: /Close without merging/ }),
-    );
-    await act(async () =>
-      fireEvent.click(
-        slot.getByRole("menuitemradio", { name: /Close without merging\?/ }),
-      ),
-    );
-    await waitFor(() =>
-      expect(slot.queryByRole("button", { name: /^Status:/ })).toBeNull(),
-    );
-    expect(slot.getAllByText("Closed").length).toBeGreaterThan(0);
-  });
-
-  it("offers no Undo when reopening changed the draft flag", async () => {
-    const toaster = render(<Toaster />);
-    const slot = renderPull(
-      fakeGithub({ state: "CLOSED", viewerCanReopen: true }),
-    );
-
-    fireEvent.pointerDown(
-      await slot.findByRole("button", {
-        name: "Status: Closed. Change the status",
-      }),
-    );
-    await act(async () =>
-      fireEvent.click(
-        slot.getByRole("menuitemradio", { name: /Reopen as a draft/ }),
-      ),
-    );
-    await toaster.findByText("Reopened #42 as a draft");
-    expect(toaster.queryByRole("button", { name: "Undo" })).toBeNull();
-    toaster.unmount();
-  });
-
-  it("keeps the status when GitHub refuses the change, says why, and reloads", async () => {
-    const toaster = render(<Toaster />);
+  it("keeps the status when GitHub refuses the change, and says why", async () => {
+    const toasts = toaster();
     const slot = renderPull(
       fakeGithub(
         { state: "DRAFT", isDraft: true },
@@ -1355,13 +1274,11 @@ describe("GitHub pull request status menu", () => {
       }),
     );
     await act(async () =>
-      fireEvent.click(
-        slot.getByRole("menuitemradio", { name: /Ready for review/ }),
-      ),
+      fireEvent.click(slot.getByRole("menuitem", { name: /^Mark ready/ })),
     );
-    await toaster.findByText("Couldn't update #42");
+    await toasts.findByText("Couldn't update #42");
     expect(
-      toaster.getByText(
+      toasts.getByText(
         "gh pr ready 42 failed: GraphQL: Resource not accessible by integration",
       ),
     ).toBeTruthy();
@@ -1370,8 +1287,6 @@ describe("GitHub pull request status menu", () => {
         name: "Status: Draft. Change the status",
       }),
     ).toBeTruthy();
-    expect(calls(slot, "getPull")).toHaveLength(2);
-    toaster.unmount();
   });
 
   it("shows a plain status when the pull request cannot change", async () => {
@@ -1388,9 +1303,9 @@ describe("GitHub pull request status menu", () => {
       ],
     ] as const) {
       const slot = renderPull(fakeGithub(initial));
-      await waitFor(() =>
-        expect(slot.getAllByText(label).length).toBeGreaterThan(0),
-      );
+      expect(
+        await slot.findByRole("status", { name: `Status: ${label}` }),
+      ).toBeTruthy();
       expect(slot.queryByRole("button", { name: /^Status:/ })).toBeNull();
       slot.lifecycle.unmount();
     }
@@ -1433,22 +1348,18 @@ describe("GitHub thread panel", () => {
     );
 
     const filesTab = await slot.findByRole("tab", { name: /^Files/ });
-    await act(async () => fireEvent.click(filesTab));
-    const removedFile = slot.getByText("removed.ts");
-    const modifiedFile = slot.getByText("modified.ts");
-    expect(removedFile.closest("a")).toBeNull();
-    expect(modifiedFile.closest("a")?.getAttribute("href")).toBe(
-      "./modified.ts",
-    );
-    const toggle = slot.getByRole("button", {
-      name: "Collapse removed.ts diff",
-    });
+    await act(async () => fireEvent.mouseDown(filesTab));
+    expect(slot.getByText("removed.ts").closest("a")).toBeNull();
+    expect(
+      slot.getByText("modified.ts").closest("a")?.getAttribute("href"),
+    ).toBe("./modified.ts");
     expect(slot.getByTestId("bb-diff").getAttribute("data-path")).toBe(
       "removed.ts",
     );
+    const toggle = slot.getByRole("button", { name: "Collapse removed.ts" });
     await act(async () => fireEvent.click(toggle));
     expect(slot.queryByTestId("bb-diff")).toBeNull();
-    expect(toggle.getAttribute("aria-label")).toBe("Expand removed.ts diff");
+    expect(toggle.getAttribute("aria-label")).toBe("Expand removed.ts");
   });
 
   it("lets the user pick a pull request when the thread has none", async () => {
@@ -1465,55 +1376,199 @@ describe("GitHub thread panel", () => {
       },
     );
 
-    const pick = await slot.findByRole("button", { name: /#3\s*Review me/ });
+    const pick = await slot.findByRole("button", { name: /Review me/ });
+    expect(slot.queryByText("Still a draft")).toBeTruthy();
     await act(async () => fireEvent.click(pick));
     expect(calls(slot, "getPull")).toEqual([{ repo: "get-bb/bb", number: 3 }]);
   });
 });
 
 describe("GitHub issues", () => {
-  it("lists open issues and opens one in the URL-backed page", async () => {
-    const panel = app.navPanels[0]!;
-    expect(panel.fixedTabs).toBeUndefined();
-    const slot = renderInbox("issues", {
-      listItems: (input) =>
-        typeof input === "object" &&
-        input !== null &&
-        "kind" in input &&
-        input.kind === "issue"
-          ? {
-              items: [
-                issue(42, "Route-backed issue"),
-                issue(41, "Old issue", "CLOSED"),
-              ],
-            }
-          : { items: INBOX },
-    });
+  const issueDetail = (overrides: Record<string, unknown> = {}) => ({
+    issue: {
+      repo: "get-bb/bb",
+      number: 42,
+      title: "Route-backed issue",
+      state: "OPEN",
+      author: "hubot",
+      body: "Steps to reproduce.",
+      labels: [],
+      assignees: [],
+      url: "https://github.com/get-bb/bb/issues/42",
+      updatedAt: "2026-08-20T00:00:00.000Z",
+      comments: [],
+      ...overrides,
+    },
+  });
+
+  it("lists open issues, keeps closed ones folded, and opens one", async () => {
+    const slot = renderPanel("issues");
 
     const row = await slot.findByRole("button", {
-      name: "#42 Route-backed issue: open",
+      name: "#42 Route-backed issue",
     });
     expect(slot.queryByText("Old issue")).toBeNull();
+    expect(slot.getByRole("button", { name: /^Closed/ })).toBeTruthy();
     await act(async () => fireEvent.click(row));
-    expect(slot.navigateCalls).toContainEqual({
+    expect(slot.navigateCalls.at(-1)).toEqual({
       method: "toPluginPanel",
       path: "github",
       options: { subPath: "issues/get-bb/bb/42" },
     });
   });
+
+  it("suggests the issues' own authors in the Issues filter", async () => {
+    const slot = renderPanel("issues");
+    await slot.findByText("Route-backed issue");
+    await act(async () => {});
+
+    await act(async () => press("/"));
+    const input = slot.getByRole("combobox");
+    await act(async () =>
+      fireEvent.change(input, { target: { value: "author:mona" } }),
+    );
+    expect(slot.getByRole("option", { name: /monalisa/ })).toBeTruthy();
+  });
+
+  it("assigns the viewer from an issue's menu and undoes it", async () => {
+    const toasts = toaster();
+    const slot = renderPanel("issues", {
+      setAssignees: (input) => ({
+        ok: true,
+        assignees: field(input, "assignees"),
+      }),
+    });
+
+    fireEvent.pointerDown(
+      await slot.findByRole("button", { name: "Actions for #42" }),
+    );
+    const assign = await slot.findByRole("menuitem", { name: "Assign to me" });
+    await act(async () => fireEvent.click(assign));
+    expect(calls(slot, "setAssignees")).toEqual([
+      { repo: "get-bb/bb", number: 42, assignees: ["octocat"] },
+    ]);
+    await toasts.findByText("Assigned you to #42");
+    await act(async () =>
+      fireEvent.click(toasts.getByRole("button", { name: "Undo" })),
+    );
+    expect(calls(slot, "setAssignees")).toEqual([
+      { repo: "get-bb/bb", number: 42, assignees: ["octocat"] },
+      { repo: "get-bb/bb", number: 42, assignees: [] },
+    ]);
+  });
+
+  it("closes an issue from its status pill and undoes it", async () => {
+    const toasts = toaster();
+    const slot = renderPanel("issues/get-bb/bb/42", {
+      getIssue: () => issueDetail(),
+      setIssueState: () => ({ ok: true }),
+    });
+
+    fireEvent.pointerDown(
+      await slot.findByRole("button", {
+        name: "Status: Open. Change the status",
+      }),
+    );
+    await act(async () =>
+      fireEvent.click(slot.getByRole("menuitem", { name: "Close issue" })),
+    );
+    expect(calls(slot, "setIssueState")).toEqual([
+      { repo: "get-bb/bb", number: 42, state: "closed" },
+    ]);
+    expect(
+      await slot.findByRole("button", {
+        name: "Status: Closed. Change the status",
+      }),
+    ).toBeTruthy();
+    await toasts.findByText("Closed #42");
+    await act(async () =>
+      fireEvent.click(toasts.getByRole("button", { name: "Undo" })),
+    );
+    expect(calls(slot, "setIssueState")).toEqual([
+      { repo: "get-bb/bb", number: 42, state: "closed" },
+      { repo: "get-bb/bb", number: 42, state: "open" },
+    ]);
+  });
+
+  it("starts an agent on an issue and links its thread", async () => {
+    const toasts = toaster();
+    const spawn = vi.fn(async (request: { title?: string }) =>
+      makeThreadResponse({ id: "thr-issue", title: request.title ?? null }),
+    );
+    const slot = renderPanel(
+      "issues/get-bb/bb/42",
+      { getIssue: () => issueDetail(), linkThread: () => ({ ok: true }) },
+      { sdk: { threads: { spawn } } },
+    );
+
+    const start = await slot.findByRole("button", { name: "Start an agent…" });
+    await act(async () => fireEvent.click(start));
+    const prompt = (
+      (await slot.findByTestId(
+        "bb-new-thread-composer-input",
+      )) as HTMLTextAreaElement
+    ).value;
+    expect(prompt).toContain(
+      "Work on GitHub issue get-bb/bb#42: Route-backed issue",
+    );
+    await act(async () =>
+      fireEvent.click(slot.getByTestId("bb-new-thread-composer-submit")),
+    );
+    expect(spawn.mock.calls[0]?.[0]).toMatchObject({
+      title: "get-bb/bb#42: Route-backed issue",
+    });
+    expect(calls(slot, "linkThread")).toEqual([
+      { kind: "issue", repo: "get-bb/bb", number: 42, threadId: "thr-issue" },
+    ]);
+    await toasts.findByText("Agent started on #42");
+  });
+
+  it("creates an issue and replaces the form with it in history", async () => {
+    const slot = renderPanel("new", {
+      createIssue: () => ({
+        number: 77,
+        url: "https://github.com/get-bb/bb/issues/77",
+      }),
+    });
+
+    const title = await slot.findByRole("textbox", { name: "Title" });
+    await act(async () =>
+      fireEvent.change(title, { target: { value: "Crash on start" } }),
+    );
+    await act(async () => fireEvent.keyDown(title, { key: "Enter" }));
+    expect(calls(slot, "createIssue")).toEqual([]);
+    expect(document.activeElement).toBe(
+      slot.getByRole("textbox", { name: "Description" }),
+    );
+    await act(async () =>
+      fireEvent.click(slot.getByRole("button", { name: "Create issue" })),
+    );
+    expect(calls(slot, "createIssue")).toEqual([
+      { repo: "get-bb/bb", title: "Crash on start", body: "" },
+    ]);
+    await waitFor(() =>
+      expect(slot.navigateCalls.at(-1)).toEqual({
+        method: "toPluginPanel",
+        path: "github",
+        options: { subPath: "issues/get-bb/bb/77", replace: true },
+      }),
+    );
+  });
 });
 
-describe("GitHub ambient surfaces", () => {
-  it("sums up the inbox on the home page and opens it", async () => {
+describe("GitHub home page, badge, and commands", () => {
+  it("lists what needs the viewer on the home page, with no summary line", async () => {
     const slot = renderSlot(
       app.homepageSections[0]!,
       { projectId: "project-1" },
       { rpc: rpc() },
     );
 
-    await slot.findByText("1 your move · 2 ready · 1 need fixing");
-    expect(slot.getByText("Review me")).toBeTruthy();
-    expect(slot.getByText("Fix the flaky shard")).toBeTruthy();
+    await slot.findByText("Review me");
+    expect(slot.getByText("Ship the inbox")).toBeTruthy();
+    expect(slot.getByText("Fix my own shard")).toBeTruthy();
+    expect(slot.queryByText("Fix the flaky shard")).toBeNull();
+    expect(slot.queryByText(/your move ·/i)).toBeNull();
     await act(async () =>
       fireEvent.click(slot.getByRole("button", { name: "Open the inbox" })),
     );
@@ -1523,139 +1578,7 @@ describe("GitHub ambient surfaces", () => {
     });
   });
 
-  it("says on the home page what a waiting agent asks, like the inbox", async () => {
-    const slot = renderSlot(
-      app.homepageSections[0]!,
-      { projectId: "project-1" },
-      {
-        rpc: rpc({
-          listLinks: () => ({
-            links: { "pr:get-bb/bb#3": [link("thr-ask", 3, "review")] },
-          }),
-        }),
-        sidebarThreads: {
-          threads: [
-            sidebarThread({
-              id: "thr-ask",
-              status: "active",
-              hasPendingInteraction: true,
-            }),
-          ],
-        },
-        sdk: {
-          threads: {
-            interactions: { list: async () => [userQuestion("thr-ask")] },
-          },
-        },
-      },
-    );
-
-    expect(
-      await slot.findByText("#3 · Agent asks: Rebase on main or merge it in?"),
-    ).toBeTruthy();
-    expect(slot.queryByText("#3 · Your review is requested")).toBeNull();
-  });
-
-  it("shows the linked pull request in the thread header when core shows none", async () => {
-    const slot = renderSlot(
-      app.threadHeaderActions[0]!,
-      { threadId: "thr-fix", projectId: "project-1", isCompactViewport: false },
-      {
-        rpc: rpc({
-          pullForThread: () => ({
-            pull: { repo: "get-bb/bb", number: 2, environmentId: null },
-          }),
-        }),
-      },
-    );
-
-    const chip = await slot.findByRole("button", {
-      name: "#2: 2 checks failing",
-    });
-    fireEvent.click(chip);
-    expect(
-      await slot.findByRole("button", { name: "Send the failing checks here" }),
-    ).toBeTruthy();
-    await act(async () =>
-      fireEvent.click(
-        slot.getByRole("button", { name: "Open in the GitHub panel" }),
-      ),
-    );
-    expect(slot.navigateCalls).toContainEqual({
-      method: "toPluginPanel",
-      path: "github",
-      options: { subPath: "pulls/get-bb/bb/2" },
-    });
-  });
-
-  it("stays out of the header when core already shows the pull request", async () => {
-    const slot = renderSlot(
-      app.threadHeaderActions[0]!,
-      { threadId: "thr-fix", projectId: "project-1", isCompactViewport: false },
-      {
-        rpc: rpc({
-          pullForThread: () => ({
-            pull: { repo: "get-bb/bb", number: 2, environmentId: null },
-          }),
-        }),
-        sidebarPullRequests: {
-          "thr-fix": {
-            number: 2,
-            title: "Fix the flaky shard",
-            url: "https://github.com/get-bb/bb/pull/2",
-            state: "open",
-            attention: "checks_failed",
-            experimental_autoMerge: false,
-            experimental_inMergeQueue: false,
-            experimental_checks: { state: "failing" },
-            experimental_review: { state: "none" },
-            experimental_mergeability: { state: "mergeable" },
-          },
-        },
-      },
-    );
-
-    await act(async () => {});
-    expect(slot.container.textContent).toBe("");
-    expect(calls(slot, "pullForThread")).toEqual([]);
-  });
-
-  it("puts each linked pull request's next step on its thread rows", async () => {
-    const scripts = await mountPluginContentScripts(app, {
-      pluginId: "github",
-    });
-    onTestFinished(() => scripts.lifecycle.dispose());
-    const slot = renderSlot(
-      app.appOverlays[0]!,
-      {},
-      {
-        rpc: rpc({
-          listLinks: () => ({
-            links: {
-              "pr:get-bb/bb#2": [link("thr-fix", 2, "fix")],
-              "pr:get-bb/bb#1": [link("thr-ship", 1, null)],
-            },
-          }),
-        }),
-      },
-    );
-
-    await waitFor(() =>
-      expect(scripts.inspection.getThreadRowStatus("thr-fix")).toEqual({
-        icon: "CircleX",
-        label: "#2 · 2 checks failing",
-        tone: "error",
-      }),
-    );
-    expect(scripts.inspection.getThreadRowStatus("thr-ship")).toEqual({
-      icon: "CircleCheck",
-      label: "#1 · 5 checks passed",
-      tone: "success",
-    });
-    slot.lifecycle.unmount();
-  });
-
-  it("badges the panel with the pull requests that need the viewer", async () => {
+  it("badges the panel with the same count as the Inbox tab", async () => {
     const useBadge = app.navPanels[0]!.experimental_useBadge!;
     function Probe() {
       const badge = useBadge();
@@ -1666,36 +1589,27 @@ describe("GitHub ambient surfaces", () => {
       );
     }
     const slot = renderSlot({ component: Probe }, {}, { rpc: rpc() });
-    expect((await slot.findByText(/^4\|/)).textContent).toBe(
-      "4|4 pull requests need you",
+    expect((await slot.findByText(/^3\|/)).textContent).toBe(
+      "3|3 pull requests need you",
     );
   });
 
-  it("registers palette commands that reach the inbox and the thread's pull request", async () => {
-    expect(GITHUB_COMMANDS.map((command) => command.title)).toEqual([
-      "GitHub: Open the inbox",
-      "GitHub: Find a pull request…",
+  it("adds no thread header chip, overlay, or row statuses, and one command for the thread's pull request", async () => {
+    expect(app.threadHeaderActions).toEqual([]);
+    expect(app.appOverlays).toEqual([]);
+    expect(app.contentScripts).toEqual([]);
+    expect(THREAD_PULL_COMMAND.title).toBe(
       "GitHub: Open this thread's pull request",
-    ]);
-    const threadPull = GITHUB_COMMANDS[2]!;
+    );
     const openPanel = vi.fn(() => true);
     const context = (threadId: string | null): PluginCommandContext => ({
       threadId,
       projectId: "project-1",
       openPanel,
     });
-    expect(threadPull.isAvailable?.(context(null))).toBe(false);
-    expect(threadPull.isAvailable?.(context("thr-1"))).toBe(true);
-    await threadPull.run(context("thr-1"));
+    expect(THREAD_PULL_COMMAND.isAvailable?.(context(null))).toBe(false);
+    expect(THREAD_PULL_COMMAND.isAvailable?.(context("thr-1"))).toBe(true);
+    await THREAD_PULL_COMMAND.run(context("thr-1"));
     expect(openPanel).toHaveBeenCalledWith({ actionId: "pull" });
-
-    const overlay = renderSlot(app.appOverlays[0]!, {}, { rpc: rpc() });
-    await act(async () => {});
-    await GITHUB_COMMANDS[0]!.run(context(null));
-    expect(overlay.navigateCalls).toContainEqual({
-      method: "toPluginPanel",
-      path: "github",
-    });
-    overlay.lifecycle.unmount();
   });
 });

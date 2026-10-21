@@ -1,6 +1,6 @@
 import type { PullStatus } from "./pull-status.js";
 
-export type SnoozeRule = "checks" | "push" | "reply" | "time";
+export type SnoozeRule = "checks" | "push" | "time";
 
 export interface Snooze {
   rule: SnoozeRule;
@@ -8,20 +8,11 @@ export interface Snooze {
   createdAt: string;
   checks: string | null;
   headRefOid: string | null;
-  agentActivity: string | null;
 }
 
 export interface SnoozeSubject {
   pr: PullStatus | null;
-  agentActivity: string | null;
 }
-
-export const SNOOZE_RULES: ReadonlyArray<{ rule: SnoozeRule; label: string }> =
-  [
-    { rule: "checks", label: "Until checks change" },
-    { rule: "reply", label: "Until the agent replies" },
-    { rule: "push", label: "Until a new push" },
-  ];
 
 export function snoozeWakes(
   snooze: Snooze,
@@ -40,8 +31,6 @@ export function snoozeWakes(
         subject.pr.headRefOid !== null &&
         subject.pr.headRefOid !== snooze.headRefOid
       );
-    case "reply":
-      return subject.agentActivity !== snooze.agentActivity;
     case "time":
       return snooze.until === null || Date.parse(snooze.until) <= now.getTime();
   }
@@ -59,7 +48,6 @@ export function snoozeFor(
     createdAt: now.toISOString(),
     checks: subject.pr?.checks.state ?? null,
     headRefOid: subject.pr?.headRefOid ?? null,
-    agentActivity: subject.agentActivity,
   };
 }
 
@@ -78,8 +66,6 @@ export function snoozeLabel(
       return "until checks change";
     case "push":
       return "until a new push";
-    case "reply":
-      return "until the agent replies";
     case "time": {
       if (snooze.until === null) return "until later";
       const at = new Date(snooze.until);

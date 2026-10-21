@@ -4,29 +4,29 @@ import {
   useMemo,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import {
   experimental_Icon as Icon,
-  experimental_ProviderIcon as ProviderIcon,
-  experimental_useProviders,
+  experimental_ThreadStatusGlyph as ThreadStatusGlyph,
   experimental_useSidebarThreads,
   useRealtime,
   useRpc,
-  useSdk,
   type PluginRpcResult,
   type PluginSidebarThread,
+  type PluginSidebarThreadIndicator,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import { ShortcutPill } from "@/components/ui/shortcut-pill";
+import { Button } from "@/components/ui/button";
+import { COARSE_POINTER_ROW_ACTION_SIZE_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/button";
 import type { Item } from "../app-logic.js";
-import type { AgentPreset, PullAgentState, PullTone } from "../pull-status.js";
+import type { PullTone } from "../pull-status.js";
 import type { githubRpcContract } from "../server.js";
 
 export type { Item };
@@ -44,11 +44,14 @@ export type RepoInfo = Status["repos"][number];
 export type LinksMap = PluginRpcResult<
   (typeof githubRpcContract)["listLinks"]
 >["links"];
-export type ThreadLink = LinksMap[string][number];
 export type RepoSettings = PluginRpcResult<
   (typeof githubRpcContract)["repoSettings"]
 >["repos"][string];
 export type MergeMethod = RepoSettings["defaultMergeMethod"];
+
+export const PANEL_PATH = "github";
+
+export const TEXT_BUTTON_CLASS = "h-7 px-2 text-xs max-md:pointer-coarse:h-10";
 
 export function itemKey(item: { repo: string; number: number }): string {
   return `${item.repo}#${item.number}`;
@@ -84,108 +87,222 @@ export function relativeTime(iso: string | number, now = Date.now()): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-export function clockSince(startedAt: number, now: number): string {
-  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
-  const minutes = Math.floor(seconds / 60);
-  if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+export function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="flex h-6 items-center gap-1.5 text-xs font-medium text-subtle-foreground">
+      {children}
+    </h3>
+  );
 }
 
-export function useNow(intervalMs: number, active = true): number {
+export function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    target.closest(
+      "input, textarea, select, [contenteditable=''], [contenteditable='true'], [role='combobox']",
+    ) !== null
+  );
+}
+
+export function useReturnFocus(open: boolean): (event: Event) => void {
+  const [opened, setOpened] = useState(open);
+  const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
+  if (opened !== open) {
+    setOpened(open);
+    if (open) {
+      setReturnTo(
+        document.activeElement instanceof HTMLElement &&
+          document.activeElement !== document.body
+          ? document.activeElement
+          : null,
+      );
+    }
+  }
+  return useCallback(
+    (event: Event) => {
+      if (returnTo === null || !returnTo.isConnected) return;
+      event.preventDefault();
+      returnTo.focus();
+    },
+    [returnTo],
+  );
+}
+
+export function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!active) return;
     const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
     return () => window.clearInterval(timer);
-  }, [active, intervalMs]);
+  }, [intervalMs]);
   return now;
 }
+
+type GithubRpc = ReturnType<typeof useRpc<typeof githubRpcContract>>;
+
+interface ResourceState<T> {
+  value: T | null;
+  error: string | null;
+}
+
+interface SharedResource<T> {
+  subscribe: (listener: () => void) => () => void;
+  snapshot: () => ResourceState<T>;
+  attach: (rpc: GithubRpc) => void;
+  ensure: () => void;
+  refetch: () => void;
+}
+
+function sharedResource<T>(
+  fetch: (rpc: GithubRpc) => Promise<T>,
+): SharedResource<T> {
+  const empty: ResourceState<T> = { value: null, error: null };
+  const listeners = new Set<() => void>();
+  let state = empty;
+  let client: GithubRpc | null = null;
+  let generation = 0;
+  let running = false;
+  let again = false;
+  let scheduled = false;
+
+  const settle = (from: number, next: ResourceState<T>) => {
+    if (from !== generation) return;
+    running = false;
+    state = next;
+    for (const listener of listeners) listener();
+    if (again) {
+      again = false;
+      refetch();
+    }
+  };
+  const run = () => {
+    if (running) {
+      again = true;
+      return;
+    }
+    if (client === null) return;
+    running = true;
+    const from = generation;
+    fetch(client).then(
+      (value) => settle(from, { value, error: null }),
+      (error: unknown) =>
+        settle(from, { value: state.value, error: errorText(error) }),
+    );
+  };
+  const refetch = () => {
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      run();
+    });
+  };
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+        queueMicrotask(() => {
+          if (listeners.size > 0) return;
+          generation += 1;
+          state = empty;
+          client = null;
+          running = false;
+          again = false;
+        });
+      };
+    },
+    snapshot: () => state,
+    attach(rpc) {
+      client = rpc;
+    },
+    ensure() {
+      if (state === empty && !running) refetch();
+    },
+    refetch,
+  };
+}
+
+function useShared<T>(
+  resource: SharedResource<T>,
+  channel: string,
+): ResourceState<T> {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const state = useSyncExternalStore(
+    resource.subscribe,
+    resource.snapshot,
+    resource.snapshot,
+  );
+  useEffect(() => {
+    resource.attach(rpc);
+    resource.ensure();
+  }, [resource, rpc]);
+  useRealtime(channel, resource.refetch);
+  return state;
+}
+
+const pullItems = sharedResource((rpc) =>
+  rpc.call("listItems", { kind: "pr" }).then((result) => result.items),
+);
+const issueItems = sharedResource((rpc) =>
+  rpc.call("listItems", { kind: "issue" }).then((result) => result.items),
+);
+const links = sharedResource((rpc) =>
+  rpc.call("listLinks").then((result) => result.links),
+);
+const repoSettings = sharedResource((rpc) =>
+  rpc.call("repoSettings").then((result) => result.repos),
+);
+const status = sharedResource((rpc) => rpc.call("status"));
+const viewer = sharedResource((rpc) =>
+  rpc.call("viewer").then((result) => result.login),
+);
 
 export function useItems(kind: "issue" | "pr"): {
   items: Item[] | null;
   error: string | null;
   refetch: () => void;
 } {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [state, setState] = useState<{
-    items: Item[] | null;
-    error: string | null;
-  }>({ items: null, error: null });
-  const refetch = useCallback(() => {
-    rpc.call("listItems", { kind }).then(
-      (result) => setState({ items: result.items, error: null }),
-      (error: unknown) =>
-        setState((current) => ({
-          items: current.items,
-          error: errorText(error),
-        })),
-    );
-  }, [rpc, kind]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("data-changed", refetch);
-  return { ...state, refetch };
+  const resource = kind === "pr" ? pullItems : issueItems;
+  const { value, error } = useShared(resource, "data-changed");
+  return { items: value, error, refetch: resource.refetch };
 }
+
+const NO_LINKS: LinksMap = {};
 
 export function useLinks(): LinksMap {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [links, setLinks] = useState<LinksMap>({});
-  const refetch = useCallback(() => {
-    rpc.call("listLinks").then(
-      (result) => setLinks(result.links),
-      () => {},
-    );
-  }, [rpc]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("links-changed", refetch);
-  return links;
+  return useShared(links, "links-changed").value ?? NO_LINKS;
 }
 
-export function useFollows(): Record<string, string> {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [follows, setFollows] = useState<Record<string, string>>({});
-  const refetch = useCallback(() => {
-    rpc.call("listFollows").then(
-      (result) => setFollows(result.follows),
-      () => {},
-    );
-  }, [rpc]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("links-changed", refetch);
-  return follows;
+export function useRepoSettings(): Record<string, RepoSettings> | null {
+  return useShared(repoSettings, "data-changed").value;
 }
 
-export function useRepoSettings(): Record<string, RepoSettings> {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [repos, setRepos] = useState<Record<string, RepoSettings>>({});
-  const refetch = useCallback(() => {
-    rpc.call("repoSettings").then(
-      (result) => setRepos(result.repos),
-      () => {},
-    );
-  }, [rpc]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("data-changed", refetch);
-  return repos;
+export function useStatus(): Status | null {
+  return useShared(status, "data-changed").value;
 }
 
-interface SyncState {
-  syncing: boolean;
-  failed: boolean;
+export function useViewer(): string | null {
+  return useShared(viewer, "data-changed").value;
 }
 
-let syncState: SyncState = { syncing: false, failed: false };
+export function useViewerState(): {
+  login: string | null;
+  error: string | null;
+  retry: () => void;
+} {
+  const state = useShared(viewer, "data-changed");
+  return {
+    login: state.value,
+    error: state.value === null ? state.error : null,
+    retry: viewer.refetch,
+  };
+}
+
+let syncing = false;
 const syncListeners = new Set<() => void>();
 
-function setSyncState(next: SyncState): void {
-  syncState = next;
+function setSyncing(next: boolean): void {
+  syncing = next;
   for (const listener of syncListeners) listener();
 }
 
@@ -194,39 +311,31 @@ function subscribeSync(listener: () => void): () => void {
   return () => syncListeners.delete(listener);
 }
 
-export const SYNC_TOAST_ID = "github-sync";
-let manualSyncAt: number | null = null;
-
-export function recentManualSync(now = Date.now()): boolean {
-  return manualSyncAt !== null && now - manualSyncAt < 15_000;
-}
-
-export function useSync(): SyncState & { refresh: () => void } {
+export function useSync(): { syncing: boolean; refresh: () => void } {
   const rpc = useRpc<typeof githubRpcContract>();
-  const state = useSyncExternalStore(
+  const busy = useSyncExternalStore(
     subscribeSync,
-    () => syncState,
-    () => syncState,
+    () => syncing,
+    () => syncing,
   );
   const refresh = useCallback(() => {
-    if (syncState.syncing) return;
-    setSyncState({ syncing: true, failed: false });
+    if (syncing) return;
+    setSyncing(true);
     rpc.call("refresh").then(
       () => {
-        manualSyncAt = Date.now();
-        setSyncState({ syncing: false, failed: false });
-        toast.success("Synced with GitHub", { id: SYNC_TOAST_ID });
+        setSyncing(false);
+        toast.success("Synced with GitHub", { id: "github-sync" });
       },
       (error: unknown) => {
-        setSyncState({ syncing: false, failed: true });
+        setSyncing(false);
         toast.error("Couldn't sync with GitHub", {
-          id: SYNC_TOAST_ID,
+          id: "github-sync",
           description: errorText(error),
         });
       },
     );
   }, [rpc]);
-  return { ...state, refresh };
+  return { syncing: busy, refresh };
 }
 
 export function readStored(key: string): string | null {
@@ -264,79 +373,41 @@ export function useStored<T>(
   return [value, update];
 }
 
-export function useStatus(): { status: Status | null; refetch: () => void } {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [status, setStatus] = useState<Status | null>(null);
-  const refetch = useCallback(() => {
-    rpc.call("status").then(
-      (result) => setStatus(result),
-      () => {},
-    );
-  }, [rpc]);
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-  useRealtime("data-changed", refetch);
-  return { status, refetch };
-}
-
-let viewerLogin: string | null = null;
-
-export function useViewer(): string | null {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const [login, setLogin] = useState<string | null>(viewerLogin);
-  useEffect(() => {
-    if (viewerLogin !== null) return;
-    rpc.call("viewer").then(
-      (result) => {
-        viewerLogin = result.login;
-        setLogin(result.login);
-      },
-      () => {},
-    );
-  }, [rpc]);
-  return login;
-}
-
 export interface AgentInfo {
-  state: PullAgentState;
   threadId: string;
   title: string;
-  href: string;
-  providerId: string;
-  preset: AgentPreset | null;
+  state: "running" | "waiting" | "idle";
+  indicator: PluginSidebarThreadIndicator;
   startedAt: number;
   updatedAt: number;
 }
 
 const RUNNING_STATUSES = new Set(["pending", "starting", "active", "stopping"]);
 
-export function agentStateOf(thread: PluginSidebarThread): PullAgentState {
+function agentStateOf(thread: PluginSidebarThread): AgentInfo["state"] {
   if (thread.hasPendingInteraction) return "waiting";
   if (RUNNING_STATUSES.has(thread.status)) return "running";
-  return "done";
+  return "idle";
 }
 
-export function useAgents(links: LinksMap): Map<string, AgentInfo> {
+export function useAgents(): ReadonlyMap<string, AgentInfo> {
+  const links = useLinks();
   const { threads } = experimental_useSidebarThreads();
   return useMemo(() => {
     const byId = new Map(threads.map((thread) => [thread.id, thread]));
     const agents = new Map<string, AgentInfo>();
     for (const [key, entries] of Object.entries(links)) {
-      if (!key.startsWith("pr:")) continue;
       const newest = [...entries].sort((a, b) =>
         b.createdAt.localeCompare(a.createdAt),
       );
       for (const link of newest) {
         const thread = byId.get(link.threadId);
         if (thread === undefined || thread.isArchived) continue;
-        agents.set(key.slice(3), {
-          state: agentStateOf(thread),
+        agents.set(key, {
           threadId: thread.id,
           title: thread.displayTitle,
-          href: thread.href,
-          providerId: thread.providerId,
-          preset: link.preset,
+          state: agentStateOf(thread),
+          indicator: thread.indicator,
           startedAt: thread.createdAt,
           updatedAt: thread.updatedAt,
         });
@@ -347,81 +418,20 @@ export function useAgents(links: LinksMap): Map<string, AgentInfo> {
   }, [links, threads]);
 }
 
-export type PendingQuestion = {
-  interactionId: string;
-  questionId: string;
-  prompt: string;
-  options: Array<{ value: string; label: string }>;
-  allowFreeText: boolean;
-};
-
-export function usePendingQuestion(threadId: string | null, version = 0) {
-  const sdk = useSdk();
-  const [state, setState] = useState<{
-    status: "loading" | "question" | "other" | "error";
-    question: PendingQuestion | null;
-  }>({ status: "loading", question: null });
-  useEffect(() => {
-    if (threadId === null) return;
-    let cancelled = false;
-    sdk.threads.interactions.list({ threadId }).then(
-      (interactions) => {
-        if (cancelled) return;
-        for (const interaction of interactions) {
-          if (interaction.status !== "pending") continue;
-          const payload = interaction.payload;
-          if (payload.kind !== "user_question") continue;
-          const first = payload.questions[0];
-          if (payload.questions.length !== 1 || first === undefined) break;
-          setState({
-            status: "question",
-            question: {
-              interactionId: interaction.id,
-              questionId: first.id,
-              prompt: first.prompt,
-              options:
-                first.multiSelect || first.options === undefined
-                  ? []
-                  : first.options.map((option) => ({
-                      value: option.value,
-                      label: option.label,
-                    })),
-              allowFreeText: first.allowFreeText,
-            },
-          });
-          return;
-        }
-        setState({ status: "other", question: null });
-      },
-      () => {
-        if (!cancelled) setState({ status: "error", question: null });
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [sdk, threadId, version]);
-  return state;
-}
-
 export function useBranchEnvironment(): (
   branch: string,
   projectId: string | null,
-) => { environmentId: string; hostId: string | null } | null {
+) => string | null {
   const { threads } = experimental_useSidebarThreads();
   return useCallback(
     (branch, projectId) => {
+      if (projectId === null) return null;
       for (const thread of threads) {
-        if (thread.isArchived) continue;
-        if (projectId !== null && thread.projectId !== projectId) continue;
+        if (thread.isArchived || thread.projectId !== projectId) continue;
         const environment = thread.environment;
-        if (environment?.id == null || environment.branchName !== branch) {
-          continue;
+        if (environment?.id != null && environment.branchName === branch) {
+          return environment.id;
         }
-        return {
-          environmentId: environment.id,
-          hostId: thread.host?.id ?? null,
-        };
       }
       return null;
     },
@@ -436,12 +446,11 @@ export function useProjectHost(): (projectId: string | null) => string | null {
       const sorted = [...state.threads].sort(
         (a, b) => b.updatedAt - a.updatedAt,
       );
-      const match =
-        sorted.find(
-          (thread) =>
-            thread.host !== null &&
-            (projectId === null || thread.projectId === projectId),
-        ) ?? null;
+      const match = sorted.find(
+        (thread) =>
+          thread.host !== null &&
+          (projectId === null || thread.projectId === projectId),
+      );
       return match?.host?.id ?? state.experimental_hosts?.[0]?.id ?? null;
     },
     [state],
@@ -451,11 +460,9 @@ export function useProjectHost(): (projectId: string | null) => string | null {
 export function Avatar({
   login,
   size = "size-5",
-  className,
 }: {
   login: string;
   size?: string;
-  className?: string;
 }) {
   return (
     <img
@@ -463,28 +470,7 @@ export function Avatar({
       alt=""
       title={login}
       loading="lazy"
-      className={`${size} shrink-0 rounded-full bg-muted ${className ?? ""}`}
-    />
-  );
-}
-
-export function AgentGlyph({
-  providerId,
-  className = "size-3.5",
-}: {
-  providerId: string;
-  className?: string;
-}) {
-  const { providers } = experimental_useProviders();
-  const provider = providers.find((entry) => entry.id === providerId) ?? {
-    id: providerId,
-  };
-  return (
-    <ProviderIcon
-      providerKind="agent"
-      provider={provider}
-      fallback="Bot"
-      className={className}
+      className={`${size} shrink-0 rounded-full bg-muted`}
     />
   );
 }
@@ -504,6 +490,10 @@ export function PullAuthor({
     );
   }
   return <Avatar login={login} size={size} />;
+}
+
+export function authorName(login: string): string {
+  return login.startsWith("app/") ? login.slice(4) : login;
 }
 
 export const PULL_TONE_CLASS: Record<PullTone, string> = {
@@ -537,61 +527,6 @@ export function StateDot({
   );
 }
 
-export function KeyCaps({ keys }: { keys: readonly string[] }) {
-  return (
-    <span className="ml-auto flex shrink-0 gap-0.5 pl-3">
-      {keys.map((key) => (
-        <ShortcutPill key={key} shortcut={{ label: key }} />
-      ))}
-    </span>
-  );
-}
-
-export function TipButton({
-  label,
-  keys,
-  icon,
-  onClick,
-  disabled,
-  busy,
-  className,
-  tone,
-}: {
-  label: string;
-  keys?: readonly string[];
-  icon: string;
-  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  disabled?: boolean;
-  busy?: boolean;
-  className?: string;
-  tone?: string;
-}) {
-  return (
-    <TooltipProvider delayDuration={300}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={`size-7 text-muted-foreground hover:text-foreground ${className ?? ""}`}
-            aria-label={label}
-            aria-busy={busy === true ? true : undefined}
-            disabled={disabled === true || busy === true}
-            onClick={onClick}
-          >
-            <Icon
-              name={busy === true ? "Spinner" : icon}
-              className={`size-4 ${busy === true ? "animate-spin motion-reduce:animate-none" : (tone ?? "")}`}
-            />
-          </Button>
-        </TooltipTrigger>
-        <TipContent label={label} keys={keys} />
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
 function TipContent({
   label,
   keys,
@@ -603,7 +538,7 @@ function TipContent({
     <TooltipContent className="flex items-center gap-2">
       {label}
       {keys === undefined ? null : (
-        <span className="flex gap-0.5">
+        <span className="flex gap-0.5 pointer-coarse:hidden">
           {keys.map((key) => (
             <kbd
               key={key}
@@ -630,30 +565,72 @@ export function TriggerTip({
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>
-        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipTrigger asChild onFocus={(event) => event.preventDefault()}>
+          {children}
+        </TooltipTrigger>
         <TipContent label={label} keys={keys} />
       </Tooltip>
     </TooltipProvider>
   );
 }
 
-export function SectionHeading({
-  children,
-  count,
-  action,
+export function TipButton({
+  label,
+  keys,
+  icon,
+  onClick,
+  busy = false,
+  tone,
+  tabIndex,
 }: {
-  children: React.ReactNode;
-  count?: string;
-  action?: React.ReactNode;
+  label: string;
+  keys?: readonly string[];
+  icon: string;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  busy?: boolean;
+  tone?: string;
+  tabIndex?: number;
 }) {
   return (
-    <div className="flex h-7 items-center gap-2 text-xs font-medium text-subtle-foreground">
-      <h3>{children}</h3>
-      {count === undefined ? null : (
-        <span className="font-normal tabular-nums">{count}</span>
-      )}
-      <span className="flex-1" />
-      {action}
-    </div>
+    <TriggerTip label={label} keys={keys}>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className={`${COARSE_POINTER_ROW_ACTION_SIZE_CLASS} text-muted-foreground hover:text-foreground`}
+        aria-label={label}
+        aria-busy={busy ? true : undefined}
+        disabled={busy}
+        tabIndex={tabIndex}
+        onClick={onClick}
+      >
+        <Icon
+          name={busy ? "Spinner" : icon}
+          className={`size-4 ${busy ? "animate-spin motion-reduce:animate-none" : (tone ?? "")}`}
+        />
+      </Button>
+    </TriggerTip>
+  );
+}
+
+export function AgentGlyph({ agent }: { agent: AgentInfo }) {
+  if (agent.state === "running" && agent.indicator === "none") {
+    return (
+      <Icon
+        name="Zap"
+        aria-label="Agent working"
+        className="size-3.5 shrink-0 animate-shine-icon text-muted-foreground"
+      />
+    );
+  }
+  return <ThreadStatusGlyph indicator={agent.indicator} size="compact" />;
+}
+
+export function SpinnerIcon({ className = "size-4" }: { className?: string }) {
+  return (
+    <Icon
+      name="Spinner"
+      className={`${className} animate-spin motion-reduce:animate-none`}
+    />
   );
 }

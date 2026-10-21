@@ -1,211 +1,93 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  experimental_copyToClipboard,
   experimental_Icon as Icon,
   useBbNavigate,
-  useRpc,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
+import { useMediaQuery } from "@/components/ui/hooks/use-media-query";
 import {
   inboxCount,
-  issueGroups,
   parseCollapsed,
-  parseDisplay,
   parseQuery,
   pullRowModels,
   pullViewGroups,
-  type DisplayPrefs,
-  type Item,
+  stateNameOf,
   type PullRowModel,
   type Route,
 } from "../app-logic.js";
 import {
   COLLAPSED_PULL_GROUPS,
-  mergeBlockedReason,
+  hardMergeBlock,
   pullPreset,
-  type AgentPreset,
-  type PullAgentState,
-  type PullStateTarget,
   type PullView,
 } from "../pull-status.js";
-import type { githubRpcContract } from "../server.js";
-import { snoozeLabel } from "../snooze.js";
 import { AgentSheet, type AgentTarget } from "./agent-sheet.js";
 import { FilterChips, FilterInput } from "./filter-bar.js";
+import { IssuesPane } from "./issues.js";
+import { useMerge } from "./merge.js";
 import {
-  BulkBar,
-  DisplayMenu,
-  HelpMenu,
-  INBOX_VIEWS,
-  IssueListRow,
-  ListMessage,
-  PullList,
-  PullListSkeleton,
-  ViewBar,
-  type InboxView,
-  type PullListActions,
-  type PullListContext,
-  type RowMenuState,
-  type SnoozeChoice,
-} from "./inbox.js";
-import { MergeDialog, useMerge, type MergeTarget } from "./merge-dialog.js";
+  copyText,
+  currentActivity,
+  settleActivity,
+  useActivities,
+  useChangePullState,
+  useSnooze,
+} from "./pull-actions.js";
 import {
   PullDetailView,
   type DetailRequestKind,
   type PullDetailHandle,
 } from "./pull-detail.js";
 import {
-  pullStateAfter,
-  pullStateMessages,
-  pullStateUndo,
-} from "./pull-state.js";
+  HEADER_CLASS,
+  INBOX_VIEWS,
+  ListMessage,
+  ListSkeleton,
+  NoMatch,
+  PullList,
+  ShortcutsDialog,
+  ViewTabs,
+  type InboxView,
+  type PullListActions,
+  type PullListContext,
+} from "./pull-list.js";
 import {
-  errorText,
-  itemKey,
-  plural,
+  rowMergeable,
+  rowMergeTarget,
+  rowState,
+  type PullRowPermissions,
+  type RowMenuStep,
+} from "./row-menu.js";
+import {
+  isTyping,
   readStored,
-  recentManualSync,
-  SYNC_TOAST_ID,
   TipButton,
   useAgents,
-  useBranchEnvironment,
-  useFollows,
   useItems,
-  useLinks,
   useNow,
   useRepoSettings,
-  useStatus,
   useStored,
   useSync,
-  useViewer,
+  TEXT_BUTTON_CLASS,
+  useViewerState,
   writeStored,
-  type RepoInfo,
   type Status,
 } from "./shared.js";
 
-const STORE = "bb-plugin-github:v3";
+const STORE = "bb-plugin-github:v4";
 
-export function usePullDialogs(): {
-  openMerge: (target: Omit<MergeTarget, "environmentId">) => void;
-  openAgent: (target: AgentTarget) => void;
-  mergeMany: (targets: Array<Omit<MergeTarget, "environmentId">>) => void;
-  merging: ReadonlySet<string>;
-  open: boolean;
-  dialogs: ReactNode;
-} {
-  const { status } = useStatus();
-  const findEnvironment = useBranchEnvironment();
-  const settings = useRepoSettings();
-  const { merging, merge, mergeAll } = useMerge();
-  const [mergeTarget, setMergeTarget] = useState<MergeTarget | null>(null);
-  const [agentTarget, setAgentTarget] = useState<AgentTarget | null>(null);
-  const withEnvironment = useCallback(
-    (target: Omit<MergeTarget, "environmentId">): MergeTarget => {
-      const projectId =
-        status?.repos.find((entry) => entry.repo === target.repo)?.projectId ??
-        null;
-      const environment = target.isCrossRepository
-        ? null
-        : findEnvironment(target.headRefName, projectId);
-      return { ...target, environmentId: environment?.environmentId ?? null };
-    },
-    [findEnvironment, status],
-  );
-  const openMerge = useCallback(
-    (target: Omit<MergeTarget, "environmentId">) =>
-      setMergeTarget(withEnvironment(target)),
-    [withEnvironment],
-  );
-  const mergeMany = useCallback(
-    (targets: Array<Omit<MergeTarget, "environmentId">>) =>
-      mergeAll(
-        targets.map((target) => ({
-          target: withEnvironment(target),
-          method: settings[target.repo]?.defaultMergeMethod ?? "squash",
-        })),
-      ),
-    [mergeAll, settings, withEnvironment],
-  );
-  return {
-    openMerge,
-    openAgent: setAgentTarget,
-    mergeMany,
-    merging,
-    open: mergeTarget !== null || agentTarget !== null,
-    dialogs: (
-      <>
-        <MergeDialog
-          target={mergeTarget}
-          onOpenChange={(open) => {
-            if (!open) setMergeTarget(null);
-          }}
-          onConfirm={(target, method, deleteBranch) => {
-            setMergeTarget(null);
-            merge(target, method, deleteBranch);
-          }}
-        />
-        <AgentSheet
-          target={agentTarget}
-          onOpenChange={(open) => {
-            if (!open) setAgentTarget(null);
-          }}
-        />
-      </>
-    ),
-  };
-}
-
-function mergeTargetOf(
-  row: PullRowModel,
-  canDeleteBranch: boolean,
-): Omit<MergeTarget, "environmentId"> {
-  const checks = row.pr.checks;
-  return {
-    repo: row.item.repo,
-    number: row.item.number,
-    baseRefName: row.pr.baseRefName,
-    headRefName: row.pr.headRefName,
-    headRefOid: row.pr.headRefOid,
-    isCrossRepository: row.pr.isCrossRepository,
-    summary: `${checks.passed > 0 ? `${plural(checks.passed, "check")} passed` : "No checks"} · no conflicts`,
-    canDeleteBranch,
-  };
-}
-
-function agentTargetOf(row: PullRowModel, preset: AgentPreset): AgentTarget {
-  return {
-    repo: row.item.repo,
-    number: row.item.number,
-    headRefName: row.pr.headRefName,
-    isCrossRepository: row.pr.isCrossRepository,
-    stacked: row.chain !== null,
-    preset,
-    prompt: null,
-  };
-}
-
-function isTyping(target: EventTarget | null): boolean {
+function onRowButton(): boolean {
+  const active = document.activeElement;
   return (
-    target instanceof HTMLElement &&
-    target.closest(
-      "input, textarea, select, [contenteditable=''], [contenteditable='true'], [role='combobox']",
-    ) !== null
+    active instanceof HTMLElement && active.dataset.rowButton !== undefined
   );
+}
+
+export interface PanelNavigator {
+  go: (route: Route, options?: { replace?: boolean }) => void;
+  back: (fallback: Route) => void;
 }
 
 const COLLAPSED_ISSUE_GROUPS: ReadonlySet<string> = new Set(["closed"]);
@@ -213,16 +95,13 @@ const COLLAPSED_ISSUE_GROUPS: ReadonlySet<string> = new Set(["closed"]);
 function useCollapsed(
   view: InboxView,
 ): [(groupId: string) => boolean, (groupId: string) => void] {
-  const key = `${STORE}:collapsed:${view}`;
   const [toggled, setToggled] = useStored(
-    key,
+    `${STORE}:collapsed:${view}`,
     parseCollapsed,
     (value: Set<string>) => JSON.stringify([...value]),
   );
   const defaults: ReadonlySet<string> =
-    view === "issues"
-      ? COLLAPSED_ISSUE_GROUPS
-      : (COLLAPSED_PULL_GROUPS[view] as ReadonlySet<string>);
+    view === "issues" ? COLLAPSED_ISSUE_GROUPS : COLLAPSED_PULL_GROUPS[view];
   const collapsed = useCallback(
     (groupId: string) => defaults.has(groupId) !== toggled.has(groupId),
     [defaults, toggled],
@@ -239,9 +118,8 @@ function useCollapsed(
   return [collapsed, toggle];
 }
 
-const serializeDisplay = (value: DisplayPrefs) => JSON.stringify(value);
-const identity = (raw: string | null) => raw ?? "";
-const keep = (value: string) => value;
+const asText = (raw: string | null) => raw ?? "";
+const keepText = (value: string) => value;
 
 export function lastPullTab(): PullView {
   const stored = readStored(`${STORE}:tab`);
@@ -250,29 +128,61 @@ export function lastPullTab(): PullView {
     : "inbox";
 }
 
+export function pullAgentTarget(
+  row: PullRowModel,
+  viewer: string | null,
+): AgentTarget {
+  return {
+    kind: "pr",
+    repo: row.item.repo,
+    number: row.item.number,
+    title: row.item.title,
+    headRefName: row.pr.headRefName,
+    baseRefName: row.pr.baseRefName,
+    isCrossRepository: row.pr.isCrossRepository,
+    preset: pullPreset(row.pr, row.item.author, viewer),
+  };
+}
+
+const DETAIL_KEYS: Record<string, DetailRequestKind> = {
+  a: "agent",
+  m: "merge",
+  r: "ready",
+  s: "status",
+  z: "snooze",
+  t: "thread",
+  c: "copy",
+  o: "open",
+};
+
 export function PullWorkspace({
   route,
-  navigate,
+  navigator,
   status,
-  findRequest,
 }: {
   route: Route;
-  navigate: (route: Route) => void;
+  navigator: PanelNavigator;
   status: Status | null;
-  findRequest: number;
 }) {
-  const rpc = useRpc<typeof githubRpcContract>();
   const bbNavigate = useBbNavigate();
-  const viewer = useViewer();
-  const links = useLinks();
-  const agents = useAgents(links);
-  const follows = useFollows();
+  const {
+    login: viewer,
+    error: viewerError,
+    retry: retryViewer,
+  } = useViewerState();
+  const agents = useAgents();
   const settings = useRepoSettings();
+  const activities = useActivities();
   const sync = useSync();
+  const merge = useMerge();
+  const changeState = useChangePullState();
+  const { snooze, unsnooze } = useSnooze();
   const { items, error, refetch } = useItems("pr");
-  const dialogs = usePullDialogs();
+  const issues = useItems("issue");
   const now = useNow(30_000);
-  const repos: RepoInfo[] = status?.repos ?? [];
+  const compact = useIsCompactViewport();
+  const touch = useMediaQuery("(hover: none)");
+  const repos = status?.repos ?? [];
 
   const view: InboxView =
     route.view === "issues"
@@ -286,32 +196,48 @@ export function PullWorkspace({
     if (route.view === "pulls") writeStored(`${STORE}:tab`, route.tab);
   }, [route]);
 
-  const [display, setDisplay] = useStored(
-    `${STORE}:display`,
-    parseDisplay,
-    serializeDisplay,
-  );
   const kind = view === "issues" ? "issue" : "pr";
-  const [query, setQuery] = useStored(`${STORE}:query:${kind}`, identity, keep);
-  const [searchOpen, setSearchOpen] = useState(query.trim().length > 0);
-  const [focusSearch, setFocusSearch] = useState(0);
+  const [query, setQuery] = useStored(
+    `${STORE}:query:${kind}`,
+    asText,
+    keepText,
+  );
+  const [filterOpenBy, setFilterOpenBy] = useState(() => ({
+    pr: asText(readStored(`${STORE}:query:pr`)).trim().length > 0,
+    issue: asText(readStored(`${STORE}:query:issue`)).trim().length > 0,
+  }));
+  const filterOpen = filterOpenBy[kind];
+  const setFilterOpen = useCallback(
+    (open: boolean) =>
+      setFilterOpenBy((current) => ({ ...current, [kind]: open })),
+    [kind],
+  );
+  const [focusFilter, setFocusFilter] = useState(0);
   const [collapsed, toggleGroup] = useCollapsed(view);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
-  const [peek, setPeek] = useState<string | null>(null);
-  const [menu, setMenu] = useState<RowMenuState | null>(null);
-  const [displayOpen, setDisplayOpen] = useState(false);
+  const [menu, setMenu] = useState<{ key: string; step: RowMenuStep } | null>(
+    null,
+  );
   const [helpOpen, setHelpOpen] = useState(false);
-  const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
-  const detailHandle = useRef<PullDetailHandle>(null);
-  const [seenFind, setSeenFind] = useState(findRequest);
-  if (seenFind !== findRequest) {
-    setSeenFind(findRequest);
-    setSearchOpen(true);
-    setFocusSearch((value) => value + 1);
+  const [agentTarget, setAgentTarget] = useState<AgentTarget | null>(null);
+  const [pending, setPending] = useState<{
+    key: string;
+    kind: DetailRequestKind;
+  } | null>(null);
+  const [pendingFor, setPendingFor] = useState(openKey);
+  if (pendingFor !== openKey) {
+    setPendingFor(openKey);
+    if (pending !== null && pending.key !== openKey) setPending(null);
   }
+  const detailHandle = useRef<PullDetailHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const rowButtons = useRef(new Map<string, HTMLButtonElement>());
+  const anchor = useRef<{ key: string | null; requested: string | null }>({
+    key: null,
+    requested: null,
+  });
+  const lastIndex = useRef(-1);
+
   const registerRow = useCallback(
     (key: string, element: HTMLButtonElement | null) => {
       if (element === null) rowButtons.current.delete(key);
@@ -320,392 +246,265 @@ export function PullWorkspace({
     [],
   );
 
-  const agentStates = useMemo(() => {
-    const states = new Map<string, PullAgentState>();
-    for (const [key, agent] of agents) states.set(key, agent.state);
-    return states;
-  }, [agents]);
   const rows = useMemo(
-    () => (items === null ? null : pullRowModels(items, viewer, agentStates)),
-    [agentStates, items, viewer],
+    () =>
+      items === null || viewer === null ? null : pullRowModels(items, viewer),
+    [items, viewer],
   );
   const rowByKey = useMemo(
     () => new Map((rows ?? []).map((row) => [row.key, row])),
     [rows],
   );
-  const readyKeys = useMemo(
-    () =>
-      rows === null
-        ? null
-        : rows.filter((row) => row.group === "ready").map((row) => row.key),
-    [rows],
-  );
-  const seenReady = useRef<ReadonlySet<string> | null>(null);
   useEffect(() => {
-    if (readyKeys === null) return;
-    const before = seenReady.current;
-    seenReady.current = new Set(readyKeys);
-    if (before === null || !recentManualSync()) return;
-    const fresh = readyKeys.filter((key) => !before.has(key));
-    const first = fresh[0];
-    if (first === undefined) return;
-    toast.success(
-      fresh.length === 1
-        ? `Synced · #${first.split("#")[1] ?? ""} is ready to merge`
-        : `Synced · ${fresh.length} pull requests are ready to merge`,
-      { id: SYNC_TOAST_ID },
-    );
-  }, [readyKeys]);
+    for (const row of rows ?? []) settleActivity(row.key, stateNameOf(row.pr));
+  }, [rows]);
   const parsed = useMemo(() => parseQuery(query), [query]);
   const groups = useMemo(
     () =>
       rows === null || view === "issues"
         ? []
-        : pullViewGroups(rows, view, parsed, viewer, display.groupBy),
-    [display.groupBy, parsed, rows, view, viewer],
+        : pullViewGroups(rows, view, parsed, viewer),
+    [parsed, rows, view, viewer],
   );
   const count = useMemo(
-    () => (rows === null ? 0 : inboxCount(rows, viewer)),
+    () => (rows === null ? null : inboxCount(rows, viewer)),
     [rows, viewer],
   );
   const flat = useMemo(
-    () =>
-      groups.flatMap((group) =>
-        group.label !== "" && collapsed(group.id) ? [] : group.rows,
-      ),
+    () => groups.flatMap((group) => (collapsed(group.id) ? [] : group.rows)),
     [collapsed, groups],
   );
   const visibleCount = groups.reduce(
     (sum, group) => sum + group.rows.length,
     0,
   );
+  const cursorRow =
+    cursor === null ? null : (flat.find((row) => row.key === cursor) ?? null);
 
-  const canEdit = useCallback(
-    (row: PullRowModel) =>
-      settings[row.item.repo]?.viewerCanWrite === true ||
-      (viewer !== null &&
-        row.item.author.toLowerCase() === viewer.toLowerCase()),
-    [settings, viewer],
+  useEffect(() => {
+    const current = openKey ?? cursor;
+    if (anchor.current.requested !== null) {
+      if (current === anchor.current.requested) {
+        anchor.current.requested = null;
+      }
+    } else {
+      anchor.current.key = current;
+    }
+    const index =
+      current === null ? -1 : flat.findIndex((row) => row.key === current);
+    if (index >= 0) lastIndex.current = index;
+  }, [cursor, flat, openKey]);
+
+  const scrolledTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (openKey === null) {
+      scrolledTo.current = null;
+      return;
+    }
+    const element = rowButtons.current.get(openKey);
+    if (scrolledTo.current === openKey || element === undefined) return;
+    scrolledTo.current = openKey;
+    element.scrollIntoView?.({ block: "nearest" });
+  }, [openKey, rows]);
+
+  const permissions = useCallback(
+    (row: PullRowModel): PullRowPermissions => {
+      const write = settings?.[row.item.repo]?.viewerCanWrite === true;
+      const own =
+        viewer !== null &&
+        row.item.author.toLowerCase() === viewer.toLowerCase();
+      return {
+        canEdit: write || own,
+        canMerge: settings?.[row.item.repo] === undefined ? null : write,
+        hasAgent: agents.has(`pr:${row.key}`),
+      };
+    },
+    [agents, settings, viewer],
   );
 
   const focusRow = useCallback((key: string) => {
     setCursor(key);
+    anchor.current = { key, requested: null };
     const element = rowButtons.current.get(key);
     if (element !== undefined && document.activeElement !== element) {
-      element.focus();
+      element.focus({ preventScroll: true });
     }
     element?.scrollIntoView?.({ block: "nearest" });
   }, []);
 
   const openPull = useCallback(
-    (repo: string, number: number) => {
+    (repo: string, number: number, replace = false) => {
       setCursor(`${repo}#${number}`);
-      setPeek(null);
-      navigate({ view: "pull", repo, number });
+      setMenu(null);
+      navigator.go({ view: "pull", repo, number }, { replace });
     },
-    [navigate],
+    [navigator],
   );
   const closeDetail = useCallback(() => {
-    navigate({ view: "pulls", tab: view === "issues" ? "inbox" : view });
-    if (openKey !== null) {
-      requestAnimationFrame(() => focusRow(openKey));
-    }
-  }, [focusRow, navigate, openKey, view]);
+    navigator.back({ view: "pulls", tab: view === "issues" ? "inbox" : view });
+  }, [navigator, view]);
+  const lastOpen = useRef<string | null>(openKey);
+  useEffect(() => {
+    const previous = lastOpen.current;
+    lastOpen.current = openKey;
+    if (openKey === null && previous !== null) focusRow(previous);
+  }, [focusRow, openKey]);
 
-  const snooze = useCallback(
-    (targets: PullRowModel[], choice: SnoozeChoice) => {
+  const switchView = useCallback(
+    (next: InboxView) => {
+      setCursor(null);
       setMenu(null);
-      Promise.all(
-        targets.map((row) =>
-          rpc.call("snoozePull", {
-            repo: row.item.repo,
-            number: row.item.number,
-            rule: choice.rule,
-            until: choice.until,
-          }),
-        ),
-      ).then(
-        (results) => {
-          const label = snoozeLabel(
-            results[0]?.snooze ?? { rule: choice.rule, until: choice.until },
-            new Date(),
-          );
-          const first = targets[0];
-          toast.success(
-            targets.length === 1 && first !== undefined
-              ? `#${first.item.number} snoozed ${label}`
-              : `${plural(targets.length, "pull request")} snoozed ${label}`,
-            {
-              action: {
-                label: "Undo",
-                onClick: () => {
-                  for (const row of targets) {
-                    void rpc.call("unsnoozePull", {
-                      repo: row.item.repo,
-                      number: row.item.number,
-                    });
-                  }
-                },
-              },
-            },
-          );
-          setPicked(new Set());
-        },
-        (failure: unknown) =>
-          toast.error("Couldn't snooze", { description: errorText(failure) }),
+      navigator.go(
+        next === "issues" ? { view: "issues" } : { view: "pulls", tab: next },
+        { replace: true },
       );
     },
-    [rpc],
+    [navigator],
   );
-  const unsnooze = useCallback(
+
+  const startAgent = useCallback(
     (row: PullRowModel) => {
       setMenu(null);
-      rpc
-        .call("unsnoozePull", { repo: row.item.repo, number: row.item.number })
-        .then(
-          () => toast.success(`#${row.item.number} is back in the inbox`),
-          (failure: unknown) =>
-            toast.error("Couldn't unsnooze", {
-              description: errorText(failure),
-            }),
-        );
+      setAgentTarget(pullAgentTarget(row, viewer));
     },
-    [rpc],
+    [viewer],
   );
-  const changeRowState = useCallback(
-    function changeRow(
-      row: PullRowModel,
-      from: string,
-      target: PullStateTarget,
-      undo: boolean,
-    ): void {
-      const messages = pullStateMessages(row.item.number, from, target);
-      const back = undo
-        ? pullStateUndo(from, target, row.pr.state === "draft")
-        : null;
-      const id = toast.loading(messages.loading);
-      rpc
-        .call("setPullState", {
-          repo: row.item.repo,
-          number: row.item.number,
-          state: target,
-        })
-        .then(
-          () =>
-            toast.success(messages.done, {
-              id,
-              ...(back === null
-                ? {}
-                : {
-                    action: {
-                      label: "Undo",
-                      onClick: () =>
-                        changeRow(row, pullStateAfter(target), back, false),
-                    },
-                  }),
-            }),
-          (failure: unknown) =>
-            toast.error(`Couldn't update #${row.item.number}`, {
-              id,
-              description: errorText(failure),
-            }),
-        );
-    },
-    [rpc],
-  );
-  const setRowState = useCallback(
-    (row: PullRowModel, target: PullStateTarget) => {
-      setMenu(null);
-      changeRowState(
-        row,
-        row.pr.state === "draft" ? "DRAFT" : row.item.state,
-        target,
-        true,
-      );
-    },
-    [changeRowState],
-  );
-  const copyBranch = useCallback((name: string) => {
-    void experimental_copyToClipboard({ text: name }).then((ok) => {
-      if (ok) toast.success(`Copied ${name}`);
-      else toast.error("Could not copy the branch name");
-    });
-  }, []);
-  const openThreadOf = useCallback(
-    (key: string) => {
-      const agent = agents.get(key);
+  const openThread = useCallback(
+    (row: PullRowModel) => {
+      const agent = agents.get(`pr:${row.key}`);
       if (agent === undefined) {
-        toast(`No agent works on #${key.split("#")[1] ?? ""} yet`);
+        toast(`No agent works on #${row.item.number} yet`, {
+          id: `github-thread-${row.key}`,
+        });
         return;
       }
       bbNavigate.toThread(agent.threadId);
     },
     [agents, bbNavigate],
   );
-  const merge = useCallback(
-    (row: PullRowModel) => {
-      setMenu(null);
-      const blocked = mergeBlockedReason(row.pr);
-      if (blocked !== null) {
-        toast(`#${row.item.number} isn't ready to merge yet`, {
-          description: blocked,
-        });
-        return;
-      }
-      if (settings[row.item.repo]?.viewerCanWrite === false) {
-        toast(`You can't merge in ${row.item.repo}`);
-        return;
-      }
-      dialogs.openMerge(mergeTargetOf(row, canEdit(row)));
-    },
-    [canEdit, dialogs, settings],
-  );
-  const startAgents = useCallback(
-    (targets: PullRowModel[]) => {
-      const keys = targets.map((row) => row.key);
-      setStarting((current) => new Set([...current, ...keys]));
-      Promise.allSettled(
-        targets.map((row) =>
-          rpc.call("startAgent", {
-            repo: row.item.repo,
-            number: row.item.number,
-            preset: pullPreset(row.pr),
-            prompt: null,
-          }),
-        ),
-      )
-        .then((results) => {
-          const started = results.filter(
-            (result) => result.status === "fulfilled",
-          ).length;
-          const failed = results.length - started;
-          if (failed === 0)
-            toast.success(`Started ${plural(started, "agent")}`);
-          else {
-            const reason = results.find(
-              (result): result is PromiseRejectedResult =>
-                result.status === "rejected",
-            );
-            toast.error(
-              `Started ${plural(started, "agent")}, ${failed} failed`,
-              { description: errorText(reason?.reason) },
-            );
-          }
-          setPicked(new Set());
-        })
-        .finally(() =>
-          setStarting((current) => {
-            const next = new Set(current);
-            for (const key of keys) next.delete(key);
-            return next;
-          }),
-        );
-    },
-    [rpc],
-  );
 
   const actions: PullListActions = useMemo(
     () => ({
-      open: (row) => openPull(row.item.repo, row.item.number),
-      focusRow: (key) => setCursor(key),
-      togglePick: (row) =>
-        setPicked((current) => {
-          const next = new Set(current);
-          if (next.has(row.key)) next.delete(row.key);
-          else next.add(row.key);
-          return next;
-        }),
-      setMenu,
-      startAgent: (row, preset) => {
-        setMenu(null);
-        dialogs.openAgent(agentTargetOf(row, preset));
+      open: (row) => openPull(row.item.repo, row.item.number, openKey !== null),
+      point: (row) => {
+        setCursor(row.key);
+        anchor.current = { key: row.key, requested: null };
+        if (onRowButton()) {
+          rowButtons.current.get(row.key)?.focus({ preventScroll: true });
+        }
       },
-      startAgents,
-      merge,
-      mergeAll: (targets) =>
-        dialogs.mergeMany(targets.map((row) => mergeTargetOf(row, false))),
-      openThread: (row) => openThreadOf(row.key),
-      setState: setRowState,
-      snooze,
-      unsnooze,
-      copyBranch: (row) => copyBranch(row.pr.headRefName),
+      focus: (row) => {
+        setCursor(row.key);
+        anchor.current = { key: row.key, requested: null };
+      },
+      menu: (row, step) => {
+        setCursor(row.key);
+        setMenu(step === null ? null : { key: row.key, step });
+      },
+      openMerge: (row) => {
+        setMenu(null);
+        setPending({ key: row.key, kind: "merge" });
+        openPull(row.item.repo, row.item.number, openKey !== null);
+      },
+      merge: (row, method, deleteBranch) => {
+        setMenu(null);
+        merge(
+          rowMergeTarget(row, permissions(row).canEdit),
+          method,
+          deleteBranch,
+        );
+      },
+      setState: (row, target) => {
+        setMenu(null);
+        void changeState(
+          {
+            repo: row.item.repo,
+            number: row.item.number,
+            state: rowState(row, currentActivity(row.key)),
+          },
+          target,
+        );
+      },
+      snooze: (row, choice) => {
+        setMenu(null);
+        snooze({ repo: row.item.repo, number: row.item.number }, choice);
+      },
+      unsnooze: (row) => {
+        setMenu(null);
+        unsnooze({ repo: row.item.repo, number: row.item.number });
+      },
+      startAgent,
+      openThread,
+      copyBranch: (row) => copyText(row.pr.headRefName, "branch name"),
       openOnGitHub: (row) => bbNavigate.openUrl(row.item.url),
     }),
     [
       bbNavigate,
-      copyBranch,
-      dialogs,
+      changeState,
       merge,
+      openKey,
       openPull,
-      openThreadOf,
-      setRowState,
+      openThread,
+      permissions,
       snooze,
-      startAgents,
+      startAgent,
       unsnooze,
     ],
   );
 
+  const tabbableKey =
+    cursor !== null && flat.some((row) => row.key === cursor)
+      ? cursor
+      : (flat[0]?.key ?? null);
   const context: PullListContext = {
     viewer,
     showRepo: repos.length > 1,
-    display,
-    agents,
-    merging: dialogs.merging,
-    starting,
-    picked,
-    cursor,
-    openKey,
-    peek,
-    menu,
     split: openKey !== null,
     now,
-    canEdit,
+    cursor,
+    openKey,
+    tabbableKey,
+    menu,
+    activities,
+    agents,
+    permissions,
+    touch,
+    compact,
+    actions,
+    registerRow,
   };
-
-  const openRow = openKey === null ? null : (rowByKey.get(openKey) ?? null);
-  const cursorRow = cursor === null ? null : (rowByKey.get(cursor) ?? null);
-  const targetRow = openKey !== null ? openRow : cursorRow;
-
-  const requestDetail = useCallback((kind: DetailRequestKind) => {
-    detailHandle.current?.run(kind);
-  }, []);
 
   const moveCursor = useCallback(
     (delta: number) => {
       if (flat.length === 0) return;
-      const anchor = openKey ?? cursor;
-      const at =
-        anchor === null ? -1 : flat.findIndex((row) => row.key === anchor);
-      const next =
-        flat[
-          at < 0
-            ? delta > 0
-              ? 0
-              : flat.length - 1
-            : Math.max(0, Math.min(flat.length - 1, at + delta))
-        ];
+      const key = anchor.current.key;
+      const at = key === null ? -1 : flat.findIndex((row) => row.key === key);
+      let index: number;
+      if (at >= 0) {
+        index = Math.max(0, Math.min(flat.length - 1, at + delta));
+      } else if (key !== null && lastIndex.current >= 0) {
+        index =
+          delta > 0
+            ? Math.min(lastIndex.current, flat.length - 1)
+            : Math.max(0, Math.min(lastIndex.current, flat.length) - 1);
+      } else {
+        index = delta > 0 ? 0 : flat.length - 1;
+      }
+      const next = flat[index];
       if (next === undefined) return;
+      anchor.current = { key: next.key, requested: next.key };
+      lastIndex.current = index;
       if (openKey !== null) {
-        openPull(next.item.repo, next.item.number);
-        setCursor(next.key);
+        openPull(next.item.repo, next.item.number, true);
+        const element = rowButtons.current.get(next.key);
+        if (onRowButton()) element?.focus({ preventScroll: true });
+        element?.scrollIntoView?.({ block: "nearest" });
         return;
       }
-      if (peek !== null) setPeek(next.key);
       focusRow(next.key);
+      anchor.current = { key: next.key, requested: next.key };
     },
-    [cursor, flat, focusRow, openKey, openPull, peek],
-  );
-
-  const switchView = useCallback(
-    (next: InboxView) => {
-      setPeek(null);
-      setCursor(null);
-      setMenu(null);
-      navigate(
-        next === "issues" ? { view: "issues" } : { view: "pulls", tab: next },
-      );
-    },
-    [navigate],
+    [flat, focusRow, openKey, openPull],
   );
 
   const onKey = useCallback(
@@ -727,53 +526,44 @@ export function PullWorkspace({
       ) {
         return;
       }
-      if (isTyping(target) || dialogs.open) return;
+      if (isTyping(target) || agentTarget !== null || helpOpen) return;
       const element = target instanceof HTMLElement ? target : null;
       const onRow = element?.dataset.rowButton !== undefined;
-      const onButton =
-        element?.closest("button, a, [role='button'], [role='tab']") !== null &&
+      const onControl =
         element !== null &&
-        element !== document.body;
-      if ((event.key === "Enter" || event.key === " ") && onButton && !onRow)
+        element !== document.body &&
+        element.closest("button, a, [role='button'], [role='tab']") !== null;
+      if ((event.key === "Enter" || event.key === " ") && onControl && !onRow) {
         return;
-      const inDetail =
-        element?.closest("[data-github-detail]") !== null && element !== null;
+      }
+      const inDetail = element?.closest("[data-github-detail]") != null;
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       const handled = () => event.preventDefault();
 
       if (event.key === "Escape") {
-        if (menu !== null || displayOpen || helpOpen) return;
-        if (peek !== null) setPeek(null);
-        else if (picked.size > 0) setPicked(new Set());
-        else if (openKey !== null) closeDetail();
-        else if (searchOpen) {
-          setSearchOpen(false);
-          setQuery("");
-        } else if (cursor !== null) setCursor(null);
-        else return;
+        if (openKey !== null) closeDetail();
+        else if (cursor !== null) {
+          setCursor(null);
+          if (element !== null && onRow) element.blur();
+        } else return;
         handled();
         return;
       }
       if (event.key === "?") {
-        setHelpOpen((value) => !value);
+        setHelpOpen(true);
         handled();
         return;
       }
-      if (event.key === "V" && event.shiftKey) {
-        setDisplayOpen((value) => !value);
-        handled();
-        return;
-      }
-      if (event.shiftKey && event.key !== "?") return;
+      if (event.shiftKey) return;
       if (key === "/") {
-        setSearchOpen(true);
-        setFocusSearch((value) => value + 1);
+        setFilterOpen(true);
+        setFocusFilter((value) => value + 1);
         handled();
         return;
       }
       const sideways =
         (event.key === "ArrowRight" || event.key === "ArrowLeft") &&
-        !inDetail &&
+        openKey === null &&
         (onRow || target === document.body);
       if (key === "[" || key === "]" || sideways) {
         const forward = key === "]" || event.key === "ArrowRight";
@@ -804,101 +594,90 @@ export function PullWorkspace({
         }
         return;
       }
-      if (key === " ") {
-        if (cursorRow !== null && openKey === null) {
-          setPeek((current) =>
-            current === cursorRow.key ? null : cursorRow.key,
-          );
-          handled();
-        }
-        return;
-      }
-      if (key === "x") {
-        if (cursorRow !== null) actions.togglePick(cursorRow);
-        handled();
-        return;
-      }
-      const shortcuts: Record<string, DetailRequestKind> = {
-        a: "agent",
-        m: "merge",
-        r: "ready",
-        s: "status",
-        z: "snooze",
-        t: "thread",
-        c: "copy",
-        o: "open",
-      };
-      const request = shortcuts[key];
+      const request = DETAIL_KEYS[key];
       if (request === undefined) return;
       handled();
       if (openKey !== null) {
-        requestDetail(request);
+        detailHandle.current?.run(request);
         return;
       }
-      const row = targetRow;
+      const row = cursorRow;
       if (row === null) return;
-      const live = row.pr.state === "open" || row.pr.state === "draft";
+      const rowPermissions = permissions(row);
+      const state = rowState(row, activities.get(row.key) ?? null);
+      const live = state === "OPEN" || state === "DRAFT";
       switch (request) {
         case "agent":
-          if (live) actions.startAgent(row, pullPreset(row.pr));
-          break;
-        case "merge":
-          merge(row);
-          break;
+          if (live) startAgent(row);
+          return;
+        case "merge": {
+          if (!live) return;
+          if (rowMergeable(row, rowPermissions)) {
+            focusRow(row.key);
+            setMenu({ key: row.key, step: "merge" });
+            return;
+          }
+          const blocked =
+            hardMergeBlock(row.pr) ??
+            (rowPermissions.canMerge === false
+              ? `You can't merge in ${row.item.repo}`
+              : null);
+          if (blocked !== null) {
+            toast(`#${row.item.number} can't be merged yet`, {
+              id: `github-merge-${row.key}`,
+              description: blocked,
+            });
+            return;
+          }
+          actions.openMerge(row);
+          return;
+        }
         case "ready":
-          if (row.pr.state === "draft" && canEdit(row))
-            setRowState(row, "open");
-          else if (row.pr.state === "draft")
-            toast(`You can't change #${row.item.number}`);
-          break;
+          if (state !== "DRAFT") return;
+          if (rowPermissions.canEdit) actions.setState(row, "open");
+          else {
+            toast(`You can't change #${row.item.number}`, {
+              id: `github-state-${row.key}`,
+            });
+          }
+          return;
         case "status":
-          if (row.pr.state !== "merged") {
-            focusRow(row.key);
-            setMenu({ key: row.key, kind: "status" });
-          }
-          break;
+          if (state === "MERGED") return;
+          focusRow(row.key);
+          setMenu({ key: row.key, step: "main" });
+          return;
         case "snooze":
-          if (live) {
-            focusRow(row.key);
-            setMenu({ key: row.key, kind: "snooze" });
-          }
-          break;
+          if (!live) return;
+          focusRow(row.key);
+          setMenu({ key: row.key, step: "snooze" });
+          return;
         case "thread":
-          openThreadOf(row.key);
-          break;
+          openThread(row);
+          return;
         case "copy":
-          copyBranch(row.pr.headRefName);
-          break;
+          actions.copyBranch(row);
+          return;
         case "open":
-          bbNavigate.openUrl(row.item.url);
-          break;
+          actions.openOnGitHub(row);
+          return;
       }
     },
     [
       actions,
-      bbNavigate,
-      canEdit,
+      activities,
+      agentTarget,
       closeDetail,
-      copyBranch,
       cursor,
       cursorRow,
-      dialogs.open,
-      displayOpen,
       focusRow,
       helpOpen,
-      menu,
-      merge,
       moveCursor,
       openKey,
-      openThreadOf,
-      peek,
-      picked.size,
-      requestDetail,
-      searchOpen,
-      setQuery,
-      setRowState,
+      openThread,
+      permissions,
+      setFilterOpen,
+      startAgent,
       switchView,
-      targetRow,
       view,
     ],
   );
@@ -908,47 +687,38 @@ export function PullWorkspace({
     return () => document.removeEventListener("keydown", listener);
   }, [onKey]);
 
-  const pickedRows = useMemo(
-    () =>
-      [...picked].flatMap((key) => {
-        const row = rowByKey.get(key);
-        return row === undefined ? [] : [row];
-      }),
-    [picked, rowByKey],
-  );
+  const closeFilter = useCallback(() => {
+    setQuery("");
+    setFilterOpen(false);
+  }, [setFilterOpen, setQuery]);
 
   const loading = items === null && error === null;
-  const chainRows =
+  const listLoading =
+    view === "issues"
+      ? issues.items === null && issues.error === null
+      : loading;
+  const openRow = openKey === null ? null : (rowByKey.get(openKey) ?? null);
+  const chain =
     openRow?.chain == null
       ? null
       : openRow.chain.flatMap((number) => {
           const row = rowByKey.get(`${openRow.item.repo}#${number}`);
           return row === undefined ? [] : [row];
         });
-
-  const filterInput = (
-    <FilterInput
-      value={query}
-      onChange={setQuery}
-      onClose={() => {
-        setQuery("");
-        setSearchOpen(false);
-      }}
-      onExit={() => {
-        const first = flat[0];
-        if (first !== undefined) focusRow(first.key);
-      }}
-      items={items}
-      repos={repos}
-      kind={kind}
-      viewer={viewer}
-      focusRequest={focusSearch}
-    />
-  );
+  const lastError =
+    status === null
+      ? null
+      : (status.lastSyncError ??
+        (status.ghState === "unavailable"
+          ? (status.ghError ?? "GitHub is unreachable")
+          : null));
 
   const listBody =
     view === "issues" ? (
       <IssuesPane
+        items={issues.items}
+        error={issues.error}
+        onRetry={issues.refetch}
         query={query}
         viewer={viewer}
         showRepo={repos.length > 1}
@@ -956,8 +726,13 @@ export function PullWorkspace({
         collapsed={collapsed}
         onToggleGroup={toggleGroup}
         onOpen={(item) =>
-          navigate({ view: "issue", repo: item.repo, number: item.number })
+          navigator.go({ view: "issue", repo: item.repo, number: item.number })
         }
+        onStartAgent={setAgentTarget}
+        onClearFilter={() => {
+          setQuery("");
+          setFilterOpen(false);
+        }}
       />
     ) : error !== null && items === null ? (
       <ListMessage
@@ -970,45 +745,38 @@ export function PullWorkspace({
           </Button>
         }
       />
+    ) : viewerError !== null && rows === null ? (
+      <ListMessage
+        icon="CloudOff"
+        title="Can't tell which pull requests are yours"
+        detail="GitHub didn't say who you're signed in as. The lists show up as soon as it does."
+        action={
+          <Button type="button" size="sm" variant="ghost" onClick={retryViewer}>
+            Try again
+          </Button>
+        }
+      />
     ) : rows === null ? (
-      <PullListSkeleton compact={display.density === "compact"} />
+      <ListSkeleton />
     ) : (
       <PullList
         groups={groups}
         collapsed={collapsed}
         onToggleGroup={toggleGroup}
         context={context}
-        actions={actions}
-        chains={
-          new Map(
-            rows.flatMap((row) =>
-              row.chain === null ? [] : [[row.key, row.chain]],
-            ),
-          )
-        }
-        registerRow={registerRow}
         empty={
           query.trim().length > 0 ? (
-            <ListMessage
-              icon="Search"
-              title="No pull requests match"
-              detail="Try fewer conditions."
-              action={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setQuery("")}
-                >
-                  Clear filter
-                </Button>
-              }
+            <NoMatch
+              noun="pull requests"
+              query={query}
+              viewer={viewer}
+              onClear={closeFilter}
             />
           ) : view === "inbox" ? (
             <ListMessage
               icon="CircleCheck"
               title="Nothing needs you"
-              detail="Every open pull request is green, merged, or in an agent's hands."
+              detail="No review is waiting on you, and your pull requests are on track."
             />
           ) : (
             <ListMessage
@@ -1021,25 +789,8 @@ export function PullWorkspace({
       />
     );
 
-  const lastError =
-    status === null
-      ? null
-      : (status.lastSyncError ??
-        (status.ghState === "unavailable"
-          ? (status.ghError ?? "GitHub is unreachable")
-          : null));
   return (
-    <div
-      ref={rootRef}
-      className="relative flex min-h-0 flex-1 flex-col"
-      onKeyUp={(event) => {
-        const element =
-          event.target instanceof HTMLElement ? event.target : null;
-        if (element?.dataset.rowButton !== undefined && event.key === " ") {
-          event.preventDefault();
-        }
-      }}
-    >
+    <div ref={rootRef} className="relative flex min-h-0 flex-1 flex-col">
       {sync.syncing ? (
         <div
           role="progressbar"
@@ -1057,66 +808,66 @@ export function PullWorkspace({
               : "hidden border-r border-border @min-[60rem]/github:flex @min-[60rem]/github:max-w-135 @min-[60rem]/github:basis-[44%]"
           }`}
         >
-          <ViewBar
-            view={view}
-            count={count}
-            countLoading={loading}
-            onView={switchView}
-            search={searchOpen ? filterInput : null}
-            trailing={
-              <>
-                <TipButton
-                  label="Filter"
-                  keys={["/"]}
-                  icon="Search"
-                  className="@max-[35rem]/github:size-9"
-                  onClick={() => {
-                    setSearchOpen(true);
-                    setFocusSearch((value) => value + 1);
-                  }}
-                />
-                {view === "issues" ? (
-                  <TipButton
-                    label="New issue"
-                    icon="Plus"
-                    className="@max-[35rem]/github:size-9"
-                    onClick={() => navigate({ view: "new" })}
-                  />
-                ) : null}
-                <DisplayMenu
-                  open={displayOpen}
-                  onOpenChange={setDisplayOpen}
-                  display={display}
-                  onDisplay={setDisplay}
-                  onHelp={() => {
-                    setDisplayOpen(false);
-                    setHelpOpen(true);
-                  }}
-                />
-                <HelpMenu open={helpOpen} onOpenChange={setHelpOpen} />
-              </>
-            }
-          />
-          {searchOpen || query.trim().length > 0 ? (
-            <FilterChips
-              query={query}
-              viewer={viewer}
-              count={
-                view === "issues" ? null : rows === null ? null : visibleCount
-              }
-              noun={
-                kind === "pr"
-                  ? ["pull request", "pull requests"]
-                  : ["issue", "issues"]
-              }
-              onChange={(next) => {
-                setQuery(next);
-                if (next.trim().length === 0) setSearchOpen(false);
+          <div className={HEADER_CLASS}>
+            <ViewTabs view={view} count={count} onView={switchView} />
+            <TipButton
+              label="Filter"
+              keys={["/"]}
+              icon="Search"
+              onClick={() => {
+                setFilterOpen(true);
+                setFocusFilter((value) => value + 1);
               }}
             />
+            {view === "issues" ? (
+              <TipButton
+                label="New issue"
+                icon="Plus"
+                onClick={() => navigator.go({ view: "new" })}
+              />
+            ) : null}
+          </div>
+          {filterOpen ? (
+            <div className="flex shrink-0 items-center px-2 pt-2 pb-1">
+              <FilterInput
+                value={query}
+                onChange={setQuery}
+                onClose={closeFilter}
+                onExit={() => {
+                  const first = flat[0];
+                  if (first === undefined) return false;
+                  focusRow(first.key);
+                  return true;
+                }}
+                items={view === "issues" ? issues.items : items}
+                kind={kind}
+                repos={repos}
+                viewer={viewer}
+                focusRequest={focusFilter}
+              />
+            </div>
           ) : null}
+          <FilterChips
+            query={query}
+            viewer={viewer}
+            inset={!filterOpen}
+            count={
+              view === "issues" || rows === null || visibleCount === 0
+                ? null
+                : visibleCount
+            }
+            noun={
+              kind === "pr"
+                ? ["pull request", "pull requests"]
+                : ["issue", "issues"]
+            }
+            onChange={(next) => {
+              setQuery(next);
+              if (next.trim().length === 0) setFilterOpen(false);
+            }}
+          />
           {lastError !== null && items !== null ? (
-            <div className="flex min-h-9 shrink-0 items-center gap-2 border-b border-border py-1 pr-2 pl-4 text-xs text-subtle-foreground motion-safe:animate-in motion-safe:fade-in-0">
+            <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border py-1 pr-2 pl-4 text-xs text-subtle-foreground">
               <Icon name="CloudOff" className="size-3.5 shrink-0" />
               <span className="min-w-0 flex-1">
                 Can't reach GitHub · showing the last sync
@@ -1125,7 +876,7 @@ export function PullWorkspace({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-6 px-1.5 text-xs"
+                className={TEXT_BUTTON_CLASS}
                 disabled={sync.syncing}
                 onClick={sync.refresh}
               >
@@ -1134,69 +885,16 @@ export function PullWorkspace({
             </div>
           ) : null}
           <div
-            className="min-h-0 flex-1 overflow-y-auto px-2 pt-1.5 pb-10"
-            aria-busy={loading}
+            className="min-h-0 flex-1 overflow-y-auto px-2 pb-10"
+            aria-busy={listLoading}
           >
             {listBody}
           </div>
           <span className="sr-only" role="status">
-            {loading
-              ? "Loading pull requests"
-              : error !== null && items === null
-                ? "Couldn't load the pull requests"
-                : ""}
+            {listLoading
+              ? `Loading ${view === "issues" ? "issues" : "pull requests"}`
+              : ""}
           </span>
-          {pickedRows.length > 0 && view !== "issues" ? (
-            <BulkBar
-              rows={pickedRows}
-              now={now}
-              busy={pickedRows.some((row) => starting.has(row.key))}
-              onStartAgents={() => startAgents(pickedRows)}
-              onMarkReady={() => {
-                const drafts = pickedRows.filter(
-                  (row) => row.pr.state === "draft" && canEdit(row),
-                );
-                Promise.allSettled(
-                  drafts.map((row) =>
-                    rpc.call("setPullState", {
-                      repo: row.item.repo,
-                      number: row.item.number,
-                      state: "open",
-                    }),
-                  ),
-                ).then((results) => {
-                  const marked = drafts.filter(
-                    (_, index) => results[index]?.status === "fulfilled",
-                  );
-                  const undo = {
-                    label: "Undo",
-                    onClick: () => {
-                      for (const row of marked) {
-                        void rpc.call("setPullState", {
-                          repo: row.item.repo,
-                          number: row.item.number,
-                          state: "draft",
-                        });
-                      }
-                    },
-                  };
-                  if (marked.length === results.length)
-                    toast.success(
-                      `Marked ${plural(marked.length, "pull request")} ready`,
-                      { action: undo },
-                    );
-                  else
-                    toast.error(
-                      `Marked ${marked.length} ready, ${results.length - marked.length} failed`,
-                      marked.length > 0 ? { action: undo } : {},
-                    );
-                  setPicked(new Set());
-                });
-              }}
-              onSnooze={(choice) => snooze(pickedRows, choice)}
-              onClear={() => setPicked(new Set())}
-            />
-          ) : null}
         </div>
         {route.view === "pull" ? (
           <div
@@ -1208,253 +906,31 @@ export function PullWorkspace({
               repo={route.repo}
               number={route.number}
               row={openRow}
-              chainRows={chainRows}
-              agent={openKey === null ? null : (agents.get(openKey) ?? null)}
-              follow={openKey === null ? null : (follows[openKey] ?? null)}
-              merging={openKey !== null && dialogs.merging.has(openKey)}
+              chain={chain}
               viewer={viewer}
-              compact={false}
-              split
-              workspaceEnvironmentId={null}
+              layout="split"
+              environmentId={null}
               handle={detailHandle}
-              backLabel="Back"
+              pendingRequest={
+                pending !== null && pending.key === openKey
+                  ? pending.kind
+                  : null
+              }
               onBack={closeDetail}
               onClose={closeDetail}
-              onMerge={dialogs.openMerge}
-              onStartAgent={dialogs.openAgent}
-              onOpenPull={openPull}
-              onSnooze={(choice) => {
-                if (openRow !== null) snooze([openRow], choice);
-              }}
-              onUnsnooze={() => {
-                if (openRow !== null) unsnooze(openRow);
-              }}
+              onOpenPull={(repo, number) => openPull(repo, number, true)}
+              onStartAgent={setAgentTarget}
             />
           </div>
         ) : null}
       </div>
-      {dialogs.dialogs}
+      <AgentSheet
+        target={agentTarget}
+        onOpenChange={(open) => {
+          if (!open) setAgentTarget(null);
+        }}
+      />
+      <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
-  );
-}
-
-function IssuesPane({
-  query,
-  viewer,
-  showRepo,
-  now,
-  collapsed,
-  onToggleGroup,
-  onOpen,
-}: {
-  query: string;
-  viewer: string | null;
-  showRepo: boolean;
-  now: number;
-  collapsed: (groupId: string) => boolean;
-  onToggleGroup: (groupId: string) => void;
-  onOpen: (item: Item) => void;
-}) {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const bbNavigate = useBbNavigate();
-  const { items, error, refetch } = useItems("issue");
-  const [starting, setStarting] = useState<string | null>(null);
-  const parsed = useMemo(() => parseQuery(query), [query]);
-  const groups = useMemo(
-    () => (items === null ? [] : issueGroups(items, parsed, viewer)),
-    [items, parsed, viewer],
-  );
-  const start = (item: Item) => {
-    setStarting(itemKey(item));
-    rpc
-      .call("startWork", { repo: item.repo, number: item.number })
-      .then(
-        (result) => bbNavigate.toThread(result.threadId),
-        (failure: unknown) => toast.error(errorText(failure)),
-      )
-      .finally(() => setStarting(null));
-  };
-  if (error !== null && items === null) {
-    return (
-      <ListMessage
-        icon="CloudOff"
-        title="Can't reach GitHub"
-        detail="The issues show up as soon as the connection is back."
-        action={
-          <Button type="button" size="sm" variant="ghost" onClick={refetch}>
-            Try again
-          </Button>
-        }
-      />
-    );
-  }
-  if (items === null) return <PullListSkeleton compact={false} />;
-  if (groups.length === 0) {
-    return query.trim().length > 0 ? (
-      <ListMessage
-        icon="Search"
-        title="No issues match"
-        detail="Try fewer conditions."
-      />
-    ) : (
-      <ListMessage
-        icon="Circle"
-        title="No issues here"
-        detail="They show up here as soon as they're opened."
-      />
-    );
-  }
-  return (
-    <div className="flex flex-col">
-      {groups.map((group) => {
-        const isCollapsed = collapsed(group.id);
-        return (
-          <section
-            key={group.id}
-            aria-label={group.label}
-            className="flex flex-col gap-0.5 pt-3 first:pt-0"
-          >
-            <div className="sticky top-0 z-10 flex h-8 items-center rounded-md bg-sidebar px-2">
-              <button
-                type="button"
-                onClick={() => onToggleGroup(group.id)}
-                aria-expanded={!isCollapsed}
-                className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-xs font-medium text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  <Icon
-                    name="ChevronDown"
-                    className={`size-3 transition-transform motion-reduce:transition-none ${isCollapsed ? "-rotate-90" : ""}`}
-                  />
-                </span>
-                <span>{group.label}</span>
-                <span className="font-normal tabular-nums">
-                  {group.rows.length}
-                </span>
-              </button>
-            </div>
-            {isCollapsed
-              ? null
-              : group.rows.map((item) => (
-                  <IssueListRow
-                    key={itemKey(item)}
-                    item={item}
-                    isCursor={false}
-                    showRepo={showRepo}
-                    now={now}
-                    starting={starting === itemKey(item)}
-                    onOpen={() => onOpen(item)}
-                    onFocus={() => {}}
-                    onStart={() => start(item)}
-                    registerRow={() => {}}
-                    menu={<IssueRowMenu item={item} viewer={viewer} />}
-                  />
-                ))}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-function IssueRowMenu({ item, viewer }: { item: Item; viewer: string | null }) {
-  const rpc = useRpc<typeof githubRpcContract>();
-  const bbNavigate = useBbNavigate();
-  const assignedToMe = viewer !== null && item.assignees.includes(viewer);
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          tabIndex={-1}
-          className="size-7 text-muted-foreground hover:text-foreground"
-          aria-label={`More actions for #${item.number}`}
-        >
-          <Icon name="MoreHorizontal" className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-56"
-        mobileTitle={`#${item.number}`}
-      >
-        {viewer !== null ? (
-          <DropdownMenuItem
-            onSelect={() => {
-              const next = assignedToMe
-                ? item.assignees.filter((login) => login !== viewer)
-                : [...item.assignees, viewer];
-              rpc
-                .call("setAssignees", {
-                  repo: item.repo,
-                  number: item.number,
-                  assignees: next,
-                })
-                .then(
-                  () =>
-                    toast.success(
-                      assignedToMe
-                        ? `Unassigned from #${item.number}`
-                        : `Assigned to #${item.number}`,
-                    ),
-                  (failure: unknown) => toast.error(errorText(failure)),
-                );
-            }}
-          >
-            <Icon name="UserRound" className="size-3.5 text-muted-foreground" />
-            {assignedToMe ? "Unassign me" : "Assign to me"}
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuItem
-          onSelect={() => {
-            const next = item.state === "OPEN" ? "closed" : "open";
-            rpc
-              .call("setIssueState", {
-                repo: item.repo,
-                number: item.number,
-                state: next,
-              })
-              .then(
-                () =>
-                  toast.success(
-                    next === "closed"
-                      ? `#${item.number} closed`
-                      : `#${item.number} reopened`,
-                  ),
-                (failure: unknown) => toast.error(errorText(failure)),
-              );
-          }}
-        >
-          <Icon
-            name={item.state === "OPEN" ? "CircleCheck" : "Circle"}
-            className="size-3.5 text-muted-foreground"
-          />
-          {item.state === "OPEN" ? "Close issue" : "Reopen issue"}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => bbNavigate.openUrl(item.url)}>
-          <Icon
-            name="ExternalLink"
-            className="size-3.5 text-muted-foreground"
-          />
-          Open on GitHub
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => {
-            void experimental_copyToClipboard({ text: item.url }).then(
-              (copied) => {
-                if (copied) toast.success("Link copied");
-                else toast.error("Could not copy the link");
-              },
-            );
-          }}
-        >
-          <Icon name="Copy" className="size-3.5 text-muted-foreground" />
-          Copy link
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

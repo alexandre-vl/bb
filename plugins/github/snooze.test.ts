@@ -36,10 +36,7 @@ function status(overrides: Partial<RawPullStatus> = {}) {
 const now = new Date(2026, 9, 20, 15, 30);
 
 describe("snooze wake rules", () => {
-  const subject = {
-    pr: status({ headRefOid: "aaa" }),
-    agentActivity: "1",
-  };
+  const subject = { pr: status({ headRefOid: "aaa" }) };
 
   it("wakes on a new checks state, not on checks ticking along", () => {
     const snooze = snoozeFor("checks", null, subject, now);
@@ -67,7 +64,7 @@ describe("snooze wake rules", () => {
     ).toBe(true);
   });
 
-  it("wakes on a new head commit, an agent reply, or the chosen time", () => {
+  it("wakes on a new head commit or at the chosen time", () => {
     const push = snoozeFor("push", null, subject, now);
     expect(snoozeWakes(push, subject, now)).toBe(false);
     expect(
@@ -76,11 +73,6 @@ describe("snooze wake rules", () => {
     expect(
       snoozeWakes(push, { ...subject, pr: status({ headRefOid: null }) }, now),
     ).toBe(false);
-
-    const reply = snoozeFor("reply", null, subject, now);
-    expect(snoozeWakes(reply, { ...subject, agentActivity: "2" }, now)).toBe(
-      true,
-    );
 
     const later = snoozeFor(
       "time",
@@ -113,7 +105,7 @@ describe("snooze times and labels", () => {
   });
 
   it("names when a snooze ends", () => {
-    const subject = { pr: status(), agentActivity: null };
+    const subject = { pr: status() };
     const at = (date: Date) =>
       snoozeLabel(snoozeFor("time", date.toISOString(), subject, now), now);
     expect(snoozeLabel(snoozeFor("checks", null, subject, now), now)).toBe(

@@ -105,7 +105,11 @@ const STATUS_CONTEXT_PENDING = new Set(["PENDING", "EXPECTED"]);
 
 export function isFailedCheck(conclusion: string): boolean {
   const value = conclusion.toUpperCase();
-  return CHECK_RUN_FAILED.has(value) || STATUS_CONTEXT_FAILED.has(value);
+  return (
+    CHECK_RUN_FAILED.has(value) ||
+    CHECK_RUN_CANCELLED.has(value) ||
+    STATUS_CONTEXT_FAILED.has(value)
+  );
 }
 
 const VERDICT_STATES: Record<string, PullChecksState> = {
@@ -200,7 +204,10 @@ function assembleAttention(
     return "review_requested";
   }
   if (checks.state === "pending") return "checks_pending";
-  if (mergeability === "mergeable" && checks.state === "passing") {
+  if (
+    mergeability === "mergeable" &&
+    (checks.state === "passing" || checks.state === "no_checks")
+  ) {
     return "ready_to_merge";
   }
   return "none";
@@ -268,11 +275,8 @@ export const PULL_GROUPS: ReadonlyArray<{ id: PullGroup; label: string }> = [
   { id: "closed", label: "Closed" },
 ];
 
-export type PullAgentState = "running" | "waiting" | "done";
-
 export interface PullGroupExtra {
   snoozed?: boolean;
-  agent?: PullAgentState | null;
 }
 
 export type PullView = "inbox" | "mine" | "all" | "merged";
@@ -284,12 +288,10 @@ export const PULL_VIEWS: ReadonlyArray<{ id: PullView; label: string }> = [
   { id: "merged", label: "Merged" },
 ];
 
-const INBOX_GROUPS: ReadonlySet<PullGroup> = new Set([
-  "you",
+const OWN_INBOX_GROUPS: ReadonlySet<PullGroup> = new Set([
   "ready",
   "fixing",
   "progress",
-  "snoozed",
 ]);
 
 export const INBOX_COUNT_GROUPS: ReadonlySet<PullGroup> = new Set([
@@ -305,26 +307,41 @@ export const COLLAPSED_PULL_GROUPS: Record<PullView, ReadonlySet<PullGroup>> = {
   merged: new Set(),
 };
 
+function sameLogin(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+export function needsViewer(
+  status: PullStatus,
+  author: string,
+  viewer: string | null,
+): boolean {
+  const group = pullGroup(status, author, viewer);
+  if (group === "you") return true;
+  return (
+    viewer !== null && sameLogin(author, viewer) && OWN_INBOX_GROUPS.has(group)
+  );
+}
+
 export function inPullView(
   view: PullView,
-  group: PullGroup,
-  author: string,
+  pull: { pr: PullStatus; author: string; group: PullGroup },
   viewer: string | null,
 ): boolean {
   switch (view) {
     case "inbox":
-      return INBOX_GROUPS.has(group);
+      return needsViewer(pull.pr, pull.author, viewer);
     case "mine":
-      return group !== "merged" && viewer !== null && sameLogin(author, viewer);
+      return (
+        pull.group !== "merged" &&
+        viewer !== null &&
+        sameLogin(pull.author, viewer)
+      );
     case "all":
-      return group !== "merged";
+      return pull.group !== "merged";
     case "merged":
-      return group === "merged";
+      return pull.group === "merged";
   }
-}
-
-function sameLogin(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
 }
 
 export function isViewerReviewRequested(
@@ -347,8 +364,6 @@ export function pullGroup(
   if (status.attention === "merged") return "merged";
   if (status.attention === "closed") return "closed";
   if (extra.snoozed === true) return "snoozed";
-  if (extra.agent === "waiting") return "you";
-  if (extra.agent === "running") return "progress";
   if (isViewerReviewRequested(status, viewer)) return "you";
   if (
     status.attention === "changes_requested" &&
@@ -391,24 +406,12 @@ export interface PullGlyph {
   label: string;
 }
 
-export function pullGlyph(
-  status: PullStatus,
-  group: PullGroup,
-  agent: PullAgentState | null = null,
-): PullGlyph {
+export function pullGlyph(status: PullStatus, group: PullGroup): PullGlyph {
   if (group === "snoozed") {
     return { icon: "TimeSchedule", tone: "waiting", label: "Snoozed" };
   }
-  if (group === "you" && agent === "waiting") {
-    return { icon: "MessageQuestion", tone: "you", label: "Waiting for you" };
-  }
-  if (group === "progress" && agent === "running") {
-    return { icon: "Spinner", tone: "working", label: "Agent working" };
-  }
-  if (group === "you") {
-    return status.attention === "changes_requested"
-      ? { icon: "AlertCircle", tone: "action", label: "Changes requested" }
-      : { icon: "Eye", tone: "you", label: "Your review is requested" };
+  if (group === "you" && status.attention !== "changes_requested") {
+    return { icon: "Eye", tone: "you", label: "Your review is requested" };
   }
   switch (status.attention) {
     case "ready_to_merge":
@@ -416,7 +419,7 @@ export function pullGlyph(
     case "checks_failed":
       return { icon: "CircleX", tone: "action", label: "Checks failing" };
     case "conflicts":
-      return { icon: "AlertCircle", tone: "action", label: "Conflicts" };
+      return { icon: "DiffConflict", tone: "action", label: "Conflicts" };
     case "changes_requested":
       return {
         icon: "AlertCircle",
@@ -444,23 +447,16 @@ export function pullGlyph(
   }
 }
 
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
-}
+const CHECKS_WORDS: Record<PullChecksState, string> = {
+  passing: "Checks passing",
+  failing: "Checks failing",
+  pending: "Checks running",
+  no_checks: "No checks",
+  unknown: "Checks unknown",
+};
 
-export function checksSummary(checks: PullStatus["checks"]): string {
-  switch (checks.state) {
-    case "passing":
-      return `${plural(checks.passed, "check")} passed`;
-    case "failing":
-      return `${plural(checks.failed, "check")} failing`;
-    case "pending":
-      return `Checks running · ${checks.passed} of ${checks.passed + checks.pending} done`;
-    case "no_checks":
-      return "No checks";
-    case "unknown":
-      return "Checks unknown";
-  }
+export function checksWords(state: PullChecksState): string {
+  return CHECKS_WORDS[state];
 }
 
 export function pullNextStep(status: PullStatus, group: PullGroup): string {
@@ -473,68 +469,92 @@ export function pullNextStep(status: PullStatus, group: PullGroup): string {
     case "closed":
       return "Closed without merging";
     case "conflicts":
-      return `Conflicts with ${status.baseRefName}`;
-    case "checks_failed":
-      return checksSummary(status.checks);
+      return "Merge conflicts";
     case "changes_requested":
       return "Changes requested";
-    case "checks_pending":
-      return checksSummary(status.checks);
     case "queued":
       return "Queued to merge";
     case "review_requested":
       return status.review.state === "review_required"
         ? "Review required"
         : "Review requested";
-    case "none":
-      return status.mergeability === "unknown" &&
-        status.checks.state !== "failing"
-        ? "Waiting for GitHub"
-        : checksSummary(status.checks);
     case "ready_to_merge":
+      return status.review.state === "approved"
+        ? "Approved"
+        : checksWords(status.checks.state);
+    case "none":
+    case "checks_failed":
+    case "checks_pending":
     case "draft":
-      return checksSummary(status.checks);
+      return checksWords(status.checks.state);
   }
 }
 
-export type AgentPreset =
-  | "fix"
-  | "conflicts"
-  | "review"
-  | "finish"
-  | "restack"
-  | "custom";
+export type AgentPreset = "fix" | "conflicts" | "feedback" | "review";
 
-export function pullPreset(status: PullStatus): AgentPreset {
+export function pullPreset(
+  status: PullStatus,
+  author: string,
+  viewer: string | null,
+): AgentPreset {
+  if (viewer !== null && !sameLogin(author, viewer)) return "review";
   if (status.attention === "conflicts") return "conflicts";
   if (status.attention === "checks_failed") return "fix";
-  if (status.state === "draft") return "finish";
+  if (status.attention === "changes_requested") return "feedback";
   return "review";
 }
 
-export function mergeBlockedReason(status: PullStatus): string | null {
+const MERGEABLE_STATES: ReadonlySet<string> = new Set([
+  "CLEAN",
+  "UNSTABLE",
+  "HAS_HOOKS",
+]);
+
+export function hardMergeBlock(status: PullStatus): string | null {
   switch (status.attention) {
-    case "ready_to_merge":
-      return null;
     case "merged":
       return "Already merged";
     case "closed":
       return "Reopen it first";
     case "draft":
       return "Mark it ready first";
-    case "conflicts":
-      return `Conflicts with ${status.baseRefName}`;
-    case "checks_failed":
-      return `${plural(status.checks.failed, "check")} failing`;
-    case "checks_pending":
-      return "Checks running";
     case "queued":
       return "Queued to merge";
+    case "conflicts":
+      return `Conflicts with ${status.baseRefName}`;
+    default:
+      return null;
+  }
+}
+
+export function mergeBlockedReason(
+  status: PullStatus,
+  mergeStateStatus: string | null = null,
+): string | null {
+  const hard = hardMergeBlock(status);
+  if (hard !== null) return hard;
+  if (mergeStateStatus === "BEHIND") return `Behind ${status.baseRefName}`;
+  if (mergeStateStatus === "BLOCKED") return "Blocked by rules";
+  if (status.attention === "ready_to_merge") return null;
+  if (
+    mergeStateStatus !== null &&
+    MERGEABLE_STATES.has(mergeStateStatus) &&
+    status.mergeability === "mergeable"
+  ) {
+    return null;
+  }
+  switch (status.attention) {
+    case "checks_failed":
+      return "Checks failing";
+    case "checks_pending":
+      return "Checks running";
     case "changes_requested":
       return "Changes requested";
     case "review_requested":
-      return "Waiting for review";
-    case "none":
+      return status.review.state === "review_required"
+        ? "Review required"
+        : "Waiting for review";
+    default:
       return "Waiting for GitHub";
   }
 }
@@ -611,21 +631,6 @@ export function stackPosition(
   if (chain === null) return null;
   const at = chain.findIndex((entry) => entry.number === pull.number);
   return at < 0 ? null : { index: at + 1, size: chain.length };
-}
-
-export function stackNotes(pulls: readonly StackPull[]): Map<string, string> {
-  const notes = new Map<string, string>();
-  for (const pull of pulls) {
-    const chain = stackChain(pull, pulls);
-    if (chain === null) continue;
-    const at = chain.findIndex((entry) => entry.number === pull.number);
-    const below = chain[at - 1];
-    const above = chain[at + 1];
-    const key = `${pull.repo}#${pull.number}`;
-    if (below !== undefined) notes.set(key, `stacked on #${below.number}`);
-    else if (above !== undefined) notes.set(key, `has #${above.number} on top`);
-  }
-  return notes;
 }
 
 export type PullStateTarget = "open" | "draft" | "closed";

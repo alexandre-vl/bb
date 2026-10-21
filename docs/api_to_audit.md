@@ -1376,9 +1376,7 @@ Appearance → Navigation picker reads the same registrations.
 ## `PluginContentScriptContext.experimental_setThreadRowStatus`
 
 **Kept experimental (2026-08-22).** The collapsed-section status rollup
-consumes it, and the GitHub plugin sets one status per thread linked to a
-pull request: the pull request's next step, with tone `error` when it needs
-fixing and `success` when it is ready to merge.
+consumes it.
 
 Lets a plugin-lifetime content script set or clear one of its own status
 indicators on an explicit thread row. The status survives route changes and
@@ -1398,9 +1396,9 @@ Before stabilization, audit:
   reload/disable/removal;
 - the name of `PluginComposerThreadRowStatus.tone`. The field is a state the
   plugin reports (`default | running | success | error`) that the host maps to
-  both a color and an animation, so `state` is the candidate rename. The
-  GitHub plugin is the only setter under `plugins/*`, so the rename touches
-  one first-party consumer.
+  both a color and an animation, so `state` is the candidate rename. Nothing
+  under `plugins/*` sets a status today, so the rename is free until the
+  prefix drops.
 
 ## `bb.providers.register` (`experimental_bridgeOptions`, `experimental_visibility`, and the `experimental_providerBridge` artifact export)
 
@@ -1845,11 +1843,13 @@ Docs: `frontend-renderer-slots.md`, `backend-cli-agents.md` (form rows),
 
 **Kept experimental (2026-08-22).** The GitHub plugin's Start an agent sheet
 is the first consumer. It seeds `defaultEnvironment` (`reuse` for a bb
-worktree already on the head branch, otherwise a `managed-worktree` based on
-`origin/<head>`), `initialPrompt` and a per-preset `draftKey`, waits for its
-seeds to settle before mounting (item 5 re-seeds on any change), and spawns
-with `bb.sdk.threads.spawn`. Items 1 (a newly required create-thread field
-going missing silently) and 6 (projectless switching) still need validation.
+worktree already on a pull request's head branch, otherwise a
+`managed-worktree` based on `origin/<head>`; none for an issue),
+`initialPrompt` from the pull request's or issue's state, and one `draftKey`
+per item, waits for its seeds to settle before mounting (item 5 re-seeds on
+any change), and spawns with `bb.sdk.threads.spawn`. Items 1 (a newly
+required create-thread field going missing silently) and 6 (projectless
+switching) still need validation.
 
 The host-owned new-thread compose surface. It calls `onSubmit` with a
 `NewThreadRequest` carrying every resolved selection (including
@@ -1906,13 +1906,6 @@ Docs: `frontend-components.md`.
 
 Mounts a no-props plugin component once per app window, outside route-owned
 layout, with app-level SDK hook context. A crash hides only that overlay.
-
-The GitHub plugin's overlay renders nothing, unlike the browser-automation
-and push-notifications ones. It captures `useBbNavigate()` for palette
-commands, whose `run` context has no navigation, and pushes thread row
-statuses from its data. Both uses point at gaps (navigation in
-`PluginCommandContext`, a data-driven row status API) rather than at overlay
-UI.
 
 Docs: `frontend-core-slots.md`.
 
@@ -2309,11 +2302,8 @@ Docs: `frontend-registration.md`.
 
 ## `app.slots.experimental_threadHeaderAction` (`@get-bb/plugin-sdk/app`)
 
-**Kept experimental (2026-08-22).** The GitHub plugin's linked pull request
-chip is the first consumer. It renders nothing while core's own pull request
-control shows one (`experimental_useSidebarThreadPullRequest`), so the two
-never stack. Item 1 (merging with `bb.ui.registerThreadAction`) is still
-cheapest to decide now.
+**Kept experimental (2026-08-22).** There are no consumers, and item 1 (merging
+with `bb.ui.registerThreadAction`) is cheapest to decide before the first one.
 
 Renders a plugin component in the thread header's action row, once per pane
 with that pane's `threadId`, for controls that draw live state. A crash

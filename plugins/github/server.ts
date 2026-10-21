@@ -12,16 +12,16 @@ import {
   type PluginCliResult,
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { issueKeyOf } from "./app-logic.js";
 import {
   AGENT_PRESETS,
-  presetInfo,
+  agentThreadTitle,
+  issuePrompt,
+  issueThreadTitle,
+  presetLabel,
   presetPrompt,
-  type PresetPull,
 } from "./agent-presets.js";
 import {
   assemblePullStatus,
-  checksSummary,
   inPullView,
   isFailedCheck,
   mergeBlockedReason,
@@ -30,7 +30,6 @@ import {
   pullNextStep,
   pullPreset,
   pullStateCommands,
-  stackChain,
   type AgentPreset,
   type PullStateTarget,
   type PullStatus,
@@ -150,7 +149,6 @@ const cachedItemSchema = z
 const snoozeRuleSchema = z.enum([
   "checks",
   "push",
-  "reply",
   "time",
 ]) satisfies z.ZodType<SnoozeRule>;
 const itemSnoozeSchema = z
@@ -159,24 +157,15 @@ const itemSnoozeSchema = z
 const itemSchema = cachedItemSchema
   .extend({ snooze: itemSnoozeSchema.nullable() })
   .strict();
-const storedSnoozeSchema = z
-  .object({
-    rule: snoozeRuleSchema,
-    until: z.string().nullable(),
-    createdAt: z.string(),
-    checks: z.string().nullable(),
-    headRefOid: z.string().nullable(),
-    agentActivity: z.string().nullable(),
-  })
-  .strict() satisfies z.ZodType<Snooze>;
-const agentPresetSchema = z.enum([
-  "fix",
-  "conflicts",
-  "review",
-  "finish",
-  "restack",
-  "custom",
-]) satisfies z.ZodType<AgentPreset>;
+const storedViewerSchema = z.object({ login: z.string().min(1) }).strict();
+
+const storedSnoozeSchema = z.object({
+  rule: snoozeRuleSchema,
+  until: z.string().nullable(),
+  createdAt: z.string(),
+  checks: z.string().nullable(),
+  headRefOid: z.string().nullable(),
+}) satisfies z.ZodType<Snooze>;
 const mergeMethodSchema = z.enum(["squash", "merge", "rebase"]);
 const repoSettingsSchema = z
   .object({
@@ -205,7 +194,6 @@ const threadLinkSchema = z
     number: itemNumberSchema,
     threadId: z.string().min(1),
     createdAt: z.string(),
-    preset: agentPresetSchema.nullable(),
   })
   .strict();
 const pullSchema = z
@@ -285,9 +273,9 @@ const pullSchema = z
               state: z.enum(["open", "draft", "merged", "closed"]),
               attention: z.enum([
                 "conflicts",
-                "failing",
+                "checks_failed",
                 "draft",
-                "ready",
+                "ready_to_merge",
                 "none",
               ]),
             })
@@ -301,20 +289,11 @@ const pullSchema = z
         .object({
           name: z.string(),
           workflow: z.string().nullable(),
-          status: z.enum(["success", "failure", "pending", "neutral"]),
+          status: z.enum(["success", "failure", "pending", "skipped"]),
           url: z.string(),
           runId: z.number().int().positive().nullable(),
           completedAt: z.string().nullable(),
           required: z.boolean(),
-          annotations: z.array(
-            z
-              .object({
-                path: z.string(),
-                line: z.number().int().nullable(),
-                message: z.string(),
-              })
-              .strict(),
-          ),
         })
         .strict(),
     ),
@@ -368,6 +347,7 @@ export const githubRpcContract = defineRpcContract({
         ghState: z.enum(["ready", "needs_configuration", "unavailable"]),
         ghError: z.string().nullable(),
         repos: z.array(repoInfoSchema),
+        defaultProjectId: z.string().nullable(),
         lastSyncedAt: z.string().nullable(),
         lastSyncError: z.string().nullable(),
       })
@@ -488,49 +468,19 @@ export const githubRpcContract = defineRpcContract({
     input: itemInputSchema,
     output: okResultSchema,
   },
-  startAgent: {
-    input: itemInputSchema
-      .extend({ preset: agentPresetSchema, prompt: z.string().nullable() })
-      .strict(),
-    output: z.object({ threadId: z.string().min(1) }).strict(),
-  },
-  agentPrompt: {
-    input: itemInputSchema
-      .extend({
-        preset: agentPresetSchema,
-        branchCheckout: z.enum(["same-branch", "new-branch", "checkout"]),
-      })
-      .strict(),
-    output: z.object({ prompt: z.string(), title: z.string().min(1) }).strict(),
-  },
   linkThread: {
     input: itemInputSchema
       .extend({
         kind: z.enum(["issue", "pr"]),
         threadId: z.string().min(1),
-        preset: agentPresetSchema.nullable(),
       })
       .strict(),
     output: okResultSchema,
-  },
-  setFollow: {
-    input: itemInputSchema
-      .extend({ threadId: z.string().min(1).nullable() })
-      .strict(),
-    output: z
-      .object({ ok: z.literal(true), threadId: z.string().nullable() })
-      .strict(),
   },
   repoSettings: {
     input: z.null(),
     output: z
       .object({ repos: z.record(z.string(), repoSettingsSchema) })
-      .strict(),
-  },
-  listFollows: {
-    input: z.null(),
-    output: z
-      .object({ follows: z.record(z.string(), z.string().min(1)) })
       .strict(),
   },
   commentPull: {
@@ -567,14 +517,6 @@ export const githubRpcContract = defineRpcContract({
     output: z
       .object({ number: itemNumberSchema.nullable(), url: z.string() })
       .strict(),
-  },
-  startWork: {
-    input: itemInputSchema,
-    output: z.object({ threadId: z.string().min(1) }).strict(),
-  },
-  startReview: {
-    input: itemInputSchema,
-    output: z.object({ threadId: z.string().min(1) }).strict(),
   },
   listLinks: {
     input: z.null(),
@@ -927,8 +869,7 @@ const pullDetailsQuery = `query PullDetails($owner: String!, $name: String!, $nu
         statusCheckRollup { contexts(first: 100) { nodes { __typename
           ... on CheckRun { name status conclusion startedAt completedAt detailsUrl
             isRequired(pullRequestNumber: $number)
-            checkSuite { workflowRun { databaseId workflow { name } } }
-            annotations(first: 5) { nodes { path message location { start { line } } } } }
+            checkSuite { workflowRun { databaseId workflow { name } } } }
           ... on StatusContext { context state targetUrl createdAt isRequired(pullRequestNumber: $number) }
         } } }
       } } }
@@ -972,21 +913,6 @@ const detailCheckSchema = z.object({
         })
         .nullable()
         .optional(),
-    })
-    .nullable()
-    .optional(),
-  annotations: z
-    .object({
-      nodes: z.array(
-        z.object({
-          path: z.string(),
-          message: z.string(),
-          location: z
-            .object({ start: z.object({ line: z.number().int() }) })
-            .nullable()
-            .optional(),
-        }),
-      ),
     })
     .nullable()
     .optional(),
@@ -1111,12 +1037,11 @@ type DetailCheck = PullCheckView;
 interface PullCheckView {
   name: string;
   workflow: string | null;
-  status: "success" | "failure" | "pending" | "neutral";
+  status: "success" | "failure" | "pending" | "skipped";
   url: string;
   runId: number | null;
   completedAt: string | null;
   required: boolean;
-  annotations: Array<{ path: string; line: number | null; message: string }>;
 }
 interface PullEvent {
   kind: PullEventKind;
@@ -1132,7 +1057,12 @@ interface PullStackView {
     number: number;
     title: string;
     state: "open" | "draft" | "merged" | "closed";
-    attention: "conflicts" | "failing" | "draft" | "ready" | "none";
+    attention:
+      | "conflicts"
+      | "checks_failed"
+      | "draft"
+      | "ready_to_merge"
+      | "none";
   }>;
 }
 interface PullDetails {
@@ -1200,25 +1130,26 @@ export function checkStatus(
 ): PullCheckView["status"] {
   const result = (conclusion ?? "").toUpperCase();
   if (result === "") {
-    return (status ?? "").toUpperCase() === "COMPLETED" ? "neutral" : "pending";
+    return (status ?? "").toUpperCase() === "COMPLETED" ? "skipped" : "pending";
   }
   if (result === "SUCCESS") return "success";
   if (isFailedCheck(result)) return "failure";
   if (result === "PENDING" || result === "EXPECTED") return "pending";
-  return "neutral";
+  return "skipped";
 }
 
-export function latestChecks<T extends { name: string; startedAt: string }>(
-  checks: readonly T[],
-): T[] {
-  const byName = new Map<string, T>();
+export function latestChecks<
+  T extends { name: string; workflow: string | null; startedAt: string },
+>(checks: readonly T[]): T[] {
+  const byKey = new Map<string, T>();
   for (const check of checks) {
-    const kept = byName.get(check.name);
+    const key = `${check.workflow ?? ""}/${check.name}`;
+    const kept = byKey.get(key);
     if (kept === undefined || check.startedAt > kept.startedAt) {
-      byName.set(check.name, check);
+      byKey.set(key, check);
     }
   }
-  return [...byName.values()];
+  return [...byKey.values()];
 }
 
 function detailChecks(
@@ -1238,18 +1169,6 @@ function detailChecks(
       runId: run?.databaseId ?? actionsRunId(url),
       completedAt: isRun ? (node.completedAt ?? null) : null,
       required: node.isRequired === true,
-      annotations: (node.annotations?.nodes ?? [])
-        .filter(
-          (annotation) =>
-            !/^Process completed with exit code \d+\.?$/.test(
-              annotation.message.trim(),
-            ),
-        )
-        .map((annotation) => ({
-          path: annotation.path,
-          line: annotation.location?.start.line ?? null,
-          message: annotation.message.trim().split("\n")[0] ?? "",
-        })),
       startedAt: (isRun ? node.startedAt : node.createdAt) ?? "",
     };
   });
@@ -1266,10 +1185,10 @@ function stackAttention(entry: {
 }): PullStackView["entries"][number]["attention"] {
   if (entry.mergeable === "CONFLICTING") return "conflicts";
   if (entry.verdict === "FAILURE" || entry.verdict === "ERROR")
-    return "failing";
+    return "checks_failed";
   if (entry.isDraft) return "draft";
   if (entry.mergeable === "MERGEABLE" && entry.verdict === "SUCCESS") {
-    return "ready";
+    return "ready_to_merge";
   }
   return "none";
 }
@@ -1387,22 +1306,6 @@ function parsePullDetails(raw: string | null): PullDetails {
               }),
           },
   };
-}
-
-export function annotationNote(
-  annotations: ReadonlyArray<{
-    path: string;
-    line: number | null;
-    message: string;
-  }>,
-): string | null {
-  const first = annotations[0];
-  if (first === undefined) return null;
-  const where =
-    first.path === ".github" || first.path.length === 0
-      ? ""
-      : `${first.path}${first.line === null ? "" : `:${first.line}`} `;
-  return `${where}${first.message}`;
 }
 
 const ACTIONS_RUN_URL = /\/actions\/runs\/(\d+)/;
@@ -1960,9 +1863,6 @@ export default async function plugin(bb: BbPluginApi) {
     if (before !== after) {
       bb.realtime.publish("data-changed", { items: total });
     }
-    await notifyFollowers().catch((error: unknown) => {
-      bb.log.warn(`following pull requests failed: ${errorMessage(error)}`);
-    });
     bb.log.info(`synced ${total} item(s) across ${repos.length} repo(s)`);
     return { repos: repos.length, items: total };
   }
@@ -2017,10 +1917,6 @@ export default async function plugin(bb: BbPluginApi) {
     return `snooze:${repo}#${number}`;
   }
 
-  function activityKey(repo: string, number: number): string {
-    return `agent-activity:${repo}#${number}`;
-  }
-
   async function readSnoozes(): Promise<Map<string, Snooze>> {
     const result = new Map<string, Snooze>();
     for (const key of await bb.storage.kv.list("snooze:")) {
@@ -2028,13 +1924,6 @@ export default async function plugin(bb: BbPluginApi) {
       if (parsed.success) result.set(key.slice("snooze:".length), parsed.data);
     }
     return result;
-  }
-
-  async function agentActivity(
-    repo: string,
-    number: number,
-  ): Promise<string | null> {
-    return (await bb.storage.kv.get<string>(activityKey(repo, number))) ?? null;
   }
 
   async function withSnoozes(items: CachedItem[]): Promise<ListedItem[]> {
@@ -2050,11 +1939,7 @@ export default async function plugin(bb: BbPluginApi) {
         listed.push({ ...item, snooze: null });
         continue;
       }
-      const subject = {
-        pr: item.pr,
-        agentActivity: await agentActivity(item.repo, item.number),
-      };
-      if (snoozeWakes(snooze, subject, now)) {
+      if (snoozeWakes(snooze, { pr: item.pr }, now)) {
         await bb.storage.kv.delete(snoozeKey(item.repo, item.number));
         listed.push({ ...item, snooze: null });
       } else {
@@ -2091,20 +1976,10 @@ export default async function plugin(bb: BbPluginApi) {
         throw new Error("A timed snooze needs a moment in the future.");
       }
     }
-    if (rule === "reply") {
-      const links =
-        (await bb.storage.kv.get<ThreadLink[]>(linkKey("pr", repo, number))) ??
-        [];
-      if (links.length === 0) {
-        throw new Error(
-          `No agent thread is linked to ${repo}#${number}, so there is no reply to wait for.`,
-        );
-      }
-    }
     const snooze = snoozeFor(
       rule,
       rule === "time" && until !== null ? new Date(until).toISOString() : null,
-      { pr: item.pr, agentActivity: await agentActivity(repo, number) },
+      { pr: item.pr },
       now,
     );
     await bb.storage.kv.set(snoozeKey(repo, number), snooze);
@@ -2116,37 +1991,6 @@ export default async function plugin(bb: BbPluginApi) {
     await bb.storage.kv.delete(snoozeKey(repo, number));
     bb.realtime.publish("data-changed", {});
   }
-
-  async function linkedPulls(
-    threadId: string,
-  ): Promise<Array<{ repo: string; number: number }>> {
-    const links = await listAllLinks();
-    return Object.values(links).flatMap((entries) =>
-      entries
-        .filter((link) => link.kind === "pr" && link.threadId === threadId)
-        .slice(0, 1)
-        .map((link) => ({ repo: link.repo, number: link.number })),
-    );
-  }
-
-  async function recordAgentActivity(threadId: string): Promise<void> {
-    const pulls = await linkedPulls(threadId);
-    if (pulls.length === 0) return;
-    const stamp = new Date().toISOString();
-    for (const { repo, number } of pulls) {
-      await bb.storage.kv.set(activityKey(repo, number), stamp);
-    }
-    bb.realtime.publish("data-changed", {});
-  }
-
-  for (const event of ["thread.idle", "thread.failed"] as const) {
-    bb.events.on(event, async ({ thread }) => {
-      await recordAgentActivity(thread.id);
-    });
-  }
-  bb.events.on("interaction.pending", async ({ thread }) => {
-    await recordAgentActivity(thread.id);
-  });
 
   async function rollupOf(
     repo: string,
@@ -2160,50 +2004,27 @@ export default async function plugin(bb: BbPluginApi) {
       statusCheckRollup?: Array<{
         name?: unknown;
         context?: unknown;
+        workflowName?: unknown;
         conclusion?: unknown;
         state?: unknown;
         detailsUrl?: unknown;
         targetUrl?: unknown;
+        startedAt?: unknown;
       }>;
     };
-    return (view.statusCheckRollup ?? []).map((entry) => ({
-      name: String(entry.name ?? entry.context ?? "check"),
-      conclusion: String(entry.conclusion ?? entry.state ?? ""),
-      url: String(entry.detailsUrl ?? entry.targetUrl ?? ""),
-    }));
-  }
-
-  async function failingChecks(
-    repo: string,
-    number: number,
-  ): Promise<PresetPull["failingChecks"]> {
-    try {
-      const details = await pullDetailsOf(repo, number);
-      if (details.checks !== null) {
-        return details.checks
-          .filter((check) => check.status === "failure")
-          .map((check) => ({
-            name: check.name,
-            runId: check.runId,
-            note: annotationNote(check.annotations),
-          }));
-      }
-    } catch (error) {
-      bb.log.warn(
-        `could not read the failing checks of ${repo}#${number}: ${errorMessage(error)}`,
-      );
-    }
-    try {
-      return (await rollupOf(repo, number))
-        .filter((check) => isFailedCheck(check.conclusion))
-        .map((check) => ({
-          name: check.name,
-          runId: actionsRunId(check.url),
-          note: null,
-        }));
-    } catch {
-      return [];
-    }
+    return latestChecks(
+      (view.statusCheckRollup ?? []).map((entry) => ({
+        name: String(entry.name ?? entry.context ?? "check"),
+        workflow:
+          typeof entry.workflowName === "string" &&
+          entry.workflowName.length > 0
+            ? entry.workflowName
+            : null,
+        conclusion: String(entry.conclusion ?? entry.state ?? ""),
+        url: String(entry.detailsUrl ?? entry.targetUrl ?? ""),
+        startedAt: typeof entry.startedAt === "string" ? entry.startedAt : "",
+      })),
+    ).map(({ name, conclusion, url }) => ({ name, conclusion, url }));
   }
 
   async function rerunFailedChecks(
@@ -2216,14 +2037,11 @@ export default async function plugin(bb: BbPluginApi) {
     if (failed.length === 0) {
       throw new Error(`${repo}#${number} has no failed checks.`);
     }
-    const runIds = [
-      ...new Set(
-        failed.flatMap((check) => {
-          const id = actionsRunId(check.url);
-          return id === null ? [] : [id];
-        }),
-      ),
-    ];
+    const onActions = failed.flatMap((check) => {
+      const id = actionsRunId(check.url);
+      return id === null ? [] : [id];
+    });
+    const runIds = [...new Set(onActions)];
     if (runIds.length === 0) {
       throw new Error(
         `The failed checks on ${repo}#${number} don't run on GitHub Actions, so they can't be re-run from bb.`,
@@ -2240,7 +2058,7 @@ export default async function plugin(bb: BbPluginApi) {
         );
       });
     }
-    return { runs: runIds.length, checks: failed.length };
+    return { runs: runIds.length, checks: onActions.length };
   }
 
   async function pullDetailsOf(
@@ -2346,140 +2164,6 @@ export default async function plugin(bb: BbPluginApi) {
     };
   }
 
-  function followKey(repo: string, number: number): string {
-    return `follow:${repo}#${number}`;
-  }
-
-  const followSchema = z
-    .object({
-      threadId: z.string().min(1),
-      since: z.string(),
-      checks: z.string().nullable(),
-      review: z.string().nullable(),
-    })
-    .strict();
-
-  async function setFollow(
-    repo: string,
-    number: number,
-    threadId: string | null,
-  ): Promise<void> {
-    if (threadId === null) {
-      await bb.storage.kv.delete(followKey(repo, number));
-    } else {
-      const item = getCachedItem("pr", repo, number);
-      await bb.storage.kv.set(followKey(repo, number), {
-        threadId,
-        since: new Date().toISOString(),
-        checks: item?.pr?.checks.state ?? null,
-        review: item?.pr?.review.state ?? null,
-      } satisfies z.infer<typeof followSchema>);
-    }
-    bb.realtime.publish("links-changed", {});
-  }
-
-  async function listFollows(): Promise<Record<string, string>> {
-    const follows: Record<string, string> = {};
-    for (const key of await bb.storage.kv.list("follow:")) {
-      const parsed = followSchema.safeParse(await bb.storage.kv.get(key));
-      if (parsed.success)
-        follows[key.slice("follow:".length)] = parsed.data.threadId;
-    }
-    return follows;
-  }
-
-  async function newComments(
-    repo: string,
-    number: number,
-    since: string,
-  ): Promise<string[]> {
-    const raw = await gh(
-      [
-        "api",
-        `repos/${repo}/issues/${number}/comments?since=${encodeURIComponent(since)}&per_page=20`,
-      ],
-      15_000,
-      "background",
-    );
-    const comments = JSON.parse(raw) as Array<{
-      user?: { login?: unknown; type?: unknown };
-      body?: unknown;
-      created_at?: unknown;
-    }>;
-    return comments
-      .filter(
-        (comment) =>
-          String(comment.created_at ?? "") > since &&
-          comment.user?.type !== "Bot",
-      )
-      .map(
-        (comment) =>
-          `${String(comment.user?.login ?? "someone")} commented:\n${String(comment.body ?? "").slice(0, 2000)}`,
-      );
-  }
-
-  async function notifyFollowers(): Promise<void> {
-    for (const key of await bb.storage.kv.list("follow:")) {
-      const parsed = followSchema.safeParse(await bb.storage.kv.get(key));
-      const match = /^follow:([\w.-]+\/[\w.-]+)#(\d+)$/.exec(key);
-      if (!parsed.success || match?.[1] === undefined) continue;
-      const repo = match[1];
-      const number = Number(match[2]);
-      const follow = parsed.data;
-      const pr = getCachedItem("pr", repo, number)?.pr ?? null;
-      if (pr === null) continue;
-      const ref = `${repo}#${number}`;
-      const notes: string[] = [];
-      if (
-        pr.checks.state !== follow.checks &&
-        (pr.checks.state === "failing" || pr.checks.state === "passing")
-      ) {
-        notes.push(`CI on ${ref}: ${checksSummary(pr.checks)}.`);
-      }
-      if (pr.review.state !== follow.review) {
-        if (pr.review.state === "changes_requested") {
-          notes.push(`A reviewer requested changes on ${ref}.`);
-        } else if (pr.review.state === "approved") {
-          notes.push(`${ref} was approved.`);
-        }
-      }
-      const now = new Date().toISOString();
-      try {
-        notes.push(...(await newComments(repo, number, follow.since)));
-      } catch (error) {
-        bb.log.warn(
-          `could not read new comments on ${ref}: ${errorMessage(error)}`,
-        );
-      }
-      if (pr.state === "merged" || pr.state === "closed") {
-        notes.push(`${ref} was ${pr.state}. I stopped following it.`);
-      }
-      if (notes.length > 0) {
-        await bb.sdk.threads.send({
-          threadId: follow.threadId,
-          input: [
-            {
-              type: "text",
-              text: [`GitHub update for ${ref}:`, "", ...notes].join("\n"),
-              mentions: [],
-            },
-          ],
-          mode: "queue-if-active",
-        });
-      }
-      if (pr.state === "merged" || pr.state === "closed") {
-        await bb.storage.kv.delete(key);
-      } else {
-        await bb.storage.kv.set(key, {
-          ...follow,
-          since: notes.length > 0 ? now : follow.since,
-          checks: pr.checks.state,
-          review: pr.review.state,
-        });
-      }
-    }
-  }
-
   bb.background.service("sync", {
     async start(signal) {
       let failures = 0;
@@ -2541,9 +2225,7 @@ export default async function plugin(bb: BbPluginApi) {
     bb.realtime.publish("links-changed", { key });
   }
 
-  const storedLinkSchema = threadLinkSchema
-    .extend({ preset: agentPresetSchema.nullable().default(null) })
-    .strict();
+  const storedLinkSchema = z.object(threadLinkSchema.shape);
 
   async function listAllLinks(): Promise<Record<string, ThreadLink[]>> {
     const keys = await bb.storage.kv.list("link:");
@@ -2571,79 +2253,32 @@ export default async function plugin(bb: BbPluginApi) {
     );
   }
 
-  async function agentPromptFor(
-    repo: string,
-    number: number,
-    preset: AgentPreset,
-    branchCheckout: PresetPull["branchCheckout"],
-  ): Promise<{ prompt: string; title: string }> {
-    const item = getCachedItem("pr", repo, number);
-    if (item?.pr == null) {
-      throw new Error(
-        `${repo}#${number} is not a cached pull request. Run \`bb github sync\` first.`,
-      );
-    }
-    const pr = item.pr;
-    const pulls = listCachedItems({ kind: "pr", repo }).flatMap((entry) =>
-      entry.pr === null
-        ? []
-        : [{ repo: entry.repo, number: entry.number, pr: entry.pr }],
-    );
-    const chain = stackChain({ repo, number, pr }, pulls);
-    return {
-      prompt: presetPrompt(preset, {
-        repo,
-        number,
-        title: item.title,
-        headRefName: pr.headRefName,
-        baseRefName: pr.baseRefName,
-        failingChecks:
-          preset === "fix" ? await failingChecks(repo, number) : [],
-        issueKey: issueKeyOf(item.title, pr.headRefName),
-        stack:
-          chain?.map((entry) => ({
-            number: entry.number,
-            baseRefName: entry.pr.baseRefName,
-          })) ?? null,
-        branchCheckout,
-      } satisfies PresetPull),
-      title: agentThreadTitle(preset, repo, number, item.title),
-    };
-  }
-
-  function agentThreadTitle(
-    preset: AgentPreset,
-    repo: string,
-    number: number,
-    title: string,
-  ): string {
-    return `${presetInfo(preset).label} · ${repo}#${number}: ${title}`.slice(
-      0,
-      120,
-    );
-  }
-
   async function spawnOnPull(
     repo: string,
     number: number,
     preset: AgentPreset,
     prompt: string | null,
   ): Promise<{ threadId: string }> {
+    const item = getCachedItem("pr", repo, number);
+    if (item?.pr == null) {
+      throw new Error(
+        `${repo}#${number} is not a cached pull request. Run \`bb github sync\` first.`,
+      );
+    }
     const projectId = await resolveProjectId(repo);
-    const cached = getCachedItem("pr", repo, number);
-    const seeded =
-      prompt === null || cached === null
-        ? await agentPromptFor(repo, number, preset, "checkout")
-        : {
-            prompt,
-            title: agentThreadTitle(preset, repo, number, cached.title),
-          };
+    const pull = {
+      repo,
+      number,
+      title: item.title,
+      headRefName: item.pr.headRefName,
+      baseRefName: item.pr.baseRefName,
+      branchCheckout: "checkout" as const,
+    };
     const thread = await bb.sdk.threads.spawn({
       projectId,
       environment: { type: "project-default" },
-      title: seeded.title,
-      prompt: seeded.prompt,
-      pluginMetadata: { pullRequest: { repo, number, preset } },
+      title: agentThreadTitle(preset, pull),
+      prompt: prompt ?? presetPrompt(preset, pull),
     });
     await addLink({
       kind: "pr",
@@ -2651,7 +2286,6 @@ export default async function plugin(bb: BbPluginApi) {
       number,
       threadId: thread.id,
       createdAt: new Date().toISOString(),
-      preset,
     });
     bb.log.info(
       `spawned thread ${thread.id} (${preset}) for ${repo}#${number}`,
@@ -2659,56 +2293,28 @@ export default async function plugin(bb: BbPluginApi) {
     return { threadId: thread.id };
   }
 
-  async function spawnOnItem(
-    kind: "issue" | "pr",
+  async function spawnOnIssue(
     repo: string,
     number: number,
+    title: string,
+    prompt: string | null,
   ): Promise<{ threadId: string }> {
-    const item = getCachedItem(kind, repo, number);
-    const title = item?.title ?? `${kind === "pr" ? "PR" : "issue"} #${number}`;
+    const issue = { repo, number, title };
     const projectId = await resolveProjectId(repo);
-    const ref = `${repo}#${number}`;
-    const prompt =
-      kind === "issue"
-        ? [
-            `Work on GitHub issue ${ref}: ${title}`,
-            "",
-            "Read the full issue and its comments first:",
-            `  gh issue view ${number} -R ${repo} --comments`,
-            "",
-            item !== null && item.body.length > 0
-              ? `Issue description:\n\n${item.body}`
-              : "(no cached description — read it with the command above)",
-            "",
-            "Implement a fix or the requested change in this checkout. " +
-              `If you open a pull request, include "Fixes #${number}" in its body.`,
-          ].join("\n")
-        : [
-            `Review GitHub pull request ${ref}: ${title}`,
-            "",
-            "Read the PR and its diff:",
-            `  gh pr view ${number} -R ${repo} --comments`,
-            `  gh pr diff ${number} -R ${repo}`,
-            "",
-            "Review the change for correctness, missing tests, and design issues. " +
-              "Summarize your findings with file/line references. Do not push " +
-              "changes or post to GitHub unless asked.",
-          ].join("\n");
     const thread = await bb.sdk.threads.spawn({
       projectId,
       environment: { type: "project-default" },
-      title: `${ref}: ${title}`.slice(0, 120),
-      prompt,
+      title: issueThreadTitle(issue),
+      prompt: prompt ?? issuePrompt(issue),
     });
     await addLink({
-      kind,
+      kind: "issue",
       repo,
       number,
       threadId: thread.id,
       createdAt: new Date().toISOString(),
-      preset: kind === "pr" ? "review" : null,
     });
-    bb.log.info(`spawned thread ${thread.id} for ${kind} ${ref}`);
+    bb.log.info(`spawned thread ${thread.id} for issue ${repo}#${number}`);
     return { threadId: thread.id };
   }
 
@@ -2721,12 +2327,23 @@ export default async function plugin(bb: BbPluginApi) {
     ) {
       return viewerCache.login;
     }
-    const raw = await gh(["api", "user"], 15_000);
-    const login = String((JSON.parse(raw) as { login?: unknown })?.login ?? "");
-    if (login.length === 0)
-      throw new Error("could not resolve the gh viewer login");
-    viewerCache = { login, fetchedAt: Date.now() };
-    return login;
+    try {
+      const raw = await gh(["api", "user"], 15_000);
+      const login = String(
+        (JSON.parse(raw) as { login?: unknown })?.login ?? "",
+      );
+      if (login.length === 0)
+        throw new Error("could not resolve the gh viewer login");
+      viewerCache = { login, fetchedAt: Date.now() };
+      await bb.storage.kv.set("viewer", { login });
+      return login;
+    } catch (error) {
+      const stored = storedViewerSchema.safeParse(
+        await bb.storage.kv.get("viewer"),
+      );
+      if (stored.success) return stored.data.login;
+      throw error;
+    }
   }
 
   const assignableCache = new Map<
@@ -2782,11 +2399,16 @@ export default async function plugin(bb: BbPluginApi) {
         lastSyncedAt: string;
       }>("sync-cursor");
       const repos = await discoverRepos();
+      const { defaultProject } = await settings.get();
       return {
         ghOk: ghState === "ready",
         ghState,
         ghError: ghAuthError,
         repos,
+        defaultProjectId:
+          typeof defaultProject === "string" && defaultProject.length > 0
+            ? defaultProject
+            : null,
         lastSyncedAt: cursor?.lastSyncedAt ?? null,
         lastSyncError,
       };
@@ -3058,7 +2680,6 @@ export default async function plugin(bb: BbPluginApi) {
                 ? entry.completedAt
                 : null,
             required: false,
-            annotations: [],
             startedAt:
               typeof entry.startedAt === "string" ? entry.startedAt : "",
           };
@@ -3240,33 +2861,15 @@ export default async function plugin(bb: BbPluginApi) {
       return { ok: true };
     },
 
-    async startAgent({ repo, number, preset, prompt }) {
-      return await spawnOnPull(repo, number, preset, prompt);
-    },
-
-    async agentPrompt({ repo, number, preset, branchCheckout }) {
-      return await agentPromptFor(repo, number, preset, branchCheckout);
-    },
-
-    async linkThread({ kind, repo, number, threadId, preset }) {
+    async linkThread({ kind, repo, number, threadId }) {
       await addLink({
         kind,
         repo,
         number,
         threadId,
         createdAt: new Date().toISOString(),
-        preset,
       });
       return { ok: true as const };
-    },
-
-    async setFollow({ repo, number, threadId }) {
-      await setFollow(repo, number, threadId);
-      return { ok: true as const, threadId };
-    },
-
-    async listFollows() {
-      return { follows: await listFollows() };
     },
 
     async repoSettings() {
@@ -3358,14 +2961,6 @@ export default async function plugin(bb: BbPluginApi) {
         bb.realtime.publish("data-changed", {});
       } catch {}
       return { number, url: stdout.trim() };
-    },
-
-    async startWork({ repo, number }) {
-      return await spawnOnItem("issue", repo, number);
-    },
-
-    async startReview({ repo, number }) {
-      return await spawnOnPull(repo, number, "review", null);
     },
 
     async listLinks() {
@@ -3517,7 +3112,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
   ] as const;
 
-  function cachedItemSummary(item: CachedItem) {
+  function cachedItemSummary(item: CachedItem, viewer: string | null) {
     return {
       repo: item.repo,
       number: item.number,
@@ -3530,13 +3125,13 @@ export default async function plugin(bb: BbPluginApi) {
       url: item.url,
       updatedAt: item.updatedAt,
       pr: item.pr,
-      nextStep: nextStepOf(item),
+      nextStep: nextStepOf(item, viewer),
     };
   }
 
-  function nextStepOf(item: CachedItem): string | null {
+  function nextStepOf(item: CachedItem, viewer: string | null): string | null {
     if (item.pr === null) return null;
-    return pullNextStep(item.pr, pullGroup(item.pr, item.author, null));
+    return pullNextStep(item.pr, pullGroup(item.pr, item.author, viewer));
   }
 
   function listCachedItemsCommand(kind: "issue" | "pr") {
@@ -3547,7 +3142,7 @@ export default async function plugin(bb: BbPluginApi) {
           : "List cached open issues",
       description:
         kind === "pr"
-          ? "Reads the local cache only; run `bb github sync` to refresh it from GitHub. --view picks the same lists as the panel's tabs: inbox (your move, ready to merge, needs fixing, in progress, snoozed), mine, all (open and closed), or merged; without it every open pull request is listed."
+          ? "Reads the local cache only; run `bb github sync` to refresh it from GitHub. --view picks the same lists as the panel's tabs: inbox (reviews requested from you, plus your own pull requests that are ready, need fixing, or are in progress), mine, all (open and closed), or merged; without it every open pull request is listed."
           : "Reads the local cache only; run `bb github sync` to refresh it from GitHub.",
       positionals: [
         {
@@ -3579,7 +3174,12 @@ export default async function plugin(bb: BbPluginApi) {
             "view" in input.options
               ? (input.options.view as PullView | undefined)
               : undefined;
-          const viewer = view === undefined ? null : await getViewer();
+          const viewer =
+            kind !== "pr"
+              ? null
+              : view === undefined
+                ? await getViewer().catch(() => null)
+                : await getViewer();
           const listed = await withSnoozes(
             listCachedItems({
               kind,
@@ -3593,10 +3193,13 @@ export default async function plugin(bb: BbPluginApi) {
               (item.pr !== null &&
                 inPullView(
                   view,
-                  pullGroup(item.pr, item.author, viewer, {
-                    snoozed: item.snooze !== null,
-                  }),
-                  item.author,
+                  {
+                    pr: item.pr,
+                    author: item.author,
+                    group: pullGroup(item.pr, item.author, viewer, {
+                      snoozed: item.snooze !== null,
+                    }),
+                  },
                   viewer,
                 )),
           );
@@ -3606,7 +3209,7 @@ export default async function plugin(bb: BbPluginApi) {
               stdout: JSON.stringify({
                 ok: true,
                 items: items.map((item) => ({
-                  ...cachedItemSummary(item),
+                  ...cachedItemSummary(item, viewer),
                   snooze: item.snooze,
                 })),
               }),
@@ -3628,7 +3231,7 @@ export default async function plugin(bb: BbPluginApi) {
                       ? ""
                       : `\t${
                           item.snooze === null
-                            ? nextStepOf(item)
+                            ? nextStepOf(item, viewer)
                             : `Snoozed ${snoozeLabel(item.snooze, new Date())}`
                         }`
                   }`,
@@ -3829,14 +3432,14 @@ export default async function plugin(bb: BbPluginApi) {
           summary:
             "Snooze a pull request out of the inbox until something changes",
           description:
-            "checks wakes it when its checks finish differently, push when its head commit changes, reply when its linked agent thread stops or asks something, tomorrow at 8:00, monday at 8:00 next Monday, or an ISO date-time. Merging or closing it wakes it too.",
+            "checks wakes it when its checks finish differently, push when its head commit changes, tomorrow at 8:00, monday at 8:00 next Monday, or an ISO date-time. Merging or closing it wakes it too.",
           positionals: [...pullPositionals],
           options: {
             until: {
               type: "string",
               required: true,
               description:
-                "checks, push, reply, tomorrow, monday, or an ISO 8601 date-time",
+                "checks, push, tomorrow, monday, or an ISO 8601 date-time",
             },
             json: {
               type: "boolean",
@@ -3856,7 +3459,7 @@ export default async function plugin(bb: BbPluginApi) {
                     : null;
               let rule: SnoozeRule;
               let at: string | null = null;
-              if (until === "checks" || until === "push" || until === "reply") {
+              if (until === "checks" || until === "push") {
                 rule = until;
               } else if (timed !== null) {
                 rule = "time";
@@ -3866,7 +3469,7 @@ export default async function plugin(bb: BbPluginApi) {
                 at = new Date(input.options.until).toISOString();
               } else {
                 throw new PluginCliError(
-                  `Unknown --until "${input.options.until}". Use checks, push, reply, tomorrow, monday, or an ISO date-time.`,
+                  `Unknown --until "${input.options.until}". Use checks, push, tomorrow, monday, or an ISO date-time.`,
                   { code: "invalid_until" },
                 );
               }
@@ -3894,14 +3497,14 @@ export default async function plugin(bb: BbPluginApi) {
                 exitCode: 0,
                 stdout: input.options.json
                   ? JSON.stringify({ ok: true, repo, number })
-                  : `${repo}#${number} is back in the inbox.`,
+                  : `${repo}#${number} is no longer snoozed.`,
               };
             });
           },
         }),
         agent: cliCommand({
-          summary: "Start an agent thread on a pull request",
-          description: `Spawns a thread in the repository's bb project with a prompt for the preset, links it to the pull request, and prints its id. Presets: ${AGENT_PRESETS.map((preset) => `${preset.id} (${preset.label})`).join(", ")}. Without --preset the pull request's state picks one: conflicts, fix, finish for a draft, else review.`,
+          summary: "Start an agent thread on a pull request or an issue",
+          description: `Spawns a thread in the repository's bb project, links it to the pull request or issue, and prints its id. On a pull request the prompt comes from the preset: ${AGENT_PRESETS.map((preset) => `${preset.id} (${preset.label})`).join(", ")}. Without --preset someone else's pull request gets review, and your own gets what it needs: conflicts, fix for failing checks, feedback for requested changes, else review. On an issue the prompt asks the agent to work on it, and --preset does not apply.`,
           positionals: [...pullPositionals],
           options: {
             preset: {
@@ -3922,10 +3525,39 @@ export default async function plugin(bb: BbPluginApi) {
             return guarded(async () => {
               const { repo, number } = pullRefFromCli(input.positionals);
               const cached = getCachedItem("pr", repo, number);
+              const issue =
+                cached?.pr == null
+                  ? getCachedItem("issue", repo, number)
+                  : null;
+              const prompt = input.options.prompt?.trim() ?? "";
+              if (issue != null) {
+                if (input.options.preset !== undefined) {
+                  throw new Error(
+                    `${repo}#${number} is an issue; --preset applies to pull requests.`,
+                  );
+                }
+                const { threadId } = await spawnOnIssue(
+                  repo,
+                  number,
+                  issue.title,
+                  prompt.length > 0 ? prompt : null,
+                );
+                return {
+                  exitCode: 0,
+                  stdout: input.options.json
+                    ? JSON.stringify({ ok: true, repo, number, threadId })
+                    : `Started ${threadId} on issue ${repo}#${number}.`,
+                };
+              }
               const preset =
                 input.options.preset ??
-                (cached?.pr == null ? "review" : pullPreset(cached.pr));
-              const prompt = input.options.prompt?.trim() ?? "";
+                (cached?.pr == null
+                  ? "review"
+                  : pullPreset(
+                      cached.pr,
+                      cached.author,
+                      await getViewer().catch(() => null),
+                    ));
               const { threadId } = await spawnOnPull(
                 repo,
                 number,
@@ -3936,54 +3568,7 @@ export default async function plugin(bb: BbPluginApi) {
                 exitCode: 0,
                 stdout: input.options.json
                   ? JSON.stringify({ ok: true, repo, number, preset, threadId })
-                  : `Started ${threadId} (${presetInfo(preset).label}) on ${repo}#${number}.`,
-              };
-            });
-          },
-        }),
-        follow: cliCommand({
-          summary:
-            "Send a pull request's CI results, reviews, and comments to an agent thread",
-          description:
-            "After each sync, new CI results, review decisions, and comments on the pull request are sent to the thread, which queues them if it is busy. Following stops when the pull request is merged or closed, or with --off.",
-          positionals: [...pullPositionals],
-          options: {
-            thread: {
-              type: "string",
-              description:
-                "The thread to notify; defaults to the most recent agent thread linked to the pull request",
-            },
-            off: { type: "boolean", description: "Stop following" },
-            json: { type: "boolean", description: "Emit the result as JSON" },
-          },
-          run(input) {
-            return guarded(async () => {
-              const { repo, number } = pullRefFromCli(input.positionals);
-              let threadId: string | null = null;
-              if (input.options.off !== true) {
-                const links =
-                  (await listAllLinks())[`pr:${repo}#${number}`] ?? [];
-                threadId =
-                  input.options.thread ??
-                  [...links].sort((a, b) =>
-                    b.createdAt.localeCompare(a.createdAt),
-                  )[0]?.threadId ??
-                  null;
-                if (threadId === null) {
-                  throw new PluginCliError(
-                    `No agent thread is linked to ${repo}#${number}. Pass --thread <id>.`,
-                    { code: "no_thread" },
-                  );
-                }
-              }
-              await setFollow(repo, number, threadId);
-              return {
-                exitCode: 0,
-                stdout: input.options.json
-                  ? JSON.stringify({ ok: true, repo, number, threadId })
-                  : threadId === null
-                    ? `Stopped following ${repo}#${number}.`
-                    : `${threadId} now follows ${repo}#${number}.`,
+                  : `Started ${threadId} (${presetLabel(preset)}) on ${repo}#${number}.`,
               };
             });
           },

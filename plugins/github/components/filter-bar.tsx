@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 import {
+  COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
+  COARSE_POINTER_TEXT_BASE_CLASS,
+} from "@/components/ui/coarse-pointer-sizing";
+import {
   addQueryToken,
   buildSuggestions,
   NAMED_FILTERS,
@@ -33,7 +37,7 @@ export function FilterInput({
   value: string;
   onChange: (value: string) => void;
   onClose: () => void;
-  onExit: () => void;
+  onExit: () => boolean;
   items: Item[] | null;
   repos: RepoInfo[];
   kind: "issue" | "pr";
@@ -44,6 +48,7 @@ export function FilterInput({
   const [open, setOpen] = useState(false);
   const [caret, setCaret] = useState(value.length);
   const [highlight, setHighlight] = useState(0);
+  const [navigated, setNavigated] = useState(false);
 
   useEffect(() => {
     if (focusRequest > 0) inputRef.current?.focus();
@@ -100,6 +105,8 @@ export function FilterInput({
     onChange(next);
     setCaret(position);
     setHighlight(0);
+    setNavigated(false);
+    setOpen(suggestion.insert.endsWith(":"));
     requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.setSelectionRange(position, position);
@@ -114,8 +121,8 @@ export function FilterInput({
         setOpen(false);
       } else if (value.trim().length === 0) {
         onClose();
-      } else {
-        onExit();
+      } else if (!onExit()) {
+        inputRef.current?.blur();
       }
       return;
     }
@@ -129,21 +136,29 @@ export function FilterInput({
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      setNavigated(true);
       setHighlight((active + 1) % suggestions.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
+      setNavigated(true);
       setHighlight((active - 1 + suggestions.length) % suggestions.length);
     } else if (event.key === "Enter" || event.key === "Tab") {
       const suggestion = suggestions[active];
       if (suggestion === undefined) return;
       event.preventDefault();
+      if (event.key === "Enter" && !navigated && !token.includes(":")) {
+        setOpen(false);
+        onExit();
+        return;
+      }
       accept(suggestion);
     }
   };
 
   const showList = open && suggestions.length > 0;
+  const withIcons = suggestions.some((entry) => entry.icon !== undefined);
   return (
-    <div className="relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 focus-within:bg-state-hover">
+    <div className="relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md pl-2 focus-within:bg-state-hover max-md:pointer-coarse:h-10">
       <Icon
         name="Search"
         aria-hidden
@@ -162,6 +177,7 @@ export function FilterInput({
           onChange(event.target.value);
           setOpen(true);
           setHighlight(0);
+          setNavigated(false);
           setCaret(event.target.selectionStart ?? event.target.value.length);
         }}
         onSelect={syncCaret}
@@ -169,13 +185,13 @@ export function FilterInput({
         onBlur={() => setOpen(false)}
         onKeyDown={onKeyDown}
         placeholder={kind === "pr" ? "Filter pull requests" : "Filter issues"}
-        className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-subtle-foreground"
+        className={`h-full min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground ${COARSE_POINTER_TEXT_BASE_CLASS}`}
         spellCheck={false}
         autoComplete="off"
       />
       <button
         type="button"
-        className="flex size-6 shrink-0 items-center justify-center rounded text-subtle-foreground hover:bg-state-hover hover:text-foreground"
+        className={`flex shrink-0 items-center justify-center rounded-md text-subtle-foreground hover:bg-state-hover hover:text-foreground ${COARSE_POINTER_ROW_ACTION_SIZE_CLASS}`}
         onMouseDown={(event) => event.preventDefault()}
         onClick={onClose}
         aria-label="Close the filter"
@@ -187,10 +203,10 @@ export function FilterInput({
           id={listId}
           role="listbox"
           aria-label={named ? "Filter by" : "Suggestions"}
-          className="absolute top-full right-0 left-0 z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md"
+          className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full max-w-80 overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-md"
         >
           {named ? (
-            <p className="px-3 pt-1 pb-1.5 text-xs font-medium text-subtle-foreground">
+            <p className="px-2 pt-1 pb-1.5 text-xs font-medium text-subtle-foreground">
               Filter by
             </p>
           ) : null}
@@ -200,9 +216,9 @@ export function FilterInput({
               id={`${listId}-${index}`}
               role="option"
               aria-selected={index === active}
-              className={`flex w-full cursor-default items-center gap-2 px-3 py-1.5 text-left text-sm ${
+              className={`flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs max-md:pointer-coarse:py-2.5 max-md:pointer-coarse:text-sm ${
                 index === active
-                  ? "bg-accent text-accent-foreground"
+                  ? "bg-state-active text-foreground"
                   : "text-popover-foreground"
               }`}
               onMouseDown={(event) => {
@@ -211,15 +227,19 @@ export function FilterInput({
               }}
               onMouseEnter={() => setHighlight(index)}
             >
-              {suggestion.icon !== undefined ? (
-                <FilterSuggestionIcon icon={suggestion.icon} />
+              {withIcons ? (
+                <span className="flex size-4 shrink-0 items-center justify-center">
+                  {suggestion.icon !== undefined ? (
+                    <FilterSuggestionIcon icon={suggestion.icon} />
+                  ) : null}
+                </span>
               ) : null}
               <span className="min-w-0 truncate font-medium">
                 {suggestion.label}
               </span>
               {suggestion.hint !== undefined ? (
                 <span
-                  className={`ml-auto shrink-0 pl-4 text-xs text-muted-foreground ${named ? "font-mono" : ""}`}
+                  className={`ml-auto min-w-0 truncate pl-3 text-xs text-muted-foreground ${named ? "font-mono" : ""}`}
                 >
                   {suggestion.hint}
                 </span>
@@ -237,30 +257,44 @@ export function FilterChips({
   viewer,
   count,
   noun,
+  inset,
   onChange,
 }: {
   query: string;
   viewer: string | null;
   count: number | null;
   noun: [singular: string, plural: string];
+  inset: boolean;
   onChange: (query: string) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
   const chips = queryChips(query, viewer);
   if (chips.length === 0) return null;
+  const remove = (index: number, position: number) => {
+    onChange(removeQueryToken(query, index));
+    requestAnimationFrame(() => {
+      const buttons = ref.current?.querySelectorAll("button");
+      if (buttons === undefined || buttons.length === 0) return;
+      buttons[Math.min(position, buttons.length - 1)]?.focus();
+    });
+  };
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-2 pt-1 pb-2">
-      {chips.map((chip) => (
+    <div
+      ref={ref}
+      className={`flex flex-wrap items-center gap-1.5 px-3 pb-2 ${inset ? "pt-2" : ""}`}
+    >
+      {chips.map((chip, position) => (
         <span
           key={`${chip.index}:${chip.key}:${chip.value}`}
-          className="inline-flex h-6 max-w-full items-center gap-1 rounded-full bg-state-hover pr-0.5 pl-2.5 text-xs text-foreground"
+          className="inline-flex h-7 max-w-full items-center gap-1 rounded-md bg-state-hover pr-0.5 pl-2 text-xs text-foreground"
         >
           <span className="text-subtle-foreground">{chip.key}</span>
           <span className="min-w-0 truncate font-medium">{chip.value}</span>
           <button
             type="button"
-            className="flex size-5 shrink-0 items-center justify-center rounded-full text-subtle-foreground hover:bg-state-active hover:text-foreground"
+            className="relative flex size-6 shrink-0 items-center justify-center rounded-md text-subtle-foreground after:absolute after:-inset-2 hover:bg-state-active hover:text-foreground"
             aria-label={`Remove "${chip.key} ${chip.value}"`}
-            onClick={() => onChange(removeQueryToken(query, chip.index))}
+            onClick={() => remove(chip.index, position)}
           >
             <Icon name="X" className="size-3" />
           </button>

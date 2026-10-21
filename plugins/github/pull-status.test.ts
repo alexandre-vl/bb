@@ -10,7 +10,7 @@ import {
   pullPreset,
   pullStateCommands,
   stackChain,
-  stackNotes,
+  type PullStatus,
   type RawPullStatus,
 } from "./pull-status.js";
 
@@ -69,11 +69,11 @@ describe("pull request groups", () => {
     );
     expect(failingDraft.state).toBe("draft");
     expect(pullGroup(failingDraft, "alice", null)).toBe("fixing");
-    expect(pullNextStep(failingDraft, "fixing")).toBe("1 check failing");
+    expect(pullNextStep(failingDraft, "fixing")).toBe("Checks failing");
 
     const greenDraft = assemblePullStatus(raw({ isDraft: true }));
     expect(pullGroup(greenDraft, "alice", null)).toBe("draft");
-    expect(pullNextStep(greenDraft, "draft")).toBe("4 checks passed");
+    expect(pullNextStep(greenDraft, "draft")).toBe("Checks passing");
 
     const conflicting = assemblePullStatus(
       raw({
@@ -82,7 +82,7 @@ describe("pull request groups", () => {
       }),
     );
     expect(conflicting.attention).toBe("conflicts");
-    expect(pullNextStep(conflicting, "fixing")).toBe("Conflicts with main");
+    expect(pullNextStep(conflicting, "fixing")).toBe("Merge conflicts");
   });
 
   it("does not call a pull request ready while GitHub has not computed mergeability", () => {
@@ -112,7 +112,7 @@ describe("pull request groups", () => {
   });
 });
 
-describe("snoozed and agent-aware groups", () => {
+describe("snoozed groups and ready pull requests", () => {
   it("parks a snoozed pull request in Snoozed until it is merged or closed", () => {
     const failing = assemblePullStatus(
       raw({ checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
@@ -128,78 +128,107 @@ describe("snoozed and agent-aware groups", () => {
     expect(pullGroup(merged, "alice", null, { snoozed: true })).toBe("merged");
   });
 
-  it("moves a waiting agent to Your move and a running one to In progress", () => {
-    const conflicting = assemblePullStatus(raw({ mergeable: "CONFLICTING" }));
-    expect(pullGroup(conflicting, "alice", null, { agent: "waiting" })).toBe(
-      "you",
-    );
-    expect(pullGlyph(conflicting, "you", "waiting")).toMatchObject({
-      icon: "MessageQuestion",
-      label: "Waiting for you",
-    });
-    expect(pullGroup(conflicting, "alice", null, { agent: "running" })).toBe(
-      "progress",
-    );
-    expect(pullGlyph(conflicting, "progress", "running").tone).toBe("working");
-    expect(pullGroup(conflicting, "alice", null, { agent: "done" })).toBe(
-      "fixing",
-    );
+  it("names the checks while GitHub has not computed mergeability", () => {
+    const unknown = assemblePullStatus(raw({ mergeable: "UNKNOWN" }));
+    expect(pullNextStep(unknown, "open")).toBe("Checks passing");
   });
 
-  it("says Waiting for GitHub while mergeability is unknown", () => {
-    const unknown = assemblePullStatus(raw({ mergeable: "UNKNOWN" }));
-    expect(pullNextStep(unknown, "open")).toBe("Waiting for GitHub");
+  it("calls a mergeable pull request without checks ready, and names an approval", () => {
+    const noChecks = assemblePullStatus(raw({ checkRunCounts: [] }));
+    expect(noChecks.attention).toBe("ready_to_merge");
+    expect(pullNextStep(noChecks, "ready")).toBe("No checks");
+    const approved = assemblePullStatus(raw({ reviewDecision: "APPROVED" }));
+    expect(pullNextStep(approved, "ready")).toBe("Approved");
+    expect(pullNextStep(assemblePullStatus(raw()), "ready")).toBe(
+      "Checks passing",
+    );
   });
 });
 
 describe("views", () => {
-  it("keeps the inbox to what needs someone, and Mine to the viewer's own", () => {
-    expect(inPullView("inbox", "fixing", "alice", "bob")).toBe(true);
-    expect(inPullView("inbox", "snoozed", "alice", "bob")).toBe(true);
-    expect(inPullView("inbox", "review", "alice", "bob")).toBe(false);
-    expect(inPullView("inbox", "draft", "alice", "bob")).toBe(false);
-    expect(inPullView("mine", "draft", "Alice", "alice")).toBe(true);
-    expect(inPullView("mine", "draft", "alice", "bob")).toBe(false);
-    expect(inPullView("mine", "draft", "alice", null)).toBe(false);
-    expect(inPullView("all", "closed", "alice", null)).toBe(true);
-    expect(inPullView("all", "merged", "alice", null)).toBe(false);
-    expect(inPullView("merged", "merged", "alice", null)).toBe(true);
+  const view = (
+    name: Parameters<typeof inPullView>[0],
+    overrides: Partial<RawPullStatus>,
+    author: string,
+    viewer: string | null,
+  ) => {
+    const pr = assemblePullStatus(raw(overrides));
+    return inPullView(
+      name,
+      { pr, author, group: pullGroup(pr, author, viewer) },
+      viewer,
+    );
+  };
+  const failing = { checkRunCounts: [{ state: "FAILURE", count: 1 }] };
+
+  it("keeps the inbox to what needs the viewer: their review, and their own pull requests", () => {
+    expect(view("inbox", { requestedReviewers: ["bob"] }, "alice", "bob")).toBe(
+      true,
+    );
+    expect(view("inbox", failing, "Bob", "bob")).toBe(true);
+    expect(view("inbox", {}, "bob", "bob")).toBe(true);
+    expect(view("inbox", failing, "alice", "bob")).toBe(false);
+    expect(view("inbox", {}, "alice", "bob")).toBe(false);
+    expect(view("inbox", { requestedReviewers: ["carol"] }, "bob", "bob")).toBe(
+      false,
+    );
+    expect(view("inbox", { isDraft: true }, "bob", "bob")).toBe(false);
+    expect(view("inbox", failing, "bob", null)).toBe(false);
+  });
+
+  it("lists the viewer's own under Mine, every open one under All, and the merged ones apart", () => {
+    expect(view("mine", { isDraft: true }, "Alice", "alice")).toBe(true);
+    expect(view("mine", { isDraft: true }, "alice", "bob")).toBe(false);
+    expect(view("mine", { isDraft: true }, "alice", null)).toBe(false);
+    expect(view("all", { state: "CLOSED" }, "alice", null)).toBe(true);
+    expect(view("all", { state: "MERGED" }, "alice", null)).toBe(false);
+    expect(view("merged", { state: "MERGED" }, "alice", null)).toBe(true);
     expect([...COLLAPSED_PULL_GROUPS.inbox]).toEqual(["snoozed"]);
   });
 });
 
 describe("agent presets and merge reasons", () => {
-  it("picks the preset from what the pull request needs", () => {
-    expect(
-      pullPreset(assemblePullStatus(raw({ mergeable: "CONFLICTING" }))),
-    ).toBe("conflicts");
-    expect(
-      pullPreset(
-        assemblePullStatus(
-          raw({ checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
-        ),
-      ),
-    ).toBe("fix");
-    expect(pullPreset(assemblePullStatus(raw({ isDraft: true })))).toBe(
-      "finish",
+  it("picks the preset from what the viewer's own pull request needs, and review for anyone else's", () => {
+    const own = (status: PullStatus) =>
+      pullPreset(status, "octocat", "octocat");
+    expect(own(assemblePullStatus(raw({ mergeable: "CONFLICTING" })))).toBe(
+      "conflicts",
     );
-    expect(pullPreset(assemblePullStatus(raw()))).toBe("review");
+    const failing = assemblePullStatus(
+      raw({ checkRunCounts: [{ state: "FAILURE", count: 1 }] }),
+    );
+    expect(own(failing)).toBe("fix");
+    expect(
+      own(assemblePullStatus(raw({ reviewDecision: "CHANGES_REQUESTED" }))),
+    ).toBe("feedback");
+    expect(own(assemblePullStatus(raw({ isDraft: true })))).toBe("review");
+    expect(own(assemblePullStatus(raw()))).toBe("review");
+    expect(pullPreset(failing, "hubot", "octocat")).toBe("review");
+    expect(pullPreset(failing, "hubot", null)).toBe("fix");
   });
 
-  it("says why a pull request cannot be merged yet", () => {
+  it("says why a pull request cannot be merged yet, with one rule for the list and the detail", () => {
+    const failing = assemblePullStatus(
+      raw({ checkRunCounts: [{ state: "FAILURE", count: 2 }] }),
+    );
     expect(mergeBlockedReason(assemblePullStatus(raw()))).toBeNull();
     expect(mergeBlockedReason(assemblePullStatus(raw({ isDraft: true })))).toBe(
       "Mark it ready first",
     );
-    expect(
-      mergeBlockedReason(
-        assemblePullStatus(
-          raw({ checkRunCounts: [{ state: "FAILURE", count: 2 }] }),
-        ),
-      ),
-    ).toBe("2 checks failing");
+    expect(mergeBlockedReason(failing)).toBe("Checks failing");
+    expect(mergeBlockedReason(failing, "UNSTABLE")).toBeNull();
+    expect(mergeBlockedReason(failing, "BLOCKED")).toBe("Blocked by rules");
+    expect(mergeBlockedReason(assemblePullStatus(raw()), "BEHIND")).toBe(
+      "Behind main",
+    );
     expect(
       mergeBlockedReason(assemblePullStatus(raw({ mergeable: "CONFLICTING" }))),
+    ).toBe("Conflicts with main");
+    expect(
+      mergeBlockedReason(
+        assemblePullStatus(raw({ mergeable: "CONFLICTING" })),
+        "CLEAN",
+      ),
     ).toBe("Conflicts with main");
     expect(
       mergeBlockedReason(assemblePullStatus(raw({ isInMergeQueue: true }))),
@@ -248,39 +277,6 @@ describe("stack chains", () => {
     expect(stackChain(pulls[0]!, pulls)?.map((entry) => entry.number)).toEqual([
       2, 1,
     ]);
-  });
-});
-
-describe("stack notes", () => {
-  it("describes each open pull request built on another one in the same repository", () => {
-    const pull = (
-      repo: string,
-      number: number,
-      head: string,
-      base: string,
-    ) => ({
-      repo,
-      number,
-      pr: assemblePullStatus(raw({ headRefName: head, baseRefName: base })),
-    });
-    const notes = stackNotes([
-      pull("acme/one", 1, "a", "main"),
-      pull("acme/one", 2, "b", "a"),
-      pull("acme/one", 3, "c", "b"),
-      pull("acme/two", 4, "d", "a"),
-      {
-        repo: "acme/one",
-        number: 5,
-        pr: assemblePullStatus(
-          raw({ state: "MERGED", headRefName: "e", baseRefName: "c" }),
-        ),
-      },
-    ]);
-    expect(Object.fromEntries(notes)).toEqual({
-      "acme/one#1": "has #2 on top",
-      "acme/one#2": "stacked on #1",
-      "acme/one#3": "stacked on #2",
-    });
   });
 });
 
