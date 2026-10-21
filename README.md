@@ -9,3 +9,4 @@ Screenshots and a clickable prototype for the GitHub plugin inbox proposal.
 - v3.2/: the pull request status as a menu, bb's diff colours and size bar, the branch copy chip (before/after and a recording)
 - real/: the plugin from the fork branch github-plugin-inbox-v3, rendered in Ladle with mocked data
 - real/status/: the status menu, diff stat and branch chip; before is the branch at 2e0f417901, after is 048a76a7db
+- v4/: the reworked plugin at fa35bc622c (one merge path, cut features, phone drawers), rendered in Ladle with mocked public data; before is v3-port/ (55db5ae14e)
