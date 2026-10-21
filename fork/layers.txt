@@ -12,8 +12,8 @@ bb/explain-failed-automations-thr_agcnkvvvke
 bb/background-commands-card-thr_mwgsr32qtd
 bb/child-threads-card-thr_mwgsr32qtd
 github-plugin-inbox
-plugin-updates-outside-range
 plugin-track-range
+plugin-updates-outside-range
 plugin-update-rollback
 bb/project-default-environment
 bb/automation-environment-composer
