@@ -702,15 +702,7 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     async applyUpdate(input) {
       const response = await requestUpdate(input);
       if (!("job" in response)) return response;
-      let job = response.job;
-      while (job.state === "queued" || job.state === "running") {
-        await new Promise((resolve) =>
-          setTimeout(resolve, INSTALL_JOB_POLL_INTERVAL_MS),
-        );
-        job = await updateJobs.get({ jobId: job.id });
-      }
-      if (job.state === "completed") return job.result;
-      throw new Error(job.error);
+      return settleUpdateJob(response.job);
     },
     async experimental_startUpdate(input) {
       const response = await requestUpdate(input);
