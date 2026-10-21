@@ -116,7 +116,7 @@ fork/instance/install.sh
   (keeps 10), switches `~/.bb-alex-app/current`, and waits for the new version
   to answer. A release that does not come up is rolled back and never retried;
   bb-alex then stays stopped until its backup is restored.
-- `bb-alex <command>` is the CLI for this instance. Sign it in once with
+- `bb-alex <command>` (in `~/.local/bin`) is the CLI for this instance; it drops the official instance's `BB_*` variables. Sign it in once with
   `bb-alex account login` to get its own getbb.app address
   (`bb-alex connect servers` lists it).
 - Logs: `journalctl --user -u bb-alex -u bb-alex-update`. Stop it for good:
