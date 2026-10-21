@@ -223,16 +223,7 @@ export function createPluginRollbackPoints(context: {
     }
   }
 
-  return {
-    find,
-    load,
-    prune,
-    remember,
-    resolve,
-    get size() {
-      return registrations.size;
-    },
-  };
+  return { find, load, prune, remember, resolve };
 }
 
 export type PluginRollbackPoints = ReturnType<

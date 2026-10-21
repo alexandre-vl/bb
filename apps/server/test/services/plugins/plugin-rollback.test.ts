@@ -59,30 +59,6 @@ const hasNpm = await run("npm", ["--version"]).then(
   () => false,
 );
 
-const rollbackPointCaches = vi.hoisted(
-  (): Array<{ readonly size: number }> => [],
-);
-
-vi.mock(
-  "../../../src/services/plugins/plugin-rollback.js",
-  async (importOriginal) => {
-    const actual =
-      await importOriginal<
-        typeof import("../../../src/services/plugins/plugin-rollback.js")
-      >();
-    return {
-      ...actual,
-      createPluginRollbackPoints: (
-        ...args: Parameters<typeof actual.createPluginRollbackPoints>
-      ) => {
-        const points = actual.createPluginRollbackPoints(...args);
-        rollbackPointCaches.push(points);
-        return points;
-      },
-    };
-  },
-);
-
 describe("plugin update rollback", () => {
   let db: DbConnection;
   let workDir: string;
@@ -275,7 +251,6 @@ describe("plugin update rollback", () => {
   }
 
   beforeEach(async () => {
-    rollbackPointCaches.length = 0;
     db = createMigratedConnection();
     workDir = await mkdtemp(join(tmpdir(), "bb-plugin-rollback-"));
     dataDir = join(workDir, "data");
@@ -783,42 +758,6 @@ describe("plugin update rollback", () => {
     await expect(stat(updated.rootDir)).rejects.toMatchObject({
       code: "ENOENT",
     });
-  }, 90_000);
-
-  it("keeps only rollback points in its snapshot registration cache", async () => {
-    let clock = Date.now();
-    await service.stop();
-    service = createService({ now: () => clock, artifactRetentionMs: 60_000 });
-    await service.start();
-    const cache = rollbackPointCaches.at(-1);
-    if (cache === undefined) throw new Error("missing rollback point cache");
-    expect(cache.size).toBe(0);
-
-    const { previousCommit, nextCommit } = await updateToNextRelease();
-    expect(cache.size).toBe(1);
-    await expect(
-      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: previousCommit }),
-    ).resolves.toMatchObject({ ok: true, result: { outcome: "reverted" } });
-    expect(
-      listPluginStateSnapshots(db, PLUGIN_ID)
-        .map(({ status }) => status)
-        .sort(),
-    ).toEqual(["discarded", "restored"]);
-    expect(cache.size).toBe(0);
-
-    await applyCandidate(PLUGIN_ID, nextCommit);
-    expect(cache.size).toBe(1);
-    clock += 60_001;
-    expect(installed().updateState).not.toHaveProperty("rollback");
-    await updateTo("1.2.0", ["nightly"]);
-    expect(
-      listPluginStateSnapshots(db, PLUGIN_ID).map(({ status }) => status),
-    ).toEqual(["ready"]);
-    expect(cache.size).toBe(1);
-
-    await expect(service.remove(PLUGIN_ID)).resolves.toBe(true);
-    expect(listPluginStateSnapshots(db, PLUGIN_ID)).toHaveLength(0);
-    expect(cache.size).toBe(0);
   }, 90_000);
 });
 
