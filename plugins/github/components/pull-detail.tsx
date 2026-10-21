@@ -449,8 +449,13 @@ export function PullDetailView({
       stateName === "DRAFT" ||
       (stateName !== "OPEN" && (pull?.isDraft ?? row?.pr.state === "draft")),
     viewerCanUpdate: pull?.viewerCanUpdate ?? false,
-    viewerCanClose: pull?.viewerCanClose ?? false,
-    viewerCanReopen: pull?.viewerCanReopen ?? false,
+    viewerCanClose:
+      (pull?.viewerCanClose ?? false) ||
+      ((stateName === "OPEN" || stateName === "DRAFT") &&
+        (pull?.viewerCanReopen ?? false)),
+    viewerCanReopen:
+      (pull?.viewerCanReopen ?? false) ||
+      (stateName === "CLOSED" && (pull?.viewerCanClose ?? false)),
   };
   const pending = activity?.kind === "changing" ? activity.label : null;
   const snoozed = row?.item.snooze ?? null;

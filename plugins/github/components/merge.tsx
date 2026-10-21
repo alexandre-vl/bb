@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import { experimental_Icon as Icon, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -241,11 +241,18 @@ export function MergeButton({
   const merge = useMerge();
   const options = useMergeOptions(target, known);
   const [deleteBranch] = useDeleteBranch();
+  const rootRef = useRef<HTMLDivElement>(null);
   const preferred = options?.preferred ?? null;
   if (options === null || preferred === null) return null;
   const variant = primary ? "default" : "outline";
+  const start = (method: MergeMethod, remove: boolean) => {
+    rootRef.current
+      ?.closest<HTMLElement>("[data-next-step]")
+      ?.focus({ preventScroll: true });
+    merge(target, method, remove);
+  };
   return (
-    <div className="flex min-w-0 @max-[35rem]/github:w-full">
+    <div ref={rootRef} className="flex min-w-0 @max-[35rem]/github:w-full">
       <Button
         type="button"
         size="sm"
@@ -253,7 +260,7 @@ export function MergeButton({
         aria-keyshortcuts="M"
         className={`${COARSE_POINTER_PROMPT_ACTION_BUTTON_CLASS} min-w-0 rounded-r-none @max-[35rem]/github:flex-1`}
         onClick={() =>
-          merge(target, preferred.method, options.offerDelete && deleteBranch)
+          start(preferred.method, options.offerDelete && deleteBranch)
         }
       >
         <Icon name="GitMerge" />
@@ -279,7 +286,7 @@ export function MergeButton({
           <MergeMethodItems
             target={target}
             known={known}
-            onMerge={(method, remove) => merge(target, method, remove)}
+            onMerge={(method, remove) => start(method, remove)}
           />
         </DropdownMenuContent>
       </DropdownMenu>

@@ -343,6 +343,13 @@ export function PullWorkspace({
   const closeDetail = useCallback(() => {
     navigator.back({ view: "pulls", tab: view === "issues" ? "inbox" : view });
   }, [navigator, view]);
+  useEffect(() => {
+    if (cursor === null || openKey !== null) return;
+    if (document.activeElement !== document.body) return;
+    if (flat.some((row) => row.key === cursor)) return;
+    const next = flat[Math.min(lastIndex.current, flat.length - 1)];
+    if (next !== undefined) focusRow(next.key);
+  }, [cursor, flat, focusRow, openKey]);
   const lastOpen = useRef<string | null>(openKey);
   useEffect(() => {
     const previous = lastOpen.current;
@@ -362,9 +369,16 @@ export function PullWorkspace({
     [navigator],
   );
 
+  const agentReturn = useRef<HTMLElement | null>(null);
+  const agentReturnTo = useCallback(() => agentReturn.current, []);
+  const openAgentSheet = useCallback((target: AgentTarget) => {
+    agentReturn.current = null;
+    setAgentTarget(target);
+  }, []);
   const startAgent = useCallback(
     (row: PullRowModel) => {
       setMenu(null);
+      agentReturn.current = rowButtons.current.get(row.key) ?? null;
       setAgentTarget(pullAgentTarget(row, viewer));
     },
     [viewer],
@@ -395,7 +409,10 @@ export function PullWorkspace({
       },
       focus: (row) => {
         setCursor(row.key);
-        anchor.current = { key: row.key, requested: null };
+        anchor.current = {
+          key: row.key,
+          requested: anchor.current.requested === row.key ? row.key : null,
+        };
       },
       menu: (row, step) => {
         setCursor(row.key);
@@ -497,7 +514,7 @@ export function PullWorkspace({
       if (openKey !== null) {
         openPull(next.item.repo, next.item.number, true);
         const element = rowButtons.current.get(next.key);
-        if (onRowButton()) element?.focus({ preventScroll: true });
+        element?.focus({ preventScroll: true });
         element?.scrollIntoView?.({ block: "nearest" });
         return;
       }
@@ -728,7 +745,7 @@ export function PullWorkspace({
         onOpen={(item) =>
           navigator.go({ view: "issue", repo: item.repo, number: item.number })
         }
-        onStartAgent={setAgentTarget}
+        onStartAgent={openAgentSheet}
         onClearFilter={() => {
           setQuery("");
           setFilterOpen(false);
@@ -865,6 +882,11 @@ export function PullWorkspace({
               setQuery(next);
               if (next.trim().length === 0) setFilterOpen(false);
             }}
+            onEmptied={() =>
+              rootRef.current
+                ?.querySelector<HTMLElement>("[data-row-button]")
+                ?.focus({ preventScroll: true })
+            }
           />
           {lastError !== null && items !== null ? (
             <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border py-1 pr-2 pl-4 text-xs text-subtle-foreground">
@@ -919,13 +941,14 @@ export function PullWorkspace({
               onBack={closeDetail}
               onClose={closeDetail}
               onOpenPull={(repo, number) => openPull(repo, number, true)}
-              onStartAgent={setAgentTarget}
+              onStartAgent={openAgentSheet}
             />
           </div>
         ) : null}
       </div>
       <AgentSheet
         target={agentTarget}
+        returnFocusTo={agentReturnTo}
         onOpenChange={(open) => {
           if (!open) setAgentTarget(null);
         }}

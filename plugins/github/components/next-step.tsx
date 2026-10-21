@@ -42,7 +42,9 @@ function Card({ children }: { children: ReactNode }) {
   return (
     <section
       aria-label="Next step"
-      className="flex flex-col gap-3 rounded-lg border border-border p-4"
+      data-next-step=""
+      tabIndex={-1}
+      className="flex flex-col gap-3 rounded-lg border border-border p-4 outline-none"
     >
       {children}
     </section>

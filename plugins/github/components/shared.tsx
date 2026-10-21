@@ -104,7 +104,10 @@ export function isTyping(target: EventTarget | null): boolean {
   );
 }
 
-export function useReturnFocus(open: boolean): (event: Event) => void {
+export function useReturnFocus(
+  open: boolean,
+  fallback?: () => HTMLElement | null,
+): (event: Event) => void {
   const [opened, setOpened] = useState(open);
   const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
   if (opened !== open) {
@@ -120,11 +123,15 @@ export function useReturnFocus(open: boolean): (event: Event) => void {
   }
   return useCallback(
     (event: Event) => {
-      if (returnTo === null || !returnTo.isConnected) return;
+      const target =
+        returnTo !== null && returnTo.isConnected
+          ? returnTo
+          : (fallback?.() ?? null);
+      if (target === null || !target.isConnected) return;
       event.preventDefault();
-      returnTo.focus();
+      target.focus();
     },
-    [returnTo],
+    [fallback, returnTo],
   );
 }
 

@@ -123,12 +123,14 @@ function useSeed(target: AgentTarget): Seed {
 
 export function AgentSheet({
   target,
+  returnFocusTo,
   onOpenChange,
 }: {
   target: AgentTarget | null;
+  returnFocusTo?: () => HTMLElement | null;
   onOpenChange: (open: boolean) => void;
 }) {
-  const returnFocus = useReturnFocus(target !== null);
+  const returnFocus = useReturnFocus(target !== null, returnFocusTo);
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl" onCloseAutoFocus={returnFocus}>

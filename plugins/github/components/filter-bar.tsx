@@ -259,6 +259,7 @@ export function FilterChips({
   noun,
   inset,
   onChange,
+  onEmptied,
 }: {
   query: string;
   viewer: string | null;
@@ -266,6 +267,7 @@ export function FilterChips({
   noun: [singular: string, plural: string];
   inset: boolean;
   onChange: (query: string) => void;
+  onEmptied: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chips = queryChips(query, viewer);
@@ -274,7 +276,10 @@ export function FilterChips({
     onChange(removeQueryToken(query, index));
     requestAnimationFrame(() => {
       const buttons = ref.current?.querySelectorAll("button");
-      if (buttons === undefined || buttons.length === 0) return;
+      if (buttons === undefined || buttons.length === 0) {
+        onEmptied();
+        return;
+      }
       buttons[Math.min(position, buttons.length - 1)]?.focus();
     });
   };

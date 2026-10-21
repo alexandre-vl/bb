@@ -500,6 +500,36 @@ describe("GitHub pull request inbox", () => {
     });
   });
 
+  it("moves one pull request per j in split view while the route catches up", async () => {
+    window.localStorage.setItem("bb-plugin-github:v4:tab", "all");
+    const slot = renderPanel("pulls/get-bb/bb/3");
+    await slot.findByText("Ship the inbox");
+    await act(async () => {});
+    const order = [...document.querySelectorAll("[data-row-key]")].map(
+      (row) => row.getAttribute("data-row-key") ?? "",
+    );
+    const start = order.indexOf("get-bb/bb#3");
+    expect(order.length - start).toBeGreaterThan(3);
+
+    await act(async () => press("j"));
+    await act(async () => press("j"));
+    await act(async () => press("j"));
+    expect(
+      slot.navigateCalls.map((call) =>
+        field(field(call, "options"), "subPath"),
+      ),
+    ).toEqual(
+      order
+        .slice(start + 1, start + 4)
+        .map((key) => `pulls/${key.replace("#", "/")}`),
+    );
+    expect(
+      document.activeElement
+        ?.closest("[data-row-key]")
+        ?.getAttribute("data-row-key"),
+    ).toBe(order[start + 3]);
+  });
+
   it("merges the cursor row with m through the same method menu as the row", async () => {
     const toasts = toaster();
     const slot = renderPanel();
@@ -1214,6 +1244,34 @@ describe("GitHub pull request status pill", () => {
     expect(calls(slot, "setPullState")).toEqual([
       { repo: "get-bb/bb", number: 42, state: "closed" },
     ]);
+    fireEvent.pointerDown(
+      await slot.findByRole("button", {
+        name: "Status: Closed. Change the status",
+      }),
+    );
+    expect(
+      slot.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["Reopen pull request"]);
+  });
+
+  it("offers Reopen right after Close, before GitHub reports the new state", async () => {
+    const slot = renderPull({
+      ...fakeGithub(),
+      getPull: () => ({
+        pull: pullDetail({ viewerCanClose: true, viewerCanReopen: false }),
+      }),
+    });
+
+    fireEvent.pointerDown(
+      await slot.findByRole("button", {
+        name: "Status: Open. Change the status",
+      }),
+    );
+    await act(async () =>
+      fireEvent.click(
+        slot.getByRole("menuitem", { name: "Close pull request" }),
+      ),
+    );
     fireEvent.pointerDown(
       await slot.findByRole("button", {
         name: "Status: Closed. Change the status",
