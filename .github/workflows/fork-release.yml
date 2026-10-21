@@ -5,10 +5,15 @@ on:
     workflows: ["Fork CI"]
     types: [completed]
     branches: [alex]
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: The id of a successful Fork CI run on alex to publish
+        required: true
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 concurrency:
   group: fork-release
@@ -17,27 +22,41 @@ concurrency:
 jobs:
   release:
     name: Publish the tested bb-app tarball
-    if: github.repository == 'alexandre-vl/bb' && github.event.workflow_run.conclusion == 'success'
+    if: github.repository == 'alexandre-vl/bb' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Resolve the Fork CI run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id || inputs.run-id }}
+        run: |
+          gh run view "$RUN" --repo "$GITHUB_REPOSITORY" --json workflowName,headBranch,conclusion,headSha \
+            --jq '"workflow=\(.workflowName)\nbranch=\(.headBranch)\nconclusion=\(.conclusion)\nsha=\(.headSha)"' >> "$GITHUB_OUTPUT"
+          echo "id=$RUN" >> "$GITHUB_OUTPUT"
+      - name: Refuse anything but a green Fork CI run on alex
+        if: steps.run.outputs.workflow != 'Fork CI' || steps.run.outputs.branch != 'alex' || steps.run.outputs.conclusion != 'success'
+        run: |
+          echo "::error::Run ${{ steps.run.outputs.id }} is ${{ steps.run.outputs.workflow }} on ${{ steps.run.outputs.branch }}, ${{ steps.run.outputs.conclusion }}."
+          exit 1
       - name: Checkout the tested commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.run.outputs.sha }}
           fetch-depth: 0
       - name: Download the tarball
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bb-app-release
           path: ${{ runner.temp }}/out
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.run.outputs.id }}
           github-token: ${{ github.token }}
       - name: Publish the release
         env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          RUN: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          SHA: ${{ steps.run.outputs.sha }}
+          RUN: ${{ steps.run.outputs.id }}
           OUT: ${{ runner.temp }}/out
         run: |
           set -euo pipefail
