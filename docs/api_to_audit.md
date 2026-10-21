@@ -3206,6 +3206,10 @@ retained. Core callers: `bb plugin rollback`
 (`apps/app/src/components/plugin/management/RollbackPluginDialog.tsx`, through
 `startPluginRollback`).
 
+Version skew: `reverted` is a new outcome, so an older CLI or SDK talking to a
+newer server cannot parse the update-jobs list for about ten minutes after a
+rollback, until the finished job drops out of the list.
+
 Stabilization requires rollback of a monorepo subdirectory install and of an
 npm dist-tag install, a decision on whether more than the most recent update
 should be reversible, a decision on whether rollback should restore state
