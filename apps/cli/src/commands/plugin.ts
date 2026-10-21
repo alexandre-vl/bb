@@ -1420,7 +1420,7 @@ export function registerPluginCommands(
                 );
               } else if (result.outsideRange) {
                 console.log(
-                  `${result.id}: current within ${result.outsideRange.range}; ${result.outsideRange.version} is outside the range (compatibility not checked).`,
+                  `${result.id}: current within ${result.outsideRange.range}; ${outsideRangeSummary(result)} is outside the range (compatibility not checked).`,
                 );
               } else {
                 console.log(
@@ -1441,7 +1441,7 @@ export function registerPluginCommands(
             }
             if (result.outsideRange) {
               console.log(
-                `${result.id}: ${result.outsideRange.version} is outside the range ${result.outsideRange.range} and is not part of this update (compatibility not checked).`,
+                `${result.id}: ${outsideRangeSummary(result)} is outside the range ${result.outsideRange.range} and is not part of this update (compatibility not checked).`,
               );
             }
             await confirmPluginAction(

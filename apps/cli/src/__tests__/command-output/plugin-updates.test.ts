@@ -389,7 +389,7 @@ describe("bb plugin update commands", () => {
     await runCommand(["plugin", "update", "agent-board"], register);
 
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      "agent-board: current within ^0.6.1; 0.7.0 is outside the range (compatibility not checked).",
+      "agent-board: current within ^0.6.1; 0.7.0 (may break) is outside the range (compatibility not checked).",
     ]);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
@@ -426,6 +426,41 @@ describe("bb plugin update commands", () => {
       "Refusing to update without confirmation — re-run with --yes.",
     );
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("names a breaking release outside the range alongside the in-range update", async () => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: false,
+      configurable: true,
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [
+            {
+              id: "notes",
+              outcome: "update-available",
+              installed: version("0.1.0"),
+              candidate: version("0.1.1"),
+              outsideRange: {
+                version: "0.2.0",
+                display: "notes@0.2.0",
+                breaking: true,
+                range: "^0.1.0",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(Response.json(pluginList("notes", "npm:notes")));
+
+    await expect(
+      runCommand(["plugin", "update", "notes"], register),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(collectLogPayloads(vi.mocked(console.log))).toContain(
+      "notes: 0.2.0 (may break) is outside the range ^0.1.0 and is not part of this update (compatibility not checked).",
+    );
   });
 
   it("renders a rolled-back server result", async () => {
