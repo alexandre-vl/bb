@@ -39,6 +39,7 @@ import {
 } from "./managed-plugin-artifacts.js";
 import { MARKETPLACE_FETCH_TIMEOUT_MS } from "../plugin-catalog/marketplace-http.js";
 import { removeUnusedPluginArtifacts } from "./plugin-artifact-gc.js";
+import { pluginRestoreHoldRefusal } from "./plugin-state-snapshot.js";
 import {
   SERVER_MOVE_FROZEN_RETRY_MS,
   isServerMoveFrozen,
@@ -693,6 +694,8 @@ export function createPluginUpdates(
       return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {
         const row = getInstalledPlugin(deps.db, id);
         if (!row) return { ok: false, error: `unknown plugin "${id}"` };
+        const holdRefusal = pluginRestoreHoldRefusal(deps.db, id, "update");
+        if (holdRefusal !== null) return { ok: false, error: holdRefusal };
         const safeModeRefusal = safeModeActivationRefusal({
           pluginId: id,
           provenance: row.provenance,

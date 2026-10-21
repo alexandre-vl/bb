@@ -27,7 +27,10 @@ import type {
   PluginApplyUpdateOutcome,
   PluginServiceDeps,
 } from "./plugin-service-internal.js";
-import { readPluginSnapshotRegistration } from "./plugin-state-snapshot.js";
+import {
+  pluginRestoreHoldRefusal,
+  readPluginSnapshotRegistration,
+} from "./plugin-state-snapshot.js";
 import {
   evaluateCompatibility,
   type PluginResolvedUpdateVersion,
@@ -355,6 +358,8 @@ export function createPluginRollback(context: PluginRollbackContext) {
       }
       const sourceRefusal = rollbackSourceRefusal(row);
       if (sourceRefusal !== null) return { ok: false, error: sourceRefusal };
+      const holdRefusal = pluginRestoreHoldRefusal(deps.db, id, "rollback");
+      if (holdRefusal !== null) return { ok: false, error: holdRefusal };
       const safeModeRefusal = safeModeActivationRefusal({
         pluginId: id,
         provenance: row.provenance,

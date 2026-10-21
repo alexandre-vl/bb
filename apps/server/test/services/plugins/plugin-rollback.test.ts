@@ -442,12 +442,12 @@ describe("plugin update rollback", () => {
       gitResolvedCommit: nextCommit,
       sourceGitResolvedTag: "v1.1.0",
       activeArtifactId: updated.activeArtifactId,
-      lastFailureVersion: previousCommit,
-      lastFailureDetail: expect.stringContaining(
-        "release 1.0.0 failed to start",
-      ),
+      lastFailureVersion: null,
+      lastFailureAt: null,
+      lastFailureDetail: null,
     });
     expect(installed()).toMatchObject({ version: "1.1.0", status: "running" });
+    expect(installed().updateState).not.toHaveProperty("lastFailure");
     expect(await readState()).toEqual({
       ...expectedState("v2", "error"),
       schedules: expect.arrayContaining([
@@ -487,9 +487,13 @@ describe("plugin update rollback", () => {
     expect(registration()).toMatchObject({
       version: "1.1.0",
       gitResolvedCommit: nextCommit,
+      lastFailureVersion: null,
     });
     expect(installed()).toMatchObject({ version: "1.1.0", status: "running" });
     expect(await readState()).toEqual(expectedState("v2", "error"));
+    expect(installed().updateState.rollback).toMatchObject({
+      version: previousCommit,
+    });
   }, 60_000);
 
   it("refuses to roll back to a release other than the one the user reviewed", async () => {

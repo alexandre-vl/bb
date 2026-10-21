@@ -1004,10 +1004,9 @@ describe("plugin update service and routes", () => {
       "simulated process exit during rollback",
     );
     expect(getInstalledPluginRegistration(db, "updater")).toMatchObject({
-      version: "1.1.0",
-      activeArtifactId: expect.not.stringMatching(
-        oldRegistration.activeArtifactId,
-      ),
+      version: oldRegistration.version,
+      activeArtifactId: oldRegistration.activeArtifactId,
+      lastFailureVersion: null,
     });
     expect(listPluginStateSnapshots(db, "updater")).toMatchObject([
       { status: "restoring", fromArtifactId: oldRegistration.activeArtifactId },

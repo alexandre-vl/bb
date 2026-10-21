@@ -224,8 +224,10 @@ export {
   upsertPluginSchedule,
 } from "./plugin-schedules.js";
 export {
+  completePluginStateSnapshotRestore,
   createPluginStateSnapshot,
   deletePluginStateSnapshot,
+  findIncompletePluginRollbackSnapshot,
   findPluginRollbackSnapshot,
   getPluginStateSnapshot,
   listExpiredPluginStateSnapshots,
@@ -234,8 +236,13 @@ export {
   listPluginStateSnapshots,
   listRetainedPluginRollbackSnapshots,
   replacePluginSnapshotState,
+  setPluginStateSnapshotFailed,
+  setPluginStateSnapshotRestoreFailure,
+  setPluginStateSnapshotRestoring,
   setPluginStateSnapshotStatus,
+  setPluginStateSnapshotRollbackApplied,
   setPluginStateSnapshotRollbackPending,
+  setPluginStateSnapshotRollbackWriting,
   type PluginStateSnapshotRow,
 } from "./plugin-state-snapshots.js";
 

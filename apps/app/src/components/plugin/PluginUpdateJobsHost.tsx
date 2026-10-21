@@ -72,9 +72,10 @@ export function reportPluginUpdateJobs({
         action: action(job.pluginId, "installed"),
       });
     } else if (job.result.outcome === "rolled-back") {
+      const reason = job.kind === "rollback" ? job.result.detail : undefined;
       appToast.error(toasts.failed, {
         id,
-        description: `${job.displayName} — ${toasts.restored}`,
+        description: `${job.displayName} — ${reason ?? toasts.restored}`,
         action: action(job.pluginId, "installed"),
       });
     } else {

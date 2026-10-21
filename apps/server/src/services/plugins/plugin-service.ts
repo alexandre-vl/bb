@@ -155,6 +155,7 @@ import {
   type PluginSettingsView,
 } from "./plugin-settings.js";
 import { createPluginActivation } from "./plugin-activation.js";
+import { pluginRestoreHold } from "./plugin-state-snapshot.js";
 import {
   createPluginRollback,
   createPluginRollbackPoints,
@@ -694,6 +695,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     isPackagedBuiltinEntry,
     loadAll,
     loaded,
+    loadIgnoringRestoreHold,
     loadOne,
     brandingAssets,
     safeModeActivationRefusal,
@@ -736,6 +738,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     registerInstalled,
     registrationMatchesForActivation,
     refuseBuiltinShadow,
+    registrationRestoreProblem,
     restoreRegistration,
     sourceFingerprint,
     sourceIntentForRow,
@@ -765,6 +768,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
   const {
     activateManagedUpdate,
     recoverIncompletePluginRollbacks,
+    retryPluginRestore,
     runArtifactGc,
   } = createPluginActivation({
     deps,
@@ -779,7 +783,9 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     withLifecycleLock,
     disposeOne,
     loadOne,
+    loadIgnoringRestoreHold,
     restoreRegistration,
+    registrationProblem: registrationRestoreProblem,
     provenanceForRow,
     registrationMatchesForActivation,
     emptyPluginUpdateState,
@@ -804,6 +810,21 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     activateManagedUpdate,
     runArtifactGc,
   });
+
+  async function retryRestore(id: string): Promise<string | null> {
+    try {
+      const recovery = await withPluginOperationLock(
+        REGISTRATION_MUTATION_KEY,
+        () => retryPluginRestore(id),
+      );
+      return recovery.problem;
+    } catch (error) {
+      return (
+        pluginRestoreHold(deps.db, id) ??
+        (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
 
   const managedPluginArtifacts = createManagedPluginArtifacts({
     deps,
@@ -1015,23 +1036,24 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
             detail: row.lastFailureDetail,
           }
         : undefined;
-    const rollback = rollbackPoints.find(row);
+    const held = pluginRestoreHold(deps.db, row.id) !== null;
+    const rollback = held ? undefined : rollbackPoints.find(row);
     return {
       ...(persisted === undefined ? {} : { outcome: persisted.outcome }),
       ...(persisted?.outcome === "unavailable" ||
       (persisted?.outcome === "current" && persisted.detail !== undefined)
         ? { detail: persisted.detail }
         : {}),
-      ...(row.availableCompatibleVersion === null
+      ...(held || row.availableCompatibleVersion === null
         ? {}
         : { availableVersion: row.availableCompatibleVersion }),
-      ...(persisted?.candidate === undefined
+      ...(held || persisted?.candidate === undefined
         ? {}
         : { availableDisplay: persisted.candidate.display }),
-      ...(persisted?.candidateBreaking === undefined
+      ...(held || persisted?.candidateBreaking === undefined
         ? {}
         : { availableBreaking: persisted.candidateBreaking }),
-      ...(persisted?.outsideRange === undefined
+      ...(held || persisted?.outsideRange === undefined
         ? {}
         : { outsideRange: persisted.outsideRange }),
       ...(row.newestIncompatibleVersion === null
@@ -1925,7 +1947,10 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       );
       const failures: string[] = [];
       for (const row of rows.sort((a, b) => a.id.localeCompare(b.id))) {
-        const problem = await withLifecycleLock(row.id, () => loadOne(row));
+        const problem =
+          pluginRestoreHold(deps.db, row.id) === null
+            ? await withLifecycleLock(row.id, () => loadOne(row))
+            : await retryRestore(row.id);
         if (problem !== null) {
           failures.push(`plugin "${row.id}" reload failed: ${problem}`);
         } else if (isSuppressedBySafeMode(row)) {

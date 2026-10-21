@@ -3193,7 +3193,10 @@ so do `enabled` and `enabledFollowsDefault`: a plugin disabled after the
 update stays disabled, and the rollback never flips the flag behind the
 enable and disable side effects. If
 the old release fails to start, bb restores the post-update snapshot and the
-result is `rolled-back`; success is `reverted`. A rollback interrupted by a
+result is `rolled-back`, with the failure in `detail`; success is `reverted`.
+A failed rollback reaches the caller only through that result and the job:
+it leaves `updateState.lastFailure`, which drives the update Retry control,
+untouched, and the rollback point stays offered. A rollback interrupted by a
 crash is undone on the next start, which restores the updated release and its
 data the way it recovers an interrupted update. The server refuses,
 changing nothing, without a rollback point, for path and builtin sources, in

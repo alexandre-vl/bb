@@ -89,12 +89,16 @@ it.each([
       result: {
         applied: false,
         from: { version: "1.1.0", display: "1.1.0" },
+        to: { version: "1.0.0", display: "1.0.0" },
         outcome: "rolled-back",
+        detail:
+          "rolling back to 1.0.0 failed, so bb restored 1.1.0 and the data it had before the rollback: boom",
       },
     },
     toast: "error",
     title: "Plugin rollback failed",
-    description: "Notes — Updated version and data restored.",
+    description:
+      "Notes — rolling back to 1.0.0 failed, so bb restored 1.1.0 and the data it had before the rollback: boom",
   },
   {
     ending: "failed",
