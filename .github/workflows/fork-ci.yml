@@ -57,8 +57,37 @@ jobs:
         env:
           VITEST_MAX_WORKERS: "2"
         run: pnpm exec turbo run test --filter='...[origin/main]' --filter='!@bb/desktop' --filter='!@bb/mobile' --output-logs=new-only --concurrency=2 --continue
+      - name: Set the fork version
+        id: version
+        run: |
+          v=$(node --input-type=module -e '
+            import { readMaxTargetVersion } from "./scripts/bump-version.mjs";
+            const core = (await readMaxTargetVersion({ repoRoot: process.cwd() })).split("-")[0];
+            const [major, minor, patch] = core.split(".").map(Number);
+            console.log(`${major}.${minor}.${patch + 1}-alex.${process.env.GITHUB_RUN_ID}.${process.env.GITHUB_RUN_ATTEMPT}`);
+          ')
+          node scripts/bump-version.mjs "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Smoke the bb-app tarball
         run: pnpm exec turbo run smoke:tarball --filter=bb-app --output-logs=new-only
+      - name: Pack the tested tarball
+        working-directory: packages/bb-app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          out="$RUNNER_TEMP/bb-app-release"
+          mkdir -p "$out"
+          npm pack --pack-destination "$out"
+          mv "$out/bb-app-$VERSION.tgz" "$out/bb-app.tgz"
+          printf '%s\n' "$VERSION" > "$out/version.txt"
+          (cd "$out" && sha256sum bb-app.tgz version.txt > SHA256SUMS)
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bb-app-release
+          path: ${{ runner.temp }}/bb-app-release/
+          retention-days: 7
+          if-no-files-found: error
       - name: Bound saved Turbo cache
         if: ${{ !cancelled() }}
         run: node scripts/prune-turbo-cache.mjs --dir .turbo/cache --max-size-mb 1024

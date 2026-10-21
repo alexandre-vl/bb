@@ -12,6 +12,7 @@ upstream, rebuilt automatically.
 | `fork-infra` | this directory and the `fork-*` workflows | me |
 | `fork-rerere` | saved conflict resolutions (`git rerere` cache) | `fork/rerere.sh push` |
 | one branch per pull request | based on `main`, opened against get-bb/bb | me |
+| `carry/<branch>` | a pull request branch with `main` merged in, for a conflict rerere cannot replay (the fix belongs in a file that did not conflict); listed right before its branch in `layers.txt` | me |
 | `*-assets` | screenshots for pull request bodies; `github-inbox-v3-assets` also serves GitHub Pages | me |
 
 Never commit to `alex` or `main`: the next sync replaces `alex`, and refuses to
@@ -26,8 +27,16 @@ sync a `main` that has commits upstream lacks. Start every new branch from
   tree changed, turns off upstream's workflows, and keeps the issue
   "alex rebuild needs attention" open while a layer is skipped.
 - **Fork CI** (`.github/workflows/fork-ci.yml`) runs on every push to `alex`:
-  lint, typecheck and tests of the packages the layers change, and a smoke test
-  of the `bb-app` tarball, on GitHub-hosted `ubuntu-latest`.
+  lint, typecheck and tests of the packages the layers change, then versions
+  `bb-app` as `X.Y.(Z+1)-alex.<run>.<attempt>`, smoke-tests the tarball, packs
+  it and uploads it, on GitHub-hosted `ubuntu-latest`. Runs queue; none is
+  cancelled.
+- **Fork Release** (`.github/workflows/fork-release.yml`) runs when Fork CI
+  succeeds on `alex`. It publishes the tested tarball as the release
+  `fork-v<version>` (`bb-app.tgz`, `version.txt`, `SHA256SUMS`, and the list
+  of layers), marks it latest, and keeps the last 10. The newest build is
+  always at
+  `https://github.com/alexandre-vl/bb/releases/latest/download/bb-app.tgz`.
 - **Fork PR Health** (`.github/workflows/fork-pr-health.yml`) runs daily at
   06:23 UTC and by hand. It rewrites the issue "Upstream pull requests" with
   each of my open pull requests on get-bb/bb: checks, merge state, review,
@@ -42,8 +51,12 @@ sync a `main` that has commits upstream lacks. Start every new branch from
 ## How a rebuild treats each layer
 
 1. A branch already contained in `alex` is reported as `already included`.
-2. A branch adding files under `packages/db/drizzle` is held back unless its
-   line in `layers.txt` ends with `allow-migrations`. A build carrying unmerged
+2. A branch adding files under `packages/db/drizzle`, or SQL DDL anywhere else
+   (a new `bb.storage.migrate` statement in a plugin), is held back unless its
+   line in `layers.txt` ends with `allow-migrations`. Both kinds are numbered:
+   upstream reuses the number for its own next migration, and bb then refuses
+   to start (`packages/db/src/migrate.ts`) or to load the plugin
+   (`bb.storage.migrate` rejects a reused index). A build carrying unmerged
    migrations must never touch a data directory an official bb also opens.
 3. Conflicts are first replayed from `fork-rerere`; then conflicts whose two
    sides differ only in version numbers take the higher one
@@ -62,7 +75,10 @@ gh workflow run fork-sync.yml --repo alexandre-vl/bb
 ```
 
 When the conflict is in the pull request itself, rebase the branch on `main`
-instead: that also fixes the pull request upstream.
+instead: that also fixes the pull request upstream. When the right resolution
+edits a file that did not conflict (upstream moved the code), rerere cannot
+replay it: merge `main` into a `carry/<branch>` copy of the branch, resolve it
+there, push it, and list it right before the branch in `layers.txt`.
 
 ## Add or drop a layer
 
