@@ -477,6 +477,35 @@ describe("plugin update service and routes", () => {
     );
   });
 
+  it("checks every other plugin when one git repository is unreachable", async () => {
+    const tagged = await taggedRepo();
+    await service.install(`git:${tagged}@main`, { kind: "root" });
+    await rename(tagged, `${tagged}-moved`);
+    const unreachable = expect.objectContaining({
+      id: "tagged",
+      outcome: "unavailable",
+      detail: expect.stringContaining("git ls-remote failed"),
+    });
+
+    const swept = await app.request("/plugins/updates/check", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(swept.status).toBe(200);
+    expect(await swept.json()).toEqual({
+      results: [
+        unreachable,
+        expect.objectContaining({ id: "updater", outcome: "current" }),
+      ],
+    });
+    expect(service.listUpdateResults()).toEqual([
+      unreachable,
+      expect.objectContaining({ id: "updater", outcome: "current" }),
+    ]);
+    expect(await service.checkForUpdates("tagged")).toEqual([unreachable]);
+  });
+
   it("reports legacy retired-marketplace installs as unavailable without fetching", async () => {
     upsertInstalledPlugin(db, {
       id: "legacy-marketplace",
