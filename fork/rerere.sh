@@ -37,7 +37,7 @@ scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 export GIT_INDEX_FILE=$scratch/index
 git read-tree --empty
-(cd "$common_dir" && find rr-cache -type f -print0) |
+(cd "$common_dir" && find rr-cache -type f ! -name 'thisimage*' -print0) |
   while IFS= read -r -d '' path; do
     git update-index --add --cacheinfo "100644,$(git hash-object -w "$common_dir/$path"),$path"
   done
@@ -52,4 +52,4 @@ else
   commit=$(git commit-tree "$tree" -m "Save rerere resolutions")
 fi
 git push --quiet "$remote" "$commit:refs/heads/$branch"
-echo "Saved $(git ls-tree -r --name-only "$commit" | grep -c '/postimage$' || true) resolutions to $remote/$branch."
+echo "Saved $(git ls-tree -r --name-only "$commit" | grep -cE '/postimage(\.[0-9]+)?$' || true) resolutions to $remote/$branch."
