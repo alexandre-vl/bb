@@ -113,11 +113,11 @@ interface PluginActivationContext {
     readonly statusDetail: null;
   };
   sourceFingerprint: (row: InstalledPluginRow) => string;
-  rememberSnapshotRegistration: (
-    snapshotId: string,
+  rememberRollbackPoint: (
+    snapshot: PluginStateSnapshotRow,
     registration: InstalledPluginRow,
-  ) => void;
-  pruneSnapshotRegistrations: () => void;
+  ) => Promise<void>;
+  pruneRollbackPoints: () => void;
   syncCliSkill: () => Promise<void>;
   notifyPluginsChanged: () => void;
 }
@@ -143,8 +143,8 @@ export function createPluginActivation(context: PluginActivationContext) {
     registrationMatchesForActivation,
     emptyPluginUpdateState,
     sourceFingerprint,
-    rememberSnapshotRegistration,
-    pruneSnapshotRegistrations,
+    rememberRollbackPoint,
+    pruneRollbackPoints,
     syncCliSkill,
     notifyPluginsChanged,
   } = context;
@@ -229,7 +229,7 @@ export function createPluginActivation(context: PluginActivationContext) {
       throw new Error(`plugin rollback snapshot disappeared: ${snapshot.id}`);
     }
     for (const discarded of superseded) await removeSnapshotFiles(discarded);
-    pruneSnapshotRegistrations();
+    pruneRollbackPoints();
     return problem;
   }
 
@@ -472,7 +472,9 @@ export function createPluginActivation(context: PluginActivationContext) {
         if (previous) await loadOne(previous);
         throw error;
       }
-      rememberSnapshotRegistration(snapshot.id, args.row);
+      if (args.rollback === undefined) {
+        await rememberRollbackPoint(snapshot, args.row);
+      }
       let pointerWritten = false;
       let operationWritten = false;
       try {
@@ -641,7 +643,7 @@ export function createPluginActivation(context: PluginActivationContext) {
         );
       } finally {
         stabilizingPluginIds.delete(args.row.id);
-        pruneSnapshotRegistrations();
+        pruneRollbackPoints();
       }
     });
     await syncCliSkill();
@@ -656,7 +658,7 @@ export function createPluginActivation(context: PluginActivationContext) {
       retentionMs: artifactRetentionMs,
       warn: (message) => logger.warn(message),
     });
-    pruneSnapshotRegistrations();
+    pruneRollbackPoints();
   }
 
   return {

@@ -3204,9 +3204,12 @@ untouched, and the rollback point stays offered. A rollback interrupted by a
 crash is undone on the next start, which restores the updated release and its
 data the way it recovers an interrupted update. The server refuses,
 changing nothing, without a rollback point, for path and builtin sources, in
-safe mode, when the kept artifact no longer matches its recorded hash or is
-incompatible with this bb, and when `expectedVersion` differs from
-`updateState.rollback.version`. A server without the route answers 404, which
+safe mode, when the kept artifact no longer matches its recorded hash or
+declares another plugin id, and when `expectedVersion` differs from
+`updateState.rollback.version`. A kept release whose `engines` ranges this bb
+no longer satisfies is no rollback point: bb reads its ranges when it takes
+the snapshot, and again from the kept copy after a restart, so
+`updateState.rollback` never offers a rollback the server would refuse. A server without the route answers 404, which
 the SDK reports as "predates plugin rollback". `updateState.rollback`
 (`version`, `display`, `until`) on each installed plugin names the target and
 deadline. Each rollback undoes the latest update still inside the window, so a

@@ -1,6 +1,7 @@
 import {
   findPluginRollbackSnapshot,
   getInstalledPlugin,
+  getPluginArtifact,
   listRetainedPluginRollbackSnapshots,
   type InstalledPluginRow,
   type PluginArtifactRow,
@@ -75,6 +76,30 @@ function rollbackRegistration(
   };
 }
 
+interface KeptRelease {
+  registration: InstalledPluginRow;
+  bbRange: string | undefined;
+  sdkRange: string | undefined;
+}
+
+async function keptManifestDir(
+  artifact: PluginArtifactRow,
+  registration: InstalledPluginRow,
+): Promise<string> {
+  return artifact.sourceKind === "git" && artifact.gitCheckoutRoot !== null
+    ? realPathInside(
+        artifact.gitCheckoutRoot,
+        artifact.path,
+        "git plugin subdirectory",
+        registration.sourceGitSubdirectory === null,
+      )
+    : artifact.path;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createPluginRollbackPoints(context: {
   deps: PluginServiceDeps;
   now: () => number;
@@ -83,10 +108,41 @@ export function createPluginRollbackPoints(context: {
   ) => PluginResolvedUpdateVersion;
 }) {
   const { deps, now, installedUpdateVersion } = context;
-  const registrations = new Map<string, InstalledPluginRow>();
+  const keptReleases = new Map<string, KeptRelease>();
 
-  function remember(snapshotId: string, registration: InstalledPluginRow) {
-    registrations.set(snapshotId, registration);
+  async function readKeptRelease(
+    artifact: PluginArtifactRow,
+    registration: InstalledPluginRow,
+  ): Promise<KeptRelease> {
+    const manifest = await readPluginManifest(
+      await keptManifestDir(artifact, registration),
+    );
+    return {
+      registration,
+      bbRange: manifest.bbEngineRange,
+      sdkRange: manifest.bbPluginSdkRange,
+    };
+  }
+
+  async function remember(
+    snapshot: PluginStateSnapshotRow,
+    registration: InstalledPluginRow,
+  ): Promise<void> {
+    const artifact =
+      snapshot.fromArtifactId === null
+        ? undefined
+        : getPluginArtifact(deps.db, snapshot.fromArtifactId);
+    if (artifact === undefined) return;
+    try {
+      keptReleases.set(
+        snapshot.id,
+        await readKeptRelease(artifact, registration),
+      );
+    } catch (error) {
+      deps.logger.warn(
+        `plugin rollback snapshot ${snapshot.id} has an unreadable kept release: ${errorMessage(error)}`,
+      );
+    }
   }
 
   async function load(): Promise<void> {
@@ -94,10 +150,10 @@ export function createPluginRollbackPoints(context: {
       deps.db,
       now(),
     )) {
-      if (registrations.has(snapshot.id)) continue;
+      if (keptReleases.has(snapshot.id)) continue;
       try {
-        remember(
-          snapshot.id,
+        await remember(
+          snapshot,
           await readPluginSnapshotRegistration({
             db: deps.db,
             snapshotId: snapshot.id,
@@ -105,7 +161,7 @@ export function createPluginRollbackPoints(context: {
         );
       } catch (error) {
         deps.logger.warn(
-          `plugin rollback snapshot ${snapshot.id} is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+          `plugin rollback snapshot ${snapshot.id} is unreadable: ${errorMessage(error)}`,
         );
       }
     }
@@ -153,7 +209,7 @@ export function createPluginRollbackPoints(context: {
     } catch (error) {
       return noRollbackPoint(
         row,
-        `its rollback snapshot is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+        `its rollback snapshot is unreadable: ${errorMessage(error)}`,
       );
     }
     if (
@@ -178,13 +234,31 @@ export function createPluginRollbackPoints(context: {
     };
   }
 
+  function incompatibility(
+    row: InstalledPluginRow,
+    point: ResolvedRollbackPoint,
+    kept: KeptRelease,
+  ): RollbackPointLookup | null {
+    const problems = evaluateCompatibility({
+      bbRange: kept.bbRange,
+      sdkRange: kept.sdkRange,
+      appVersion: deps.appVersion,
+    }).effective;
+    if (problems.length === 0) return null;
+    return noRollbackPoint(
+      row,
+      `${point.target.display} is incompatible with this bb: ${problems.map((problem) => problem.message).join("; ")}`,
+    );
+  }
+
   function find(row: InstalledPluginRow): PluginRollbackPoint | undefined {
     const found = candidate(row);
     if (found === undefined) return undefined;
-    const previous = registrations.get(found.snapshot.id);
-    if (previous === undefined) return undefined;
-    const lookup = lookupFor(row, found, previous);
+    const kept = keptReleases.get(found.snapshot.id);
+    if (kept === undefined) return undefined;
+    const lookup = lookupFor(row, found, kept.registration);
     if (lookup.outcome === "none") return undefined;
+    if (incompatibility(row, lookup.point, kept) !== null) return undefined;
     return {
       version: lookup.point.target.version,
       display: lookup.point.target.display,
@@ -202,7 +276,8 @@ export function createPluginRollbackPoints(context: {
         "no update to its current version is still within the rollback window",
       );
     }
-    let previous = registrations.get(found.snapshot.id);
+    let kept = keptReleases.get(found.snapshot.id);
+    let previous = kept?.registration;
     if (previous === undefined) {
       try {
         previous = await readPluginSnapshotRegistration({
@@ -212,20 +287,32 @@ export function createPluginRollbackPoints(context: {
       } catch (error) {
         return noRollbackPoint(
           row,
-          `its rollback snapshot is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+          `its rollback snapshot is unreadable: ${errorMessage(error)}`,
         );
       }
-      remember(found.snapshot.id, previous);
     }
-    return lookupFor(row, found, previous);
+    const lookup = lookupFor(row, found, previous);
+    if (lookup.outcome === "none") return lookup;
+    if (kept === undefined) {
+      try {
+        kept = await readKeptRelease(lookup.point.artifact, previous);
+      } catch (error) {
+        return noRollbackPoint(
+          row,
+          `the kept copy of ${lookup.point.target.display} is unreadable: ${errorMessage(error)}`,
+        );
+      }
+      keptReleases.set(found.snapshot.id, kept);
+    }
+    return incompatibility(row, lookup.point, kept) ?? lookup;
   }
 
   function prune(): void {
     const retained = new Set(
       listRetainedPluginRollbackSnapshots(deps.db, now()).map(({ id }) => id),
     );
-    for (const snapshotId of registrations.keys()) {
-      if (!retained.has(snapshotId)) registrations.delete(snapshotId);
+    for (const snapshotId of keptReleases.keys()) {
+      if (!retained.has(snapshotId)) keptReleases.delete(snapshotId);
     }
   }
 
@@ -318,33 +405,16 @@ export function createPluginRollback(context: PluginRollbackContext) {
     let manifest: PluginManifest;
     try {
       manifest = await readPluginManifest(
-        artifact.sourceKind === "git" && artifact.gitCheckoutRoot !== null
-          ? await realPathInside(
-              artifact.gitCheckoutRoot,
-              artifact.path,
-              "git plugin subdirectory",
-              point.registration.sourceGitSubdirectory === null,
-            )
-          : artifact.path,
+        await keptManifestDir(artifact, point.registration),
       );
     } catch (error) {
       return {
-        refusal: `rollback refused: the kept copy of ${target.display} is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+        refusal: `rollback refused: the kept copy of ${target.display} is unreadable: ${errorMessage(error)}`,
       };
     }
     if (manifest.id !== point.registration.id) {
       return {
         refusal: `rollback refused: the kept copy of ${target.display} declares plugin id "${manifest.id}"`,
-      };
-    }
-    const compatibility = evaluateCompatibility({
-      bbRange: manifest.bbEngineRange,
-      sdkRange: manifest.bbPluginSdkRange,
-      appVersion: deps.appVersion,
-    });
-    if (compatibility.effective.length > 0) {
-      return {
-        refusal: `rollback refused: ${target.display} is incompatible with this bb: ${compatibility.effective.map((problem) => problem.message).join("; ")}`,
       };
     }
     return { manifest };

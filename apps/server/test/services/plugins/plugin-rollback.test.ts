@@ -35,6 +35,7 @@ import { pluginUpdateJobResponseSchema } from "@bb/server-contract";
 import { registerPluginUpdateJobRoutes } from "../../../src/routes/plugin-update-jobs.js";
 import { registerPluginRoutes } from "../../../src/routes/plugins.js";
 import { createAiServiceRegistry } from "../../../src/services/ai/ai-service-registry.js";
+import { hashInstallDir } from "../../../src/services/plugins/install-sources.js";
 import { createPluginInstallJobs } from "../../../src/services/plugins/plugin-install-jobs.js";
 import {
   createPluginService,
@@ -103,12 +104,14 @@ describe("plugin update rollback", () => {
   async function release(
     version: string,
     schedules: string[] = ["nightly"],
+    engines: Record<string, string> = {},
   ): Promise<string> {
     await writeFile(
       join(repo, "package.json"),
       JSON.stringify({
         name: `bb-plugin-${PLUGIN_ID}`,
         version,
+        engines,
         bb: {
           name: "Rollback fixture",
           description: "Plugin rollback fixture.",
@@ -227,8 +230,12 @@ describe("plugin update rollback", () => {
     ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
   }
 
-  async function updateTo(version: string, schedules: string[]) {
-    const commit = await release(version, schedules);
+  async function updateTo(
+    version: string,
+    schedules: string[],
+    engines: Record<string, string> = {},
+  ) {
+    const commit = await release(version, schedules, engines);
     await applyCandidate(PLUGIN_ID, commit);
     return commit;
   }
@@ -692,6 +699,53 @@ describe("plugin update rollback", () => {
     });
     expect(registration()).toMatchObject({ version: "1.1.0" });
   }, 60_000);
+
+  it("refuses when the kept copy of the previous release declares another plugin", async () => {
+    const before = registration();
+    await updateToNextRelease();
+    const kept = listPluginArtifacts(db, PLUGIN_ID).find(
+      ({ id }) => id === before.activeArtifactId,
+    );
+    if (kept === undefined) throw new Error("missing kept artifact");
+    const manifestPath = join(kept.path, "package.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        ...JSON.parse(await readFile(manifestPath, "utf8")),
+        name: "bb-plugin-impostor",
+      }),
+    );
+    db.$client
+      .prepare("UPDATE plugin_artifacts SET content_hash = ? WHERE id = ?")
+      .run(await hashInstallDir(kept.path), kept.id);
+
+    await expect(service.rollbackUpdate(PLUGIN_ID)).resolves.toEqual({
+      ok: false,
+      error: `rollback refused: the kept copy of ${repo}@v1.0.0 (${(before.gitResolvedCommit ?? "").slice(0, 12)}) declares plugin id "impostor"`,
+    });
+    expect(registration()).toMatchObject({ version: "1.1.0" });
+  }, 60_000);
+
+  it("offers no rollback point to a kept release this bb no longer satisfies", async () => {
+    const keptCommit = await updateTo("1.1.0", ["nightly"], { bb: "<2.0.0" });
+    await updateTo("1.2.0", ["nightly"]);
+    expect(installed().updateState.rollback).toMatchObject({
+      version: keptCommit,
+    });
+    await service.stop();
+    service = createService({ appVersion: "2.0.0" });
+    await service.start();
+
+    expect(installed()).toMatchObject({ version: "1.2.0", status: "running" });
+    expect(installed().updateState).not.toHaveProperty("rollback");
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: keptCommit }),
+    ).resolves.toEqual({
+      ok: false,
+      error: `plugin "${PLUGIN_ID}" has no rollback point: ${repo}@v1.1.0 (${keptCommit.slice(0, 12)}) is incompatible with this bb: requires bb <2.0.0, running bb is 2.0.0`,
+    });
+    expect(registration()).toMatchObject({ version: "1.2.0" });
+  }, 90_000);
 
   it("steps back one update per rollback while the earlier release is kept", async () => {
     const first = registration();

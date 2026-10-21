@@ -790,8 +790,8 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     registrationMatchesForActivation,
     emptyPluginUpdateState,
     sourceFingerprint,
-    rememberSnapshotRegistration: rollbackPoints.remember,
-    pruneSnapshotRegistrations: rollbackPoints.prune,
+    rememberRollbackPoint: rollbackPoints.remember,
+    pruneRollbackPoints: rollbackPoints.prune,
     syncCliSkill,
     notifyPluginsChanged,
   });
