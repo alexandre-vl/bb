@@ -90,7 +90,7 @@ if [[ ! -e $prefix/bin/bb-app ]]; then
 fi
 
 if [[ -n $have ]] && curl -fsS "$url/health" >/dev/null 2>&1; then
-  running=$(BB_SERVER_URL=$url BB_HOST_DAEMON_PORT=$daemon_port "$node" "$root/current/bin/bb" updates app status --json 2>/dev/null | json_field runningThreadCount)
+  running=$(BB_SERVER_URL=$url BB_HOST_DAEMON_PORT=$daemon_port "$node" "$prefix/bin/bb" updates app status --json 2>/dev/null | json_field runningThreadCount)
   if [[ -z $running ]]; then
     echo "Could not read bb-alex's running threads from $url; not updating." >&2
     exit 1
