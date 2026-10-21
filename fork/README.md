@@ -28,6 +28,14 @@ sync a `main` that has commits upstream lacks. Start every new branch from
 - **Fork CI** (`.github/workflows/fork-ci.yml`) runs on every push to `alex`:
   lint, typecheck and tests of the packages the layers change, and a smoke test
   of the `bb-app` tarball, on GitHub-hosted `ubuntu-latest`.
+- **Fork PR Health** (`.github/workflows/fork-pr-health.yml`) runs daily at
+  06:23 UTC and by hand. It rewrites the issue "Upstream pull requests" with
+  each of my open pull requests on get-bb/bb: checks, merge state, review,
+  whether `alex` contains it, and the day upstream's stale job closes it
+  ([`pr-health.sh`](pr-health.sh)).
+- Fork Sync also fast-forwards my other forks listed in
+  [`forks.txt`](forks.txt) (alexandre-vl/marketplace), when `FORK_SYNC_TOKEN`
+  can write to them.
 - Upstream's workflows stay off on the fork: they need Blacksmith runners and
   upstream secrets, so they would sit queued forever.
 
@@ -67,7 +75,8 @@ Fork Sync pushes with `FORK_SYNC_TOKEN`, because the `GITHUB_TOKEN` of a
 workflow may not push commits that change workflow files, and upstream changes
 them all the time. Create a fine-grained token at
 https://github.com/settings/personal-access-tokens/new with repository access
-**Only select repositories → alexandre-vl/bb** and permissions **Contents:
+**Only select repositories → alexandre-vl/bb** (add alexandre-vl/marketplace to
+sync it too) and permissions **Contents:
 Read and write** and **Workflows: Read and write**, then:
 
 ```bash

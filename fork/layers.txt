@@ -1,4 +1,5 @@
 connect-next-e2e-connection-reset
+bb/daemon-self-update-node-npm-cli
 bb/project-default-source-host
 plugin-range-docs
 bb/sidebar-scrollbar-lane-thr_nmb7f8qghv

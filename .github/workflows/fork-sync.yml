@@ -47,6 +47,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           bash fork/rebuild.sh --push
           cat "$FORK_REPORT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Sync my other forks
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          while read -r repo; do
+            [ -n "$repo" ] || continue
+            branch=$(gh api "repos/$repo" --jq .default_branch)
+            if ! gh api -X POST "repos/$repo/merge-upstream" -f branch="$branch" --jq '"\(.merge_type): \(.message)"'; then
+              echo "::warning::Could not sync $repo. Give FORK_SYNC_TOKEN Contents and Workflows write access to it."
+            fi
+          done < fork/forks.txt
       - name: Keep upstream workflows off
         env:
           GH_TOKEN: ${{ github.token }}
