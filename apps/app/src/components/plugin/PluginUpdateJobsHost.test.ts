@@ -65,3 +65,61 @@ it.each(["updated", "rolled-back"] as const)(
     expect(toast).toHaveBeenCalledOnce();
   },
 );
+
+it.each([
+  {
+    ending: "reverted",
+    job: {
+      state: "completed",
+      result: {
+        applied: true,
+        from: { version: "1.1.0", display: "1.1.0" },
+        to: { version: "1.0.0", display: "1.0.0" },
+        outcome: "reverted",
+      },
+    },
+    toast: "success",
+    title: "Plugin rolled back",
+    description: "Notes",
+  },
+  {
+    ending: "rolled-back",
+    job: {
+      state: "completed",
+      result: {
+        applied: false,
+        from: { version: "1.1.0", display: "1.1.0" },
+        outcome: "rolled-back",
+      },
+    },
+    toast: "error",
+    title: "Plugin rollback failed",
+    description: "Notes — Updated version and data restored.",
+  },
+  {
+    ending: "failed",
+    job: { state: "failed", error: "no rollback point" },
+    toast: "error",
+    title: "Plugin rollback failed",
+    description: "Notes — no rollback point",
+  },
+] as const)(
+  "names a rollback in its toasts when it ends $ending",
+  ({ job, toast, title, description }) => {
+    const loading = vi.spyOn(appToast, "loading").mockReturnValue("toast");
+    const success = vi.spyOn(appToast, "success").mockReturnValue("toast");
+    const error = vi.spyOn(appToast, "error").mockReturnValue("toast");
+    const rollback = { ...base, id: "rollback-1", kind: "rollback" } as const;
+    const publish = mount();
+    publish([{ ...rollback, state: "running", phase: "activating" }]);
+    expect(loading).toHaveBeenCalledWith(
+      "Rolling back plugin…",
+      expect.objectContaining({ id: "plugin-update:rollback-1" }),
+    );
+    publish([{ ...rollback, ...job }]);
+    expect(toast === "success" ? success : error).toHaveBeenCalledWith(
+      title,
+      expect.objectContaining({ id: "plugin-update:rollback-1", description }),
+    );
+  },
+);

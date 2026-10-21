@@ -2,6 +2,7 @@ import type {
   InstalledPlugin,
   PluginCachePruneResponse,
   PluginOutsideRangeRelease,
+  PluginRollbackPoint,
   PluginSafeModeUpdateResponse,
   PluginSettingDescriptor,
   PluginSettingsResponse,
@@ -36,6 +37,7 @@ export interface PluginUpdateState {
   blockedReasons: string[];
   lastCheckAt: number | null;
   lastFailure: PluginUpdateFailure | null;
+  rollback: PluginRollbackPoint | null;
 }
 
 export interface PluginListItem {
@@ -96,6 +98,7 @@ export const EMPTY_PLUGIN_UPDATE_STATE: PluginUpdateState = {
   blockedReasons: [],
   lastCheckAt: null,
   lastFailure: null,
+  rollback: null,
 };
 
 export function toPluginListItem(plugin: InstalledPlugin): PluginListItem {
@@ -147,6 +150,7 @@ export function toPluginListItem(plugin: InstalledPlugin): PluginListItem {
               at: toEpochMs(state.lastFailure.at),
               detail: state.lastFailure.detail,
             },
+      rollback: state.rollback ?? null,
     },
   };
 }
