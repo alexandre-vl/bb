@@ -113,11 +113,16 @@ while read -r branch options || [[ -n ${branch:-} ]]; do
     held=$((held + 1))
     continue
   fi
-  if git -C "$work" merge --quiet --no-ff --no-edit -m "Merge $branch into $target" "$sha" >/dev/null 2>&1; then
+  if git -C "$work" -c merge.conflictStyle=diff3 merge --quiet --no-ff --no-edit -m "Merge $branch into $target" "$sha" >/dev/null 2>&1; then
     rows+=("| \`$branch\` | $short | merged |")
   elif git -C "$work" rev-parse --verify --quiet MERGE_HEAD >/dev/null && [[ -z $(git -C "$work" ls-files -u) ]]; then
     git -C "$work" commit --quiet --no-edit
     rows+=("| \`$branch\` | $short | merged with a recorded resolution |")
+  elif mapfile -t conflicted < <(git -C "$work" diff --name-only --diff-filter=U) &&
+    (cd "$work" && python3 "$script_dir/resolve-versions.py" "${conflicted[@]}" 2>/dev/null); then
+    git -C "$work" add -- "${conflicted[@]}"
+    git -C "$work" commit --quiet --no-edit
+    rows+=("| \`$branch\` | $short | merged, version bumps resolved to the higher one |")
   else
     files=$(git -C "$work" diff --name-only --diff-filter=U | paste -sd, - | sed 's/,/, /g')
     if [[ $stop_at_conflict == 1 ]]; then
