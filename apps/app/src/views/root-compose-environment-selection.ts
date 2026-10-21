@@ -1,5 +1,6 @@
 import {
   findLocalPathProjectSourceForHost,
+  type Host,
   type ProjectSource,
   type ThreadListEntry,
 } from "@bb/domain";
@@ -304,6 +305,36 @@ export function resolveRootComposeEffectiveEnvironmentValue({
 export interface UsableProjectDefaultEnvironment {
   value: string;
   hostId: string | null;
+}
+
+const AUTOMATIC_PROJECT_DEFAULT_ENVIRONMENT_LABEL = "Automatic";
+
+export function projectDefaultEnvironmentLabel({
+  defaultEnvironment,
+  providers,
+  hosts,
+}: {
+  defaultEnvironment: ProjectResponse["defaultEnvironment"];
+  providers:
+    | readonly Pick<SystemEnvironmentProvider, "id" | "displayName">[]
+    | undefined;
+  hosts: readonly Pick<Host, "id" | "name">[] | undefined;
+}): string {
+  if (defaultEnvironment === null) {
+    return AUTOMATIC_PROJECT_DEFAULT_ENVIRONMENT_LABEL;
+  }
+  const providerName =
+    providers?.find(
+      (provider) => provider.id === defaultEnvironment.environmentProviderId,
+    )?.displayName ?? defaultEnvironment.environmentProviderId;
+  const machine = defaultEnvironment.machine;
+  const hostName =
+    machine.type === "existing"
+      ? hosts?.find((host) => host.id === machine.hostId)?.name
+      : undefined;
+  return hostName === undefined
+    ? providerName
+    : `${hostName} · ${providerName}`;
 }
 
 interface ResolveUsableProjectDefaultEnvironmentArgs {

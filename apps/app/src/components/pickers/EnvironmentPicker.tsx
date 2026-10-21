@@ -38,6 +38,7 @@ import {
 import {
   encodeProviderValue,
   parseEnvironmentValue,
+  PROJECT_DEFAULT_ENVIRONMENT_VALUE,
 } from "./environment-picker-value";
 import { selectHosts } from "@/hooks/queries/host-queries";
 import { providerInputsControlRequired } from "./environment-provider-inputs";
@@ -61,6 +62,12 @@ export interface EnvironmentPickerMachines {
   hosts: readonly Host[];
   localDaemonHostId: string | null;
   primaryHostId: string | null;
+}
+
+export interface EnvironmentPickerProjectDefault {
+  description: string;
+  problem: string | null;
+  onSelect: () => void;
 }
 
 export interface EnvironmentPickerUIProps {
@@ -92,11 +99,16 @@ export interface EnvironmentPickerUIProps {
   ) => void;
   onSelectHost?: (hostId: string) => void;
   onSelectReuse?: () => void;
+  projectDefault?: EnvironmentPickerProjectDefault;
   displayOverride?: { label: string; icon?: IconName };
 }
 
 export const PROVIDER_INPUTS_CONTROL_MISSING_REASON =
   "Needs its plugin's control";
+
+const PROJECT_DEFAULT_OPTION_LABEL = "Project default";
+const PROJECT_DEFAULT_COMPACT_LABEL = "Default";
+const PROJECT_DEFAULT_ICON_NAME: IconName = "Settings";
 
 const NO_INPUTS_CONTROL_PROVIDER_IDS: ReadonlySet<string> = new Set();
 
@@ -215,6 +227,7 @@ export function EnvironmentPickerUI({
   onSelectProvider,
   onSelectHost,
   onSelectReuse,
+  projectDefault,
   displayOverride,
 }: EnvironmentPickerUIProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(
@@ -262,6 +275,8 @@ export function EnvironmentPickerUI({
       ? "Host is offline"
       : null;
   const parsed = useMemo(() => parseEnvironmentValue(value), [value]);
+  const projectDefaultSelected = parsed?.type === "project-default";
+  const projectDefaultProblem = projectDefault?.problem ?? null;
 
   const selectedMachineName = useMemo(() => {
     if (!hasMultipleMachines || !availableMachines) return null;
@@ -303,16 +318,28 @@ export function EnvironmentPickerUI({
           hasSelectedHostlessProvider: selectedHostlessProvider !== undefined,
         })
       : undefined;
-  const selectedCommandValue = contextualHost
-    ? `machine:${contextualHost.id}`
-    : selectedHostlessProvider
-      ? `provider:any:${selectedHostlessProvider.id}`
-      : parsed?.type === "reuse"
-        ? "reuse"
-        : selectedProvider !== undefined && selectedProviderHostId !== null
-          ? `provider:${selectedProviderHostId}:${selectedProvider.id}`
-          : "";
+  const selectedCommandValue = projectDefaultSelected
+    ? PROJECT_DEFAULT_ENVIRONMENT_VALUE
+    : contextualHost
+      ? `machine:${contextualHost.id}`
+      : selectedHostlessProvider
+        ? `provider:any:${selectedHostlessProvider.id}`
+        : parsed?.type === "reuse"
+          ? "reuse"
+          : selectedProvider !== undefined && selectedProviderHostId !== null
+            ? `provider:${selectedProviderHostId}:${selectedProvider.id}`
+            : "";
   const selected = useMemo((): SelectedEnvironment => {
+    if (projectDefaultSelected) {
+      return {
+        modeLabel: PROJECT_DEFAULT_OPTION_LABEL,
+        compactModeLabel: PROJECT_DEFAULT_COMPACT_LABEL,
+        icon:
+          projectDefaultProblem === null
+            ? PROJECT_DEFAULT_ICON_NAME
+            : "AlertTriangle",
+      };
+    }
     if (
       selectedProvider !== undefined &&
       (selectedProvider.machineProviderId || hostUnavailableReason === null)
@@ -352,6 +379,8 @@ export function EnvironmentPickerUI({
     parsed,
     hostUnavailableReason,
     availableHost,
+    projectDefaultProblem,
+    projectDefaultSelected,
     selectedMachineName,
     selectedProvider,
   ]);
@@ -386,6 +415,10 @@ export function EnvironmentPickerUI({
   };
   const selectReuse = () => {
     onSelectReuse?.();
+    handleOpenChange(false);
+  };
+  const selectProjectDefault = () => {
+    projectDefault?.onSelect();
     handleOpenChange(false);
   };
 
@@ -497,6 +530,13 @@ export function EnvironmentPickerUI({
                 showSearch && "flex flex-col overflow-hidden",
               )}
             >
+              {projectDefault === undefined ? null : (
+                <ProjectDefaultEnvironmentOption
+                  projectDefault={projectDefault}
+                  selected={projectDefaultSelected}
+                  onSelect={selectProjectDefault}
+                />
+              )}
               {isMachineMenu && availableMachines ? (
                 showSearch ? (
                   <MachineContextualEnvironmentOptions
@@ -591,6 +631,47 @@ export function EnvironmentPickerUI({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+function projectDefaultOptionDescription({
+  description,
+  problem,
+}: EnvironmentPickerProjectDefault): string {
+  return problem === null
+    ? description
+    : `${description} is unavailable: ${problem}`;
+}
+
+interface ProjectDefaultEnvironmentOptionProps {
+  projectDefault: EnvironmentPickerProjectDefault;
+  selected: boolean;
+  onSelect: () => void;
+}
+
+function ProjectDefaultEnvironmentOption({
+  projectDefault,
+  selected,
+  onSelect,
+}: ProjectDefaultEnvironmentOptionProps) {
+  return (
+    <>
+      <CommandGroup className="shrink-0">
+        <EnvironmentMenuItem
+          value={PROJECT_DEFAULT_ENVIRONMENT_VALUE}
+          label={PROJECT_DEFAULT_OPTION_LABEL}
+          description={projectDefaultOptionDescription(projectDefault)}
+          icon={
+            projectDefault.problem === null
+              ? PROJECT_DEFAULT_ICON_NAME
+              : "AlertTriangle"
+          }
+          selected={selected}
+          onSelect={onSelect}
+        />
+      </CommandGroup>
+      <CommandSeparator className="mx-0 shrink-0" />
+    </>
   );
 }
 

@@ -1,3 +1,4 @@
+import type { JsonValue } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
   AUTOMATION_IDEMPOTENCY_KEY_MAX_LENGTH,
@@ -81,12 +82,56 @@ export const projectDefaultEnvironmentSchema = z
   .object({ type: z.literal("project-default") })
   .strict();
 
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
+
+export const providerEnvironmentSchema = z
+  .object({
+    type: z.literal("provider"),
+    environmentProviderId: z.string().min(1),
+    machine: z
+      .discriminatedUnion("type", [
+        z
+          .object({ type: z.literal("existing"), hostId: z.string().min(1) })
+          .strict(),
+        z
+          .object({
+            type: z.literal("new"),
+            machineProviderId: z.string().min(1),
+            inputs: jsonValueSchema.nullable(),
+          })
+          .strict(),
+      ])
+      .optional(),
+    inputs: jsonValueSchema.nullable(),
+  })
+  .strict();
+export type ProviderEnvironment = z.infer<typeof providerEnvironmentSchema>;
+
 export const agentEnvironmentSchema = z.discriminatedUnion("type", [
   reuseEnvironmentSchema,
   hostEnvironmentSchema,
   projectDefaultEnvironmentSchema,
+  providerEnvironmentSchema,
 ]);
 export type AgentEnvironment = z.infer<typeof agentEnvironmentSchema>;
+
+export const sessionOptionSelectionsSchema = z
+  .record(z.string().min(1), z.union([z.string(), z.boolean()]))
+  .refine((selections) => Object.keys(selections).length > 0, {
+    message: "sessionOptions needs at least one option",
+  });
+export type SessionOptionSelections = z.infer<
+  typeof sessionOptionSelectionsSchema
+>;
 
 export const automationOriginSchema = z.enum(["human", "app", "agent"]);
 export type AutomationOrigin = z.infer<typeof automationOriginSchema>;
@@ -163,6 +208,7 @@ const automationAgentExecutionSchema = z
     reasoningLevel: reasoningLevelSchema.default("medium"),
     serviceTier: serviceTierSchema.optional(),
     permissionMode: permissionModeSchema,
+    sessionOptions: sessionOptionSelectionsSchema.optional(),
     environment: agentEnvironmentSchema,
     targetThreadId: z.string().min(1).optional(),
   })
@@ -298,6 +344,7 @@ const agentExecutionUpdateSchema = z
     reasoningLevel: reasoningLevelSchema.optional(),
     serviceTier: serviceTierSchema.nullable().optional(),
     permissionMode: permissionModeSchema.optional(),
+    sessionOptions: sessionOptionSelectionsSchema.nullable().optional(),
     target: agentExecutionTargetSchema.optional(),
   })
   .strict()
@@ -309,6 +356,7 @@ const agentExecutionUpdateSchema = z
       value.reasoningLevel !== undefined ||
       value.serviceTier !== undefined ||
       value.permissionMode !== undefined ||
+      value.sessionOptions !== undefined ||
       value.target !== undefined,
     { message: "at least one agent execution field is required" },
   );
