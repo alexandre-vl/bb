@@ -98,6 +98,7 @@ export {
   deleteThread,
   archiveThread,
   markThreadDeleted,
+  markThreadRead,
   markThreadStorageDeleted,
   unpinThread,
   unarchiveThread,
