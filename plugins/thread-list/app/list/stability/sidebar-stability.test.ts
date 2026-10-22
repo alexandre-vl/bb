@@ -427,6 +427,18 @@ describe("SidebarStabilityController", () => {
       expect(click(row("b"), point).defaultPrevented).toBe(true);
     });
 
+    it("ignores a quick click that lands on a row still sliding past the resting pointer", () => {
+      const point = releaseUnderRestingPointer();
+      expect(click(row("c"), point).defaultPrevented).toBe(true);
+    });
+
+    it("lets a quick click on another row through once the pointer moved", () => {
+      const point = releaseUnderRestingPointer();
+      const moved = { clientX: point.clientX + 5, clientY: point.clientY };
+      movePointer(row("b"), moved);
+      expect(click(row("c"), moved).defaultPrevented).toBe(false);
+    });
+
     it("lets a click through once 500 ms have passed", () => {
       const point = releaseUnderRestingPointer();
       vi.advanceTimersByTime(GATED_CLICK_WINDOW_MS);

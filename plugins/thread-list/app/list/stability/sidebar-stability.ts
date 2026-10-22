@@ -150,6 +150,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
   private committing: { focused: HTMLElement | null } | null = null;
   private gateKey: string | null = null;
   private gateAt = 0;
+  private gateStill = false;
   private archivedKey: string | null = null;
   private guardedRow: HTMLElement | null = null;
   private readonly animations = new Set<Animation>();
@@ -672,7 +673,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
     if (
       gateKey !== null &&
       Date.now() - this.gateAt < GATED_CLICK_WINDOW_MS &&
-      rowKeyOf(event.target) === gateKey
+      (this.gateStill || rowKeyOf(event.target) === gateKey)
     ) {
       swallow(event);
       return;
@@ -717,10 +718,12 @@ export class SidebarStabilityController<Version extends { id: string }> {
   private setGate(rowKey: string): void {
     this.gateKey = rowKey;
     this.gateAt = Date.now();
+    this.gateStill = true;
     this.root?.setAttribute(POINTER_GATE_ATTRIBUTE, "true");
   }
 
   private clearGate(): void {
+    this.gateStill = false;
     this.root?.removeAttribute(POINTER_GATE_ATTRIBUTE);
   }
 
