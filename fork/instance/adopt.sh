@@ -10,7 +10,8 @@ run alexandre-vl/bb's alex releases with the same data dir, ports and account.
 It installs bb-fork-update.timer, which runs bb-fork-update (update.sh) every
 10 minutes. The first run with no thread running stops the unit, backs up
 bb.db and each plugin's data.db, and restarts the unit through a drop-in that
-runs the newest release; later runs keep it updated the same way.
+runs the newest release. Later runs keep it updated the same way, at most once
+every BB_FORK_MIN_HOURS hours.
 
 The unit's own install stays on disk. To go back to it, at once:
   systemctl --user start bb-fork-revert.service
@@ -19,7 +20,7 @@ The unit's own install stays on disk. To go back to it, at once:
 then switches only if no thread is running.
 
 Environment: BB_FORK_APP_DIR (~/.bb-fork-app), BB_FORK_REPO (alexandre-vl/bb),
-BB_FORK_KEEP_BACKUPS (3).
+BB_FORK_KEEP_BACKUPS (3), BB_FORK_MIN_HOURS (6).
 USAGE
 }
 
@@ -53,6 +54,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=${BB_FORK_APP_DIR:-$HOME/.bb-fork-app}
 repo=${BB_FORK_REPO:-alexandre-vl/bb}
 keep=${BB_FORK_KEEP_BACKUPS:-3}
+min_hours=${BB_FORK_MIN_HOURS:-6}
 units=$HOME/.config/systemd/user
 dropin=$units/$unit.d/zz-alexandre-vl-fork.conf
 
@@ -125,6 +127,7 @@ BB_ALEX_DROPIN=$dropin
 BB_ALEX_TIMER=bb-fork-update.timer
 BB_ALEX_BACKUP_DIR=$root/backups
 BB_ALEX_KEEP_BACKUPS=$keep
+BB_ALEX_MIN_HOURS=$min_hours
 EOF
 install -m 755 "$here/update.sh" "$HOME/.local/bin/bb-fork-update"
 
@@ -162,7 +165,7 @@ EOF
 systemctl --user daemon-reload
 systemctl --user enable --now bb-fork-update.timer >/dev/null
 echo "$unit: data $data, server $port, daemon $daemon_port."
-echo "bb-fork-update.timer switches it to the newest alex release the first time no thread runs, then keeps it updated."
+echo "bb-fork-update.timer switches it to the newest alex release the first time no thread runs, then keeps it updated, at most once every $min_hours hours."
 echo "Backups: $root/backups (keeps $keep). Back to its own install: systemctl --user start bb-fork-revert.service"
 if $now; then
   systemctl --user start bb-fork-update.service || true

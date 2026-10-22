@@ -26,7 +26,8 @@ Environment: BB_ALEX_DATA_DIR (~/.bb-alex), BB_ALEX_APP_DIR (~/.bb-alex-app),
 BB_ALEX_REPO (alexandre-vl/bb), BB_ALEX_SERVER_PORT (48886),
 BB_ALEX_DAEMON_PORT (48887), BB_ALEX_UNIT (bb-alex.service), BB_ALEX_DROPIN,
 BB_ALEX_TIMER, BB_ALEX_BACKUP_DIR (<data dir>/backups), BB_ALEX_KEEP_BACKUPS
-(10), BB_ALEX_START_TIMEOUT (360 seconds), BB_ALEX_RELEASE_BASE (the latest
+(10), BB_ALEX_MIN_HOURS (0: the hours a release keeps running before the next
+switch), BB_ALEX_START_TIMEOUT (360 seconds), BB_ALEX_RELEASE_BASE (the latest
 release of BB_ALEX_REPO).
 USAGE
 }
@@ -49,6 +50,7 @@ dropin=${BB_ALEX_DROPIN:-}
 timer=${BB_ALEX_TIMER:-}
 backups=${BB_ALEX_BACKUP_DIR:-$data/backups}
 keep=${BB_ALEX_KEEP_BACKUPS:-10}
+min_hours=${BB_ALEX_MIN_HOURS:-0}
 start_timeout=${BB_ALEX_START_TIMEOUT:-360}
 base=${BB_ALEX_RELEASE_BASE:-https://github.com/$repo/releases/latest/download}
 node=$(cat "$root/node")
@@ -164,6 +166,13 @@ fi
 if [[ -e $root/failed/$want ]]; then
   echo "bb $want failed to start before; waiting for a newer release."
   exit 0
+fi
+if [[ -n $have && $min_hours != 0 ]]; then
+  switched=$(stat -c %Y "$root/current")
+  if (($(date +%s) - switched < min_hours * 3600)); then
+    echo "bb $have has run for less than $min_hours hours; bb $want waits."
+    exit 0
+  fi
 fi
 
 mkdir -p "$root/versions" "$root/failed"

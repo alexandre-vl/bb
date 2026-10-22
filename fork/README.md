@@ -114,7 +114,9 @@ fork/instance/adopt.sh bb-host-daemon-alexvl-getbb-app-host_3ussyf3xqh.service -
   unit, copies `bb.db` and each plugin's `data.db` to
   `~/.bb-fork-app/backups/` (keeps 3), and starts the unit again through the
   drop-in `<unit>.d/zz-alexandre-vl-fork.conf`, which runs
-  `~/.bb-fork-app/current` with `--no-in-app-updates`.
+  `~/.bb-fork-app/current` with `--no-in-app-updates`. Once switched, it takes
+  a newer release at most every 6 hours (`BB_FORK_MIN_HOURS`): upstream
+  merges dozens of pull requests a day, and each switch restarts bb.
 - A release that does not answer within 6 minutes is marked failed and never
   retried, and the unit goes back to the build it ran before (its own install
   after a first switch). If that build does not answer either, the backup is
