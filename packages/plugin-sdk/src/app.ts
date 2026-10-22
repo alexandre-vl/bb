@@ -200,6 +200,9 @@ export const experimental_useThreadActions = runtimeFunction(
 export const experimental_useArchiveEnvironmentThreads = runtimeFunction(
   "experimental_useArchiveEnvironmentThreads",
 );
+export const experimental_useSidebarListCommand = runtimeFunction(
+  "experimental_useSidebarListCommand",
+);
 export const experimental_useThreadActionRegistrations = runtimeFunction(
   "experimental_useThreadActionRegistrations",
 );

@@ -18,15 +18,21 @@ import {
   matchesAppShortcut,
   type AppCommandContext,
   type AppCommandContextKey,
+  type AppKeybinding,
   type KeyboardCommandId,
   type AppShortcut,
 } from "@bb/domain";
 import { usePluginCommandBindings } from "@/hooks/usePluginCommandBindings";
 import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { getBbDesktopInfo } from "@/lib/bb-desktop";
+import type {
+  ExperimentalSidebarListCommand,
+  ExperimentalSidebarListCommandInvocation,
+} from "@get-bb/plugin-sdk";
 import {
   browserPlatform,
   isEditableKeyboardTarget,
+  isSidebarListTarget,
   isTextEntryShortcut,
   matchesAppCommandContext,
   presentAppShortcut,
@@ -98,8 +104,25 @@ const OPEN_MODAL_SELECTOR = [
   '[role="dialog"][data-state="open"]:not([inert]):not([inert] *)',
 ].join(", ");
 
-function hasOpenModal(): boolean {
-  return document.querySelector(OPEN_MODAL_SELECTOR) !== null;
+const SIDEBAR_DRAWER_SELECTOR = '[data-sidebar="panel"][aria-modal="true"]';
+
+const SIDEBAR_LIST_COMMAND_PRIORITY = 100;
+
+function hasOpenModal(drawerListTarget: HTMLElement | null): boolean {
+  for (const modal of document.querySelectorAll(OPEN_MODAL_SELECTOR)) {
+    if (
+      drawerListTarget === null ||
+      !modal.matches(SIDEBAR_DRAWER_SELECTOR) ||
+      !modal.contains(drawerListTarget)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function requiresSidebarListFocus(binding: AppKeybinding): boolean {
+  return binding.when.all.includes("sidebarListFocus");
 }
 
 export function AppCommandProvider({ children }: { children: ReactNode }) {
@@ -241,10 +264,16 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   );
 
   const currentContext = useCallback(
-    (target: EventTarget | null): AppCommandContext => {
+    (
+      target: EventTarget | null,
+      forSidebarListBinding = false,
+    ): AppCommandContext => {
       const next = { ...EMPTY_CONTEXT };
+      const sidebarListTarget = isSidebarListTarget(target) ? target : null;
       next.mainSurface = true;
-      next.modalOpen = hasOpenModal();
+      next.modalOpen = hasOpenModal(
+        forSidebarListBinding ? sidebarListTarget : null,
+      );
       next.editableFocus = isEditableKeyboardTarget(target);
       next.terminalFocus =
         target instanceof HTMLElement &&
@@ -252,9 +281,7 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
       next.browserFocus =
         target instanceof HTMLElement &&
         target.closest("[data-app-browser]") !== null;
-      next.sidebarListFocus =
-        target instanceof HTMLElement &&
-        target.closest("[data-sidebar-thread-tree]") !== null;
+      next.sidebarListFocus = sidebarListTarget !== null;
       next.webSurface = !isDesktop;
       next.macPlatform = keyboardPlatform(browserPlatform()) === "mac";
       next.windowsPlatform = keyboardPlatform(browserPlatform()) === "windows";
@@ -357,6 +384,7 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
       attemptedEventsRef.current.add(event);
       const bindings = keybindingsRef.current;
       let context: AppCommandContext | null = null;
+      let sidebarListContext: AppCommandContext | null = null;
       const isMac = isMacKeyboardPlatform(browserPlatform());
       for (let index = bindings.length - 1; index >= 0; index -= 1) {
         const binding = bindings[index];
@@ -370,8 +398,10 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
           continue;
         }
         if (!matchesAppShortcut(event, binding.shortcut, isMac)) continue;
-        context ??= currentContext(event.target);
-        if (!matchesAppCommandContext(binding, context)) continue;
+        const bindingContext = requiresSidebarListFocus(binding)
+          ? (sidebarListContext ??= currentContext(event.target, true))
+          : (context ??= currentContext(event.target));
+        if (!matchesAppCommandContext(binding, bindingContext)) continue;
         if (!dispatch(binding.command, event.target)) return false;
         event.preventDefault();
         event.stopPropagation();
@@ -465,6 +495,19 @@ export function useAppCommandHandler(
     isAvailable === undefined
       ? undefined
       : (_index, invocation) => isAvailable(invocation),
+  );
+}
+
+export function useSidebarListCommandHandler(
+  command: ExperimentalSidebarListCommand,
+  handler: (invocation: ExperimentalSidebarListCommandInvocation) => boolean,
+): void {
+  useAppCommandHandler(
+    command,
+    ({ target }) => isSidebarListTarget(target) && handler({ target }),
+    SIDEBAR_LIST_COMMAND_PRIORITY,
+    true,
+    ({ target }) => isSidebarListTarget(target),
   );
 }
 

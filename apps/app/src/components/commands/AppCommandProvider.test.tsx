@@ -18,6 +18,7 @@ import {
   useAppCommandRunner,
   useAppCommandShortcut,
   useIsAppCommandModifierHeld,
+  useSidebarListCommandHandler,
 } from "./AppCommandProvider";
 
 const testState = vi.hoisted(() => ({
@@ -269,6 +270,41 @@ function Handler({
     enabled,
   );
   return null;
+}
+
+function SidebarListHandler() {
+  useSidebarListCommandHandler("thread.archive", ({ target }) => {
+    testState.calls.push(`list:${target.textContent}`);
+    return true;
+  });
+  return null;
+}
+
+function DrawerWithThreadTree({ dialogOpen }: { dialogOpen: boolean }) {
+  return (
+    <>
+      <Handler command="thread.archive" name="archive" result={true} />
+      <Handler command="thread.new" name="new thread" result={true} />
+      <div
+        data-sidebar="panel"
+        role="dialog"
+        aria-modal="true"
+        data-state="open"
+      >
+        <div data-sidebar-thread-tree="">
+          <a href="#row" role="treeitem">
+            Row
+          </a>
+        </div>
+        <button type="button">Drawer footer</button>
+      </div>
+      {dialogOpen ? (
+        <div role="dialog" aria-modal="true" data-state="open">
+          Rename
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 function QuestionContext() {
@@ -750,6 +786,54 @@ describe("AppCommandProvider", () => {
     ).toBe(false);
     expect(testState.calls).toEqual([]);
     expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["archive"]);
+  });
+
+  it("runs the list's handler instead of the open thread's while focus is in the list", () => {
+    renderProvider(
+      <>
+        <Handler command="thread.archive" name="open thread" result={true} />
+        <SidebarListHandler />
+        <div data-sidebar-thread-tree="">
+          <a href="#row" role="treeitem">
+            Row
+          </a>
+        </div>
+      </>,
+    );
+
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["list:Row"]);
+  });
+
+  it("runs list keys in the compact drawer's tree, but not under a dialog, elsewhere in the drawer, or for keys that block on modals", () => {
+    const { rerender } = renderProvider(
+      <DrawerWithThreadTree dialogOpen={false} />,
+    );
+
+    expect(
+      pressKey(screen.getByText("Drawer footer"), "e").defaultPrevented,
+    ).toBe(false);
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(true);
+    const newThread = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      shiftKey: true,
+      key: "o",
+    });
+    screen.getByText("Row").dispatchEvent(newThread);
+    expect(newThread.defaultPrevented).toBe(false);
+    expect(testState.calls).toEqual(["archive"]);
+
+    rerender(
+      <MemoryRouter>
+        <AppCommandProvider>
+          <DrawerWithThreadTree dialogOpen />
+        </AppCommandProvider>
+      </MemoryRouter>,
+    );
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(false);
     expect(testState.calls).toEqual(["archive"]);
   });
 

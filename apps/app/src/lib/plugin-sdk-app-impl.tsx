@@ -32,6 +32,7 @@ import { useThreadTimelineNavigation } from "@/components/thread/timeline/Thread
 import { usePluginId } from "@/components/plugin/plugin-context";
 import { useQuestionFormHost } from "@bb/shared-ui/question-form-host";
 import { definePluginApp } from "./plugin-app-definition";
+import { useSidebarListCommandHandler } from "@/components/commands/AppCommandProvider";
 import {
   useBbContext,
   useBbNavigate,
@@ -133,6 +134,7 @@ export const pluginSdkAppImplementation = {
   experimental_useSidebarThreadActions: useSidebarThreadActions,
   experimental_useThreadActions: useThreadActionEntries,
   experimental_useArchiveEnvironmentThreads: useArchiveEnvironmentThreads,
+  experimental_useSidebarListCommand: useSidebarListCommandHandler,
   experimental_useThreadActionRegistrations: useThreadActionRegistrationInfos,
   experimental_ThreadActionsMenu: ThreadActionsMenu,
   experimental_ThreadActionsContextMenu: ThreadActionsContextMenu,

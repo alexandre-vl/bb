@@ -2501,6 +2501,43 @@ Docs: `frontend-registration.md`.
    archived threads, split panes, navigation during the Undo window, and
    failure rollback across sidebar organization modes.
 
+## `experimental_useSidebarListCommand` (`@get-bb/plugin-sdk/app`)
+
+`experimental_useSidebarListCommand(command, handler)` handles one of
+`thread.archive`, `thread.rename`, `thread.toggleRead`,
+`thread.previousAttention` and `thread.nextAttention`
+(`ExperimentalSidebarListCommand`) while keyboard focus is inside the element
+marked `data-sidebar-thread-tree`, whatever key the user bound to it. The
+handler receives the focused element and returns true once handled; false
+falls through to the next handler. The host registers it with
+`useAppCommandHandler` at priority 100 and makes it available only for
+targets inside that element, so inside the list it runs before the open
+thread's handler (priority 0) and outside it never runs. The test harness
+runs handlers with `behavior.experimental_runSidebarListCommand(command,
+target)`.
+
+**Core callers.** `useSidebarListCommandHandler`
+(`apps/app/src/components/commands/AppCommandProvider.tsx`) implements the
+hook. Its availability check is `isSidebarListTarget`, the predicate that
+also sets the `sidebarListFocus` context for every binding. Core renders no
+list of its own, so the built-in thread list is the only caller: its handlers
+run the focused row's `bb--core/archive`, `bb--core/rename` and
+`bb--core/read` entries from `experimental_useThreadActions`, the registry
+path core's `ThreadArchiveCommandHandler` takes for the open thread.
+
+Docs: `frontend-registration.md`.
+
+**Audit before stabilizing.**
+
+1. **Command set.** The five commands are the ones with list defaults.
+   Decide whether a list may take other thread commands (pin, delete) and
+   whether the union should grow with them.
+2. **Priority.** 100 matches a focused browser tab's handlers. Confirm that
+   no other surface needs to outrank a focused list.
+3. **Ownership.** Every mounted list registers; each must return false for
+   targets outside its own tree. Decide whether the host should scope a
+   handler to the element of the list that registered it.
+
 ## `app.slots.experimental_browserToolbarAction` (`@get-bb/plugin-sdk/app`)
 
 Renders a plugin component beside the address bar in each Browser tab. It

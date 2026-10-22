@@ -28,6 +28,7 @@ vi.mock("@/components/commands/AppCommandProvider", () => ({
   useAppCommandShortcuts: () => [],
   useIndexedAppCommandHandlers: () => {},
   useIsAppCommandModifierHeld: () => false,
+  useSidebarListCommandHandler: () => {},
 }));
 
 vi.mock("./PluginThreadList", () => ({
