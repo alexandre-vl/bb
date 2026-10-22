@@ -81,10 +81,6 @@ import {
   ProjectActionsMenuItems,
 } from "./ProjectActionsMenu.js";
 import {
-  COARSE_POINTER_ICON_SIZE_CLASS,
-  COARSE_POINTER_ROW_HEIGHT_CLASS,
-} from "@/components/ui/coarse-pointer-sizing";
-import {
   SIDEBAR_HOVER_ACTIONS_CLASS,
   SIDEBAR_HOVER_ACTIONS_FADE_CLASS,
   SIDEBAR_HOVER_ACTIONS_MOBILE_ALWAYS_VALUE,
@@ -141,6 +137,9 @@ import {
 } from "../ui/tree-geometry.js";
 import {
   SIDEBAR_TREE_ROW_BASE_CLASS,
+  SIDEBAR_TREE_CONTROL_SIZE_CLASS,
+  SIDEBAR_TREE_ICON_SIZE_CLASS,
+  SIDEBAR_TREE_ROW_HEIGHT_CLASS,
   SIDEBAR_TREE_ROW_HOVER_CLASS,
   SIDEBAR_TREE_STATUS_BOX_CLASS,
 } from "../ui/tree-row.js";
@@ -488,7 +487,7 @@ function ThreadTreeGroupLine({ parentRowDepth }: ThreadTreeGroupLineProps) {
   return (
     <span
       data-sidebar-tree-guide=""
-      className="pointer-events-none absolute -top-2 bottom-1 z-30 w-px bg-sidebar-guide max-md:pointer-coarse:-top-[13px]"
+      className="pointer-events-none absolute -top-2 bottom-1 z-30 w-px bg-sidebar-guide pointer-coarse:-top-[13px]"
       style={{ left: getTreeGuideLeft(parentRowDepth) }}
       aria-hidden="true"
     />
@@ -681,11 +680,14 @@ function EnvironmentThreadGroupHeaderActions({
             size="icon"
             aria-label="Environment actions"
             data-sidebar-rename-anchor=""
-            className={SIDEBAR_CONTROL_BUTTON_CLASS}
+            className={cn(
+              SIDEBAR_CONTROL_BUTTON_CLASS,
+              SIDEBAR_TREE_CONTROL_SIZE_CLASS,
+            )}
           >
             <Icon
               name="MoreHorizontal"
-              className={COARSE_POINTER_ICON_SIZE_CLASS}
+              className={SIDEBAR_TREE_ICON_SIZE_CLASS}
             />
           </Button>
         </DropdownMenuTrigger>
@@ -799,7 +801,7 @@ function EnvironmentThreadGroupHeader({
     stickyLevel === undefined && "relative",
     SIDEBAR_TREE_ROW_BASE_CLASS,
     SIDEBAR_TREE_ROW_HOVER_CLASS,
-    COARSE_POINTER_ROW_HEIGHT_CLASS,
+    SIDEBAR_TREE_ROW_HEIGHT_CLASS,
   );
   const style = {
     paddingLeft: getTreeContainerPaddingLeft(rowDepth),
@@ -877,6 +879,7 @@ function EnvironmentThreadGroupHeader({
           className={cn(
             SIDEBAR_HOVER_ACTIONS_CLASS,
             SIDEBAR_CONTROL_PAIR_SIZE_CLASS,
+            "pointer-coarse:h-9 pointer-coarse:w-[4.25rem]",
             "absolute inset-y-0 right-0 flex items-center justify-end",
             isCollapsed && "[@media(hover:none)]:hidden",
           )}
@@ -1218,7 +1221,7 @@ export function NestDropPreviewRow({
       style={getNestDropPreviewRowStyle(depth)}
       className={cn(
         SIDEBAR_TREE_ROW_BASE_CLASS,
-        COARSE_POINTER_ROW_HEIGHT_CLASS,
+        SIDEBAR_TREE_ROW_HEIGHT_CLASS,
         "pointer-events-none overflow-hidden text-sidebar-foreground opacity-50",
       )}
     >
@@ -2249,57 +2252,60 @@ function ProjectRowComponent({
 
   return (
     <>
-      <ProjectActionsContextMenu
-        extraActions={(surface) => (
-          <ThreadListVisibilityMenuItems surface={surface} />
-        )}
-        project={project}
-        disabled={rename.isEditing}
-        onRename={rename.startEditingFromMenu}
-        onRemove={requestRemove}
-        onCloseAutoFocus={rename.onCloseAutoFocus}
-        onOpenChange={setIsContextActionsOpen}
+      <div
+        data-sidebar-sticky-project-item=""
+        data-sidebar-project-id={project.id}
       >
-        <div
-          data-sidebar-sticky-project-item=""
-          data-sidebar-project-id={project.id}
+        <TopLevelSidebarSection
+          wrapHeader={(header) => (
+            <ProjectActionsContextMenu
+              extraActions={(surface) => (
+                <ThreadListVisibilityMenuItems surface={surface} />
+              )}
+              project={project}
+              disabled={rename.isEditing}
+              onRename={rename.startEditingFromMenu}
+              onRemove={requestRemove}
+              onCloseAutoFocus={rename.onCloseAutoFocus}
+              onOpenChange={setIsContextActionsOpen}
+            >
+              {header}
+            </ProjectActionsContextMenu>
+          )}
+          label={project.name}
+          dropParentKey={buildSidebarEntitySectionId("project", project.id)}
+          labelEditor={rename.editor}
+          onRename={rename.startEditingFromDoubleClick}
+          actions={projectActions}
+          actionsMobileAlways
+          actionsOpen={isActionsOpen}
+          collapseControl={{
+            isCollapsed,
+            onToggleCollapsed: handleProjectRowToggle,
+          }}
+          rollup={projectRollup}
+          isEmpty={isProjectEmpty}
+          collapsedThreads={isCollapsed ? projectThreads : undefined}
+          consumeClickSuppression={consumeProjectClickSuppression}
+          dragBindings={rename.isEditing ? undefined : projectDragBindings}
+          sectionRef={projectRowRef}
+          sectionStyle={projectRowStyle}
         >
-          <TopLevelSidebarSection
-            label={project.name}
-            dropParentKey={buildSidebarEntitySectionId("project", project.id)}
-            labelEditor={rename.editor}
-            onRename={rename.startEditingFromDoubleClick}
-            actions={projectActions}
-            actionsMobileAlways
-            actionsOpen={isActionsOpen}
-            collapseControl={{
-              isCollapsed,
-              onToggleCollapsed: handleProjectRowToggle,
-            }}
-            rollup={projectRollup}
-            isEmpty={isProjectEmpty}
-            collapsedThreads={isCollapsed ? projectThreads : undefined}
-            consumeClickSuppression={consumeProjectClickSuppression}
-            dragBindings={rename.isEditing ? undefined : projectDragBindings}
-            sectionRef={projectRowRef}
-            sectionStyle={projectRowStyle}
-          >
-            <ProjectThreadTree
-              projectId={project.id}
-              dndParentKey={buildSidebarEntitySectionId("project", project.id)}
-              rootItems={rootItems}
-              threadListState={threadListState}
-              selectedThreadId={selectedThreadId}
-              collapsedThreadIds={collapsedThreadIds}
-              collapsedEnvironmentIds={collapsedEnvironmentIds}
-              compareThreads={compareThreads}
-              onProjectSelect={onProjectSelect}
-              onToggleThreadCollapsed={onToggleThreadCollapsed}
-              onToggleEnvironmentCollapsed={onToggleEnvironmentCollapsed}
-            />
-          </TopLevelSidebarSection>
-        </div>
-      </ProjectActionsContextMenu>
+          <ProjectThreadTree
+            projectId={project.id}
+            dndParentKey={buildSidebarEntitySectionId("project", project.id)}
+            rootItems={rootItems}
+            threadListState={threadListState}
+            selectedThreadId={selectedThreadId}
+            collapsedThreadIds={collapsedThreadIds}
+            collapsedEnvironmentIds={collapsedEnvironmentIds}
+            compareThreads={compareThreads}
+            onProjectSelect={onProjectSelect}
+            onToggleThreadCollapsed={onToggleThreadCollapsed}
+            onToggleEnvironmentCollapsed={onToggleEnvironmentCollapsed}
+          />
+        </TopLevelSidebarSection>
+      </div>
       <ConfirmDeleteDialog
         open={isRemoveDialogOpen}
         onOpenChange={setIsRemoveDialogOpen}

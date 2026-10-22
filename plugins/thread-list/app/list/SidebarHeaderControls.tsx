@@ -2,8 +2,9 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import type { SidebarSectionId } from "../model/sidebar-section-id.js";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { COARSE_POINTER_ICON_SIZE_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
+import { usePointerCoarse } from "@/components/ui/hooks/use-pointer-coarse";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,10 @@ import {
 import { SIDEBAR_CONTROL_BUTTON_CLASS } from "@/components/ui/sidebar-row-classes";
 import { ThreadListVisibilityMenuItems } from "./ThreadListVisibility.js";
 import { SidebarHeaderMenuContents } from "./SidebarViewItems.js";
+import {
+  SIDEBAR_TREE_CONTROL_SIZE_CLASS,
+  SIDEBAR_TREE_ICON_SIZE_CLASS,
+} from "../ui/tree-row.js";
 
 export interface HeaderCreationActions {
   onNewSection?: (anchorSectionId?: SidebarSectionId) => void;
@@ -48,6 +53,7 @@ export function SidebarHeaderControls({
 }) {
   const creation = useContext(HeaderCreationContext);
   const compact = useIsCompactViewport();
+  const coarse = usePointerCoarse();
   const [page, setPage] = useState<"organize" | "sort" | "filter" | null>(null);
   const changeOpen = (next: boolean) => {
     if (!next) setPage(null);
@@ -62,6 +68,7 @@ export function SidebarHeaderControls({
             icon="MessageSquarePlus"
             onClick={() => onNewThread?.()}
             disabled={!onNewThread}
+            className="pointer-coarse:hidden"
           />
         ) : null
       }
@@ -74,11 +81,14 @@ export function SidebarHeaderControls({
             size="icon"
             aria-label={`${label} actions`}
             data-sidebar-rename-anchor=""
-            className={SIDEBAR_CONTROL_BUTTON_CLASS}
+            className={cn(
+              SIDEBAR_CONTROL_BUTTON_CLASS,
+              SIDEBAR_TREE_CONTROL_SIZE_CLASS,
+            )}
           >
             <Icon
               name="MoreHorizontal"
-              className={COARSE_POINTER_ICON_SIZE_CLASS}
+              className={SIDEBAR_TREE_ICON_SIZE_CLASS}
             />
           </Button>
         </DropdownMenuTrigger>
@@ -103,6 +113,11 @@ export function SidebarHeaderControls({
             compact={compact}
             page={page}
             onPageChange={setPage}
+            onNewThread={
+              coarse && showNewThread && onNewThread
+                ? { label: `New thread in ${label}`, run: onNewThread }
+                : undefined
+            }
           >
             {children}
           </SidebarHeaderMenuContents>

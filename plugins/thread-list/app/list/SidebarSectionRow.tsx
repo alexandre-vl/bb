@@ -12,7 +12,6 @@ import {
   type ReactNode,
 } from "react";
 import { SidebarStickyTier } from "../ui/sidebar.js";
-import { COARSE_POINTER_ROW_HEIGHT_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import {
   SIDEBAR_HOVER_ACTIONS_CLASS,
   SIDEBAR_HOVER_ACTIONS_FADE_CLASS,
@@ -42,6 +41,7 @@ import { SplitPaneMiniMap } from "@/components/ui/split-pane-mini-map";
 import { usePluginThreadRowStatusForThreads } from "./groupRollups.js";
 import {
   SIDEBAR_TREE_ROW_BASE_CLASS,
+  SIDEBAR_TREE_ROW_HEIGHT_CLASS,
   SIDEBAR_TREE_ROW_HOVER_CLASS,
   SIDEBAR_TREE_STATUS_BOX_CLASS,
 } from "../ui/tree-row.js";
@@ -128,7 +128,7 @@ function SidebarSectionRowComponent({
     stickyLevel === undefined && "relative",
     SIDEBAR_TREE_ROW_BASE_CLASS,
     SIDEBAR_TREE_ROW_HOVER_CLASS,
-    COARSE_POINTER_ROW_HEIGHT_CLASS,
+    SIDEBAR_TREE_ROW_HEIGHT_CLASS,
     !labelEditor && "cursor-pointer",
     dragBindings && !dragBindings.disabled && "select-none",
     isDropTargetActive && "bg-sidebar-accent text-sidebar-accent-foreground",

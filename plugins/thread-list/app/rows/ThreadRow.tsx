@@ -16,10 +16,8 @@ import { useComposedRefs } from "@radix-ui/react-compose-refs";
 import { useAtomValue } from "jotai";
 import { Icon } from "@/components/ui/icon";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
-import {
-  COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
-  COARSE_POINTER_ROW_HEIGHT_CLASS,
-} from "@/components/ui/coarse-pointer-sizing";
+import { COARSE_POINTER_ROW_ACTION_SIZE_CLASS } from "@/components/ui/coarse-pointer-sizing";
+import { usePointerCoarse } from "@/components/ui/hooks/use-pointer-coarse";
 import { cn } from "@/lib/utils";
 import {
   describeThreadRollup,
@@ -37,6 +35,7 @@ import {
   type ThreadRollup,
 } from "../model/thread-activity.js";
 import {
+  experimental_Icon as RegisteredIcon,
   experimental_ThreadActionsContextMenu as ThreadActionsContextMenu,
   experimental_ThreadActionsMenu as ThreadActionsMenu,
   experimental_ThreadStatusGlyph as ThreadStatusGlyph,
@@ -101,18 +100,26 @@ import {
   focusFirstRowActionSlot,
 } from "../list/ThreadRowActionsCustomize.js";
 import {
+  SIDEBAR_TREE_TITLE_END_WITH_STATUS,
   getTreeContainerPaddingLeft,
   getTreeLeafPaddingLeft,
 } from "../ui/tree-geometry.js";
 import {
+  SIDEBAR_TREE_ICON_SIZE_CLASS,
   SIDEBAR_TREE_ROW_ANCHOR_CLASS,
   SIDEBAR_TREE_ROW_BASE_CLASS,
+  SIDEBAR_TREE_ROW_HEIGHT_CLASS,
   SIDEBAR_TREE_ROW_HOVER_CLASS,
   SIDEBAR_TREE_ROW_SELECTED_CLASS,
   SIDEBAR_TREE_STATUS_BOX_CLASS,
   SidebarSelectionMark,
   getSidebarTitleToneClass,
 } from "../ui/tree-row.js";
+import { useThreadRowTouch } from "./useThreadRowTouch.js";
+import {
+  useIsThreadRowSheetOpen,
+  useThreadRowSheet,
+} from "./ThreadRowSheet.js";
 
 const SIDEBAR_TITLE_DOUBLE_CLICK_MS = 400;
 const HOVER_ACTION_WIDTH_PX = 28;
@@ -218,10 +225,13 @@ type TitleBoxStyle = CSSProperties & {
 
 function getTitleBoxStyle(
   titleEnd: number,
+  reservesStatusBox: boolean,
   hoverActionsWidth: number,
 ): TitleBoxStyle {
   return {
-    marginRight: titleEnd,
+    marginRight: reservesStatusBox
+      ? SIDEBAR_TREE_TITLE_END_WITH_STATUS
+      : titleEnd,
     "--bb-sidebar-hover-actions-inset": `${Math.max(0, hoverActionsWidth - titleEnd)}px`,
   };
 }
@@ -301,7 +311,8 @@ export function CollapsedThreadStatusGlyph({
   return <ThreadStatusGlyph indicator={indicator} rowStatus={pluginStatus} />;
 }
 
-const ARCHIVED_ROW_ACTION_KEYS = ["bb--core/archive"];
+const ARCHIVE_ACTION_KEY = "bb--core/archive";
+const ARCHIVED_ROW_ACTION_KEYS = [ARCHIVE_ACTION_KEY];
 const CUSTOMIZE_ROW_ACTIONS_KEY = "thread-list/customizeRowActions";
 
 function renderThreadActionsTrigger(props: PluginThreadActionsTriggerProps) {
@@ -440,13 +451,29 @@ function ThreadRowComponent({
     openThreadInSplit(thread.id);
   }, [openThreadInSplit, thread.id]);
   const rowActionKeys = useAtomValue(threadRowActionsAtom);
+  const isArchived = thread.archivedAt !== null;
+  const actionKeys = useMemo(
+    () =>
+      isArchived
+        ? ARCHIVED_ROW_ACTION_KEYS
+        : rowActionKeys.includes(ARCHIVE_ACTION_KEY)
+          ? rowActionKeys
+          : [...rowActionKeys, ARCHIVE_ACTION_KEY],
+    [isArchived, rowActionKeys],
+  );
   const actionTarget = toThreadActionTarget(thread);
-  const quickActions = experimental_useThreadActions(actionTarget, {
-    keys: thread.archivedAt !== null ? ARCHIVED_ROW_ACTION_KEYS : rowActionKeys,
+  const actionEntries = experimental_useThreadActions(actionTarget, {
+    keys: actionKeys,
     requestRename: () => {
       startEditing();
     },
   });
+  const quickActions = isArchived
+    ? actionEntries
+    : actionEntries.filter((entry) => rowActionKeys.includes(entry.key));
+  const archiveEntry = isArchived
+    ? undefined
+    : actionEntries.find((entry) => entry.key === ARCHIVE_ACTION_KEY);
   const customizeRowActions = useCustomizeThreadRowActions();
   const isCompactViewport = useIsCompactViewport();
   const pendingMenuCustomize = useRef<(() => void) | null>(null);
@@ -516,11 +543,44 @@ function ThreadRowComponent({
     isEditing || isCustomizingActions ? undefined : options.dragBindings;
   const nestTargetState = options.nestDrop?.state ?? null;
   const reorderPlacement = options.nestDrop?.reorderPlacement ?? null;
+  const isCoarsePointer = usePointerCoarse();
+  const sheet = useThreadRowSheet();
+  const isSheetOpen = useIsThreadRowSheetOpen(sheet, thread.id);
+  const touchEnabled = isCoarsePointer && !isEditing && !isCustomizingActions;
+  const touch = useThreadRowTouch({
+    enabled: touchEnabled,
+    swipeEnabled: touchEnabled && archiveEntry !== undefined,
+    longPressEnabled: touchEnabled && sheet !== null,
+    onLongPress: () =>
+      sheet?.open({
+        thread,
+        title: labelTitle,
+        summary: rowSummary.join(" · "),
+        requestRename: requestRenameFromMenu,
+        onCloseAutoFocus: rename.onCloseAutoFocus,
+      }),
+    onArchive: () => {
+      void archiveEntry?.action.run();
+    },
+  });
+  const splitDragPointerDown: PointerEventHandler<HTMLElement> | undefined =
+    isCoarsePointer && onSplitDragPointerDown
+      ? (event) => {
+          if (event.pointerType !== "touch") onSplitDragPointerDown(event);
+        }
+      : onSplitDragPointerDown;
+  const isRowDragging = rowDragBindings?.isDragging ?? false;
+  useEffect(() => {
+    if (isRowDragging && isSheetOpen) sheet?.close();
+  }, [isRowDragging, isSheetOpen, sheet]);
   const containerRef = useComposedRefs<HTMLDivElement>(
     rowDragBindings?.setActivatorNodeRef,
     options.nestDrop?.setNodeRef,
+    touch.ref,
   );
-  const isActionsOpen = isDropdownActionsOpen || isContextActionsOpen;
+  const isActionsOpen =
+    isDropdownActionsOpen || isContextActionsOpen || isSheetOpen;
+  const isSwiping = touch.phase !== "idle";
   const showsStatus =
     miniMap !== null ||
     displayKind !== "none" ||
@@ -530,13 +590,16 @@ function ThreadRowComponent({
     : showsStatus || thread.archivedAt !== null
       ? TITLE_END_WITH_GLYPH_PX
       : TITLE_END_WITHOUT_GLYPH_PX;
+  const reservesStatusBox =
+    shortcut === null && (showsStatus || thread.archivedAt !== null);
   const hoverActionsWidth = getHoverActionsWidth(quickActions.length);
   const rowClassName = cn(
     SIDEBAR_HOVER_ACTIONS_ROW_CLASS,
     "group/thread-row cursor-pointer",
     SIDEBAR_TREE_ROW_BASE_CLASS,
     parentOptions?.stickyLevel === undefined && "relative",
-    COARSE_POINTER_ROW_HEIGHT_CLASS,
+    SIDEBAR_TREE_ROW_HEIGHT_CLASS,
+    "pointer-coarse:touch-pan-y pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]",
     isActive ? SIDEBAR_TREE_ROW_SELECTED_CLASS : SIDEBAR_TREE_ROW_HOVER_CLASS,
     !isActive && isOpenInSplit && "bb-sidebar-open-in-split-row",
     rowDragBindings && !rowDragBindings.disabled && "select-none",
@@ -544,6 +607,10 @@ function ThreadRowComponent({
     nestTargetState && NEST_TARGET_STATE_CLASS[nestTargetState],
     reorderPlacement && REORDER_PLACEMENT_CLASS[reorderPlacement],
     isCustomizingActions && "bg-sidebar-accent",
+    isSwiping &&
+      "overflow-hidden [&>:not([data-sidebar-swipe-under])]:translate-x-(--bb-sidebar-swipe-x)",
+    (touch.phase === "settling" || touch.phase === "open") &&
+      "[&>*]:transition-[translate] [&>*]:duration-160 [&>*]:ease-out motion-reduce:[&>*]:transition-none",
   );
   const rowStyle: CSSProperties = {
     paddingLeft: hasChildren
@@ -599,6 +666,36 @@ function ThreadRowComponent({
 
   const rowContent = (
     <>
+      {isSwiping && archiveEntry ? (
+        <>
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            data-sidebar-swipe-under=""
+            className="absolute inset-0 flex items-center gap-2 rounded-md bg-sidebar-accent pl-3.5 text-sm font-medium text-sidebar-foreground"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              touch.archive();
+            }}
+          >
+            <RegisteredIcon
+              name={archiveEntry.action.icon}
+              className={SIDEBAR_TREE_ICON_SIZE_CLASS}
+            />
+            {archiveEntry.action.label}
+          </button>
+          <span
+            aria-hidden="true"
+            data-sidebar-swipe-plate=""
+            className={cn(
+              "pointer-events-none absolute inset-0 rounded-md",
+              isActive ? "bg-sidebar-row-selected" : "bg-sidebar",
+            )}
+          />
+        </>
+      ) : null}
       {isActive ? <SidebarSelectionMark /> : null}
       <a
         ref={rowLinkRef}
@@ -663,7 +760,7 @@ function ThreadRowComponent({
             !isCustomizingActions &&
             SIDEBAR_HOVER_ACTIONS_MASK_CLASS,
         )}
-        style={getTitleBoxStyle(titleEnd, hoverActionsWidth)}
+        style={getTitleBoxStyle(titleEnd, reservesStatusBox, hoverActionsWidth)}
       >
         {showsProviderSlot ? (
           <span
@@ -818,6 +915,21 @@ function ThreadRowComponent({
           </>
         )}
       </span>
+      {hasChildren && parentOptions && !isEditing && isCoarsePointer ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden="true"
+          data-sidebar-tree-toggle-zone=""
+          className="absolute inset-y-0 right-0 z-10 w-12"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            parentOptions.onToggleCollapsed(thread.id);
+          }}
+        />
+      ) : null}
       {finishCustomizingActions ? (
         <ThreadRowActionsEditor onDone={finishCustomizingActions} />
       ) : null}
@@ -836,7 +948,7 @@ function ThreadRowComponent({
       !isEditing && options.consumeClickSuppression
         ? handleRowClickCapture
         : undefined,
-    onSplitDragPointerDown: isEditing ? undefined : onSplitDragPointerDown,
+    onSplitDragPointerDown: isEditing ? undefined : splitDragPointerDown,
     stickyLevel: parentOptions?.stickyLevel,
     style: rowStyle,
     threadId: thread.id,
@@ -859,7 +971,7 @@ function ThreadRowComponent({
       requestRename={requestRenameFromMenu}
       onOpenChange={setIsContextActionsOpen}
       onCloseAutoFocus={handleActionsMenuCloseAutoFocus}
-      disabled={isEditing}
+      disabled={isEditing || (isCoarsePointer && sheet !== null)}
       dragging={rowDragBindings?.isDragging ?? false}
     >
       {row}

@@ -181,6 +181,54 @@ describe("thread-list plugin", () => {
     expect(threadIds()).toEqual([]);
   });
 
+  it("keeps a thread row's long press away from its project's actions menu", async () => {
+    renderSlot(
+      registration,
+      { ...props(), isCompactViewport: true },
+      {
+        sidebarThreads: {
+          projects: PROJECTS,
+          sections: SECTIONS,
+          threads: THREADS,
+        },
+        rpc: {
+          listPreferences: () => ({
+            preferences: {
+              ...defaultPreferences(),
+              organizationMode: "project",
+            },
+          }),
+          setPreference: (input: unknown) => input,
+        },
+      },
+    );
+    await screen.findByText("Parent thread");
+    const longPress = async (target: Element) => {
+      fireEvent.pointerDown(target, {
+        pointerType: "touch",
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 760));
+      fireEvent.pointerUp(target, { pointerType: "touch", pointerId: 1 });
+    };
+
+    const row = document.querySelector('[data-sidebar-thread-id="thr_parent"]');
+    if (row === null) throw new Error("Expected the parent thread row");
+    await longPress(row);
+    expect(screen.queryByRole("dialog", { name: "App actions" })).toBeNull();
+
+    const header = document.querySelector(
+      '[data-sidebar-row-key="project:proj_app"]',
+    );
+    if (header === null) throw new Error("Expected the App project header");
+    await longPress(header);
+    expect(
+      await screen.findByRole("dialog", { name: "App actions" }),
+    ).not.toBeNull();
+  });
+
   it("renders pinned, custom sections, and loose threads in chronological mode", async () => {
     setPreferencesMirrorStorageForTest(null);
     const { rpcCalls } = renderList({ organizationMode: "chronological" });

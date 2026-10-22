@@ -820,6 +820,29 @@ describe("mobile sidebar persistence", () => {
     expect(panel?.dataset.state).toBe("open");
   });
 
+  it("leaves a closing swipe that a nested gesture already claimed", () => {
+    vi.useFakeTimers();
+    renderCompactSidebarHarness();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
+    settleMobileToggle();
+
+    const panel = getMobilePanel();
+    const backdrop = screen.getByTestId("sidebar-mobile-backdrop");
+    const claimTouch = (event: Event) => event.preventDefault();
+    window.addEventListener("touchmove", claimTouch, { passive: false });
+    try {
+      fireTouch(backdrop, "touchstart", createTouch(360, 160));
+      fireTouch(window, "touchmove", createTouch(180, 164));
+      fireTouchEnd(window, createTouch(180, 164));
+    } finally {
+      window.removeEventListener("touchmove", claimTouch);
+    }
+    settleMobileToggle();
+
+    expect(panel?.dataset.state).toBe("open");
+  });
+
   it("keeps closed drawer content mounted, inert, and offscreen", () => {
     vi.useFakeTimers();
     renderCompactSidebarHarness();

@@ -9,7 +9,13 @@ import { PERSONAL_PROJECT_ID } from "@bb/domain";
 import type { SidebarBootstrapResponse } from "@bb/server-contract";
 import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
 import { ThreadActionsProvider } from "@/components/thread/ThreadActionsProvider";
-import { SidebarContent, SidebarProvider } from "@/components/ui/sidebar";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarProvider,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import { cn } from "@bb/shared-ui/lib/utils";
 import {
   hostsQueryKey,
   sidebarNavigationQueryKey,
@@ -33,6 +39,7 @@ import { useThreadListReplacement } from "./threadListProvider";
 import { makeSystemConfig } from "@/test/fixtures/system-config";
 import { useSidebarNavigation } from "@/hooks/queries/sidebar-navigation-query";
 import { SidebarThreadEntriesProvider } from "@/lib/sidebar-thread-entries";
+import { NAV_RAIL_WIDTH_CLASS } from "./navRailWidth";
 
 installTestPluginRuntime();
 const threadListApp = await loadPluginAppDefinition(
@@ -678,6 +685,73 @@ export function SidebarV2Stability() {
           <V2Sidebar width={288} height={420} />
           <BackgroundUpdateControls />
         </main>
+      </ThreadActionsProvider>
+    </QueryClientProvider>
+  );
+}
+
+function OpenPhoneDrawer() {
+  const { isCompactViewport, openMobileSidebar } = useSidebar();
+  useEffect(() => {
+    if (isCompactViewport) openMobileSidebar();
+  }, [isCompactViewport, openMobileSidebar]);
+  return (
+    <main className="grid h-dvh place-items-center bg-background p-6">
+      <button
+        type="button"
+        data-sv2-action="open-drawer"
+        className="rounded-md border border-border px-2 py-1 text-sm"
+        onClick={openMobileSidebar}
+      >
+        Open the sidebar
+      </button>
+    </main>
+  );
+}
+
+function V2PhoneDrawer() {
+  const replacement = useThreadListReplacement();
+  const { data } = useSidebarNavigation();
+  return (
+    <SidebarThreadEntriesProvider navigation={data}>
+      <SidebarProvider defaultOpen>
+        <Sidebar>
+          <div
+            data-sidebar-v2-fixture
+            className="grid min-h-0 flex-1 grid-cols-[auto_minmax(0,1fr)]"
+          >
+            <div className={cn("bg-surface-recessed", NAV_RAIL_WIDTH_CLASS)} />
+            <div className="flex min-h-0 min-w-0 flex-col">
+              <SidebarContent>
+                <PluginThreadList
+                  replacement={replacement}
+                  onNavigate={() => {}}
+                />
+              </SidebarContent>
+            </div>
+          </div>
+        </Sidebar>
+        <OpenPhoneDrawer />
+      </SidebarProvider>
+    </SidebarThreadEntriesProvider>
+  );
+}
+
+export function SidebarV2Phone() {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(systemConfigQueryKey(), makeSystemConfig());
+    client.setQueryData(sidebarNavigationQueryKey(), v2Navigation());
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(V2_PREFERENCES);
+  useArchiveRoutes();
+  useThreadListPlugin();
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThreadActionsProvider>
+        <V2PhoneDrawer />
       </ThreadActionsProvider>
     </QueryClientProvider>
   );
