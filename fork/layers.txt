@@ -8,7 +8,6 @@ bb/reproduce-inconsistent-thread-sorting-bug-thr_x7bw7zb69v
 open-menus-without-enter-animation
 proposal/provisioning-time
 highlight-provider-errors
-carry/pr-pill-opens-github-pane
 pr-pill-opens-github-pane
 bb/explain-failed-automations-thr_agcnkvvvke
 bb/background-commands-card-thr_mwgsr32qtd
@@ -21,6 +20,7 @@ bb/project-default-environment
 carry/automation-environment-composer
 bb/automation-environment-composer
 bb/child-threads-follow-parent-execution
+carry/github-links-open-in-side-panel
 github-links-open-in-side-panel
 provisioning-time
 fix/settle-orphaned-background-tasks
