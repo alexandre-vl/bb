@@ -9,7 +9,10 @@ import {
 import { makeSidebarThread, type SidebarThreadOverrides } from "./fixtures.js";
 import {
   buildProjectThreadGroups,
+  collectProjectThreadItemNavigationEntries,
+  countProjectThreadItemRows,
   type ProjectThreadItem,
+  type ProjectThreadItemRowCountContext,
 } from "./project-thread-groups.js";
 import type { SidebarThread } from "./sidebar-thread.js";
 
@@ -34,16 +37,17 @@ function inputs(overrides: Partial<FoldInputs> = {}): FoldInputs {
   return {
     versionOf: (entry) => entry,
     draftThreadIds: new Set(),
+    heldThreadIds: new Set(),
     keepThreadId: undefined,
     now: NOW,
     ...overrides,
   };
 }
 
-function children(
+function parentItem(
   count: number,
   overrides: (index: number) => SidebarThreadOverrides = () => ({}),
-): ProjectThreadItem[] {
+): ProjectThreadItem {
   const threads: SidebarThread[] = [
     thread("parent"),
     ...Array.from({ length: count }, (_, index) =>
@@ -56,7 +60,15 @@ function children(
   ];
   const [parent] = buildProjectThreadGroups(threads, undefined, false);
   if (parent?.kind !== "thread") throw new Error("missing parent");
-  return parent.node.children;
+  return parent;
+}
+
+function children(
+  count: number,
+  overrides: (index: number) => SidebarThreadOverrides = () => ({}),
+): ProjectThreadItem[] {
+  const parent = parentItem(count, overrides);
+  return parent.kind === "thread" ? parent.node.children : [];
 }
 
 function ids(items: readonly ProjectThreadItem[]): string[] {
@@ -87,6 +99,19 @@ describe("planFold", () => {
     );
     expect(ids(plan.visible)).toEqual(
       expect.arrayContaining(["child_7", "child_8", "child_9"]),
+    );
+    expect(plan.visible).toHaveLength(7);
+    expect(plan.hidden).toHaveLength(5);
+  });
+
+  it("keeps hovered and focused sub-agents beyond five rows visible", () => {
+    const plan = planFold(
+      "more",
+      children(12),
+      inputs({ heldThreadIds: new Set(["child_6", "child_9"]) }),
+    );
+    expect(ids(plan.visible)).toEqual(
+      expect.arrayContaining(["child_6", "child_9"]),
     );
     expect(plan.visible).toHaveLength(7);
     expect(plan.hidden).toHaveLength(5);
@@ -147,6 +172,32 @@ describe("planFold", () => {
     const plan = planFold("older", roots, inputs());
     expect(ids(plan.visible)).toEqual(["o1"]);
     expect(plan.hidden).toHaveLength(5);
+  });
+});
+
+describe("windowed rows of a folded parent", () => {
+  it("count and navigate only the sub-agents the fold leaves visible", () => {
+    const context: ProjectThreadItemRowCountContext = {
+      collapsedThreadIds: new Set(),
+      collapsedEnvironmentIds: new Set(),
+      collapsedSectionKeys: new Set(),
+      childrenOf: (node) => {
+        const plan = planFold("more", node.children, inputs());
+        return plan.hidden.length === 0
+          ? { items: node.children, foldRow: false }
+          : { items: plan.visible, foldRow: true };
+      },
+    };
+    const parent = parentItem(18);
+    if (parent.kind !== "thread") throw new Error("missing parent");
+    const shown = ids(parent.node.children.slice(0, 5));
+
+    expect(countProjectThreadItemRows(parent, context)).toBe(7);
+    expect(
+      collectProjectThreadItemNavigationEntries(parent, context).map(
+        (entry) => entry.threadId,
+      ),
+    ).toEqual(["parent", ...shown]);
   });
 });
 

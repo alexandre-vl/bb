@@ -653,10 +653,16 @@ function bucketIntoSections(
   return [...sectionItems, ...orderedLooseItems];
 }
 
+export interface ProjectThreadNodeChildren {
+  items: readonly ProjectThreadItem[];
+  foldRow: boolean;
+}
+
 export interface ProjectThreadItemRowCountContext {
   collapsedThreadIds: ReadonlySet<string>;
   collapsedEnvironmentIds: ReadonlySet<string>;
   collapsedSectionKeys: ReadonlySet<string>;
+  childrenOf: (node: ProjectThreadNode) => ProjectThreadNodeChildren;
 }
 
 function countThreadNodeRows(
@@ -669,9 +675,10 @@ function countThreadNodeRows(
   ) {
     return 1;
   }
-  return node.children.reduce(
+  const { items, foldRow } = context.childrenOf(node);
+  return items.reduce(
     (total, child) => total + countProjectThreadItemRows(child, context),
-    1,
+    foldRow ? 2 : 1,
   );
 }
 
@@ -748,7 +755,7 @@ function collectThreadNodeNavigationEntries(
   ) {
     return;
   }
-  for (const child of node.children) {
+  for (const child of context.childrenOf(node).items) {
     collectProjectThreadItemNavigationEntriesInto(child, context, entries);
   }
 }

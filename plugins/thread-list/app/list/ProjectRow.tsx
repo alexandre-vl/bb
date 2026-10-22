@@ -165,7 +165,12 @@ import {
   type ThreadRowNestDrop,
 } from "../rows/sidebarThreadRowDroppable.js";
 import { getSidebarItemKey } from "../rows/sidebarItemKeys.js";
-import { useFoldedItems } from "./useFoldedItems.js";
+import {
+  moreFoldKey,
+  olderRootsFoldKey,
+  useFoldResolver,
+  useFoldedItems,
+} from "./useFoldedItems.js";
 import { SidebarFoldRow } from "./SidebarFoldRow.js";
 import { useNestDropPreview } from "../dnd/useNestDropPreview.js";
 import { useChronologicalSectionThreadDnd } from "../dnd/SectionThreadDndContext.js";
@@ -1547,7 +1552,7 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
   const crossProjectId = rowProjectId !== projectId ? rowProjectId : null;
   const folded = useFoldedItems({
     kind: "more",
-    foldKey: `more:${node.thread.id}`,
+    foldKey: moreFoldKey(node.thread.id),
     items: node.children,
     selectedThreadId,
   });
@@ -1703,6 +1708,7 @@ function useWindowedThreadItems({
   selectedThreadId?: string;
 }) {
   const rename = useSidebarRenameState();
+  const resolveFold = useFoldResolver(selectedThreadId);
   const collapsedSectionKeyList = useAtomValue(
     sidebarCollapsedThreadSectionsAtom,
   );
@@ -1712,8 +1718,23 @@ function useWindowedThreadItems({
       collapsedThreadIds,
       collapsedEnvironmentIds,
       collapsedSectionKeys: new Set(collapsedSectionKeyList),
+      childrenOf: (node) => {
+        const folded = resolveFold(
+          "more",
+          moreFoldKey(node.thread.id),
+          node.children,
+        );
+        return folded
+          ? { items: folded.items, foldRow: true }
+          : { items: node.children, foldRow: false };
+      },
     }),
-    [collapsedThreadIds, collapsedEnvironmentIds, collapsedSectionKeyList],
+    [
+      collapsedThreadIds,
+      collapsedEnvironmentIds,
+      collapsedSectionKeyList,
+      resolveFold,
+    ],
   );
   const estimateRows = useCallback(
     (index: number) => {
@@ -1765,7 +1786,7 @@ function SectionThreadTreeItems({
 }: SectionThreadTreeItemsProps) {
   const folded = useFoldedItems({
     kind: "older",
-    foldKey: `older:${olderFoldKey ?? ""}`,
+    foldKey: olderRootsFoldKey(olderFoldKey ?? ""),
     items: allItems,
     selectedThreadId,
   });

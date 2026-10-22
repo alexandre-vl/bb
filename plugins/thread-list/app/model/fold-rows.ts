@@ -17,6 +17,7 @@ export type FoldKind = "more" | "older";
 export interface FoldInputs {
   versionOf: (thread: SidebarThread) => SidebarThread;
   draftThreadIds: ReadonlySet<string>;
+  heldThreadIds: ReadonlySet<string>;
   keepThreadId: string | undefined;
   now: number;
 }
@@ -30,6 +31,7 @@ function isSettledThread(thread: SidebarThread, inputs: FoldInputs): boolean {
   return (
     thread.id !== inputs.keepThreadId &&
     !inputs.draftThreadIds.has(thread.id) &&
+    !inputs.heldThreadIds.has(thread.id) &&
     threadListIndicatorRung(threadIndicatorKind(inputs.versionOf(thread))) === 0
   );
 }

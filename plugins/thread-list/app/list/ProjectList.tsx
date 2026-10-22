@@ -1759,7 +1759,10 @@ function ProjectListComponent({
       }}
     >
       <ProjectListShell stability={orderStability}>
-        <SidebarFoldProvider versionOf={orderStability.versionOf}>
+        <SidebarFoldProvider
+          versionOf={orderStability.versionOf}
+          heldThreadIds={orderStability.held}
+        >
           <SidebarDraftPresenceSync />
           <ActiveSidebarModeSections
             mode={organizationMode}
