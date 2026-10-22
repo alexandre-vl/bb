@@ -1,7 +1,9 @@
-import { Icon, type IconName } from "@bb/shared-ui/icon";
+import { useId } from "react";
+import { Icon } from "@bb/shared-ui/icon";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   getThreadListIndicatorLabel,
+  threadListIndicatorRung,
   type ThreadListIndicatorKind,
 } from "@bb/client-core";
 import type {
@@ -9,96 +11,203 @@ import type {
   PluginThreadStatusGlyphProps,
 } from "@get-bb/plugin-sdk";
 import { pluginIconName } from "@/components/plugin/PluginIcon";
-import {
-  SIDEBAR_STATUS_ICON_CLASS,
-  SIDEBAR_SUCCESS_STATUS_COLOR_CLASS,
-  SIDEBAR_SUCCESS_STATUS_DOT_CLASS,
-  SIDEBAR_WORKING_STATUS_COLOR_CLASS,
-} from "@bb/shared-ui/sidebar-row-classes";
 
-const WORKING_ACTIVITY_ICONS = {
-  workflow: "Workflow",
-  "background-agent": "UserRoundPlus",
-  "background-command": "Terminal",
-  "plan-mode": "ListTodo",
-  goal: "Target",
-} satisfies Partial<Record<ThreadListIndicatorKind, IconName>>;
+type ThreadStatusGlyphSize = NonNullable<PluginThreadStatusGlyphProps["size"]>;
 
-const WAITING_ICONS = {
-  "waiting-for-input": "CircleQuestion",
-  "queued-waiting": "Clock",
-} satisfies Partial<Record<ThreadListIndicatorKind, IconName>>;
+type ThreadStatusGlyphShape =
+  | "needs-you"
+  | "failed"
+  | "new"
+  | "running"
+  | "queued"
+  | "draft";
 
-function ThreadDraftIndicator({
-  hideIdleLabel = false,
-  isWorking,
-  size,
-}: {
-  hideIdleLabel?: boolean;
-  isWorking: boolean;
-  size: "default" | "compact";
-}) {
-  const label = getThreadListIndicatorLabel(
-    isWorking ? "working-draft" : "draft",
-  );
+interface GlyphProps {
+  label: string | null;
+  sizeClass: string;
+  hideLabel?: boolean;
+}
+
+const GLYPH_COLOR_CLASS: Record<ThreadStatusGlyphShape, string> = {
+  "needs-you": "text-attention-text",
+  failed: "text-destructive-text",
+  new: "text-sidebar-foreground",
+  running: "text-sidebar-glyph-faint",
+  queued: "text-sidebar-glyph-faint",
+  draft: "text-sidebar-glyph-faint",
+};
+
+function glyphSizeClass(size: ThreadStatusGlyphSize): string {
+  return size === "compact" ? "size-3.5" : "size-4";
+}
+
+function glyphRootProps(
+  shape: ThreadStatusGlyphShape,
+  { label, sizeClass, hideLabel = false }: GlyphProps,
+) {
+  return {
+    viewBox: "0 0 16 16",
+    fill: "none",
+    className: cn(
+      "pointer-events-none shrink-0",
+      sizeClass,
+      GLYPH_COLOR_CLASS[shape],
+    ),
+    "data-icon-root": "",
+    "data-status-glyph": shape,
+    ...(hideLabel || label === null
+      ? { "aria-hidden": true }
+      : { "aria-label": label }),
+  };
+}
+
+function NeedsYouGlyph(props: GlyphProps) {
+  const maskId = useId();
   return (
-    <Icon
-      name="Edit"
-      className={cn(
-        "pointer-events-none shrink-0",
-        size === "compact" ? "size-3.5" : SIDEBAR_STATUS_ICON_CLASS,
-        isWorking
-          ? ["animate-shine-icon", SIDEBAR_WORKING_STATUS_COLOR_CLASS]
-          : "text-muted-foreground",
-      )}
-      {...(!isWorking && hideIdleLabel
-        ? { "aria-hidden": true }
-        : { "aria-label": label ?? undefined })}
-    />
+    <svg {...glyphRootProps("needs-you", props)}>
+      <defs>
+        <mask id={maskId}>
+          <rect width="16" height="16" fill="#fff" />
+          <path
+            d="M6.35 6.25a1.7 1.7 0 1 1 2.55 1.5c-.6.32-.9.72-.9 1.33v.22"
+            fill="none"
+            stroke="#000"
+            strokeWidth="1.55"
+            strokeLinecap="round"
+          />
+          <circle cx="8" cy="11.3" r=".95" fill="#000" />
+        </mask>
+      </defs>
+      <circle
+        cx="8"
+        cy="8"
+        r="6.5"
+        fill="currentColor"
+        mask={`url(#${maskId})`}
+      />
+    </svg>
   );
+}
+
+function FailedGlyph(props: GlyphProps) {
+  return (
+    <svg {...glyphRootProps("failed", props)}>
+      <circle
+        cx="8"
+        cy="8"
+        r="5.75"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M6.1 6.1l3.8 3.8M9.9 6.1l-3.8 3.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function NewGlyph(props: GlyphProps) {
+  return (
+    <svg {...glyphRootProps("new", props)}>
+      <circle cx="8" cy="8" r="3" fill="currentColor" />
+    </svg>
+  );
+}
+
+function RunningGlyph(props: GlyphProps) {
+  return (
+    <svg {...glyphRootProps("running", props)}>
+      <circle
+        cx="8"
+        cy="8"
+        r="5.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        opacity=".28"
+      />
+      <path
+        d="M8 2.75A5.25 5.25 0 1 1 2.75 8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function QueuedGlyph(props: GlyphProps) {
+  return (
+    <svg {...glyphRootProps("queued", props)}>
+      <circle
+        cx="8"
+        cy="8"
+        r="5.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      <path
+        d="M8 5.2V8l1.9 1.3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function DraftGlyph(props: GlyphProps) {
+  return (
+    <svg {...glyphRootProps("draft", props)}>
+      <path
+        d="M3.5 12.5l.6-2.6 6.3-6.3a1.4 1.4 0 0 1 2 2l-6.3 6.3z M9.3 4.7l2 2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function rowStatusToneClass(
+  tone: PluginComposerThreadRowStatus["tone"],
+): string {
+  switch (tone) {
+    case "running":
+      return "text-success";
+    case "success":
+      return "text-success-foreground";
+    case "error":
+      return "text-destructive";
+    default:
+      return "text-muted-foreground";
+  }
 }
 
 function PluginThreadRowStatusIndicator({
   status,
-  size,
+  sizeClass,
 }: {
   status: PluginComposerThreadRowStatus;
-  size: "default" | "compact";
+  sizeClass: string;
 }) {
-  const iconSizeClass =
-    size === "compact" ? "size-3.5" : SIDEBAR_STATUS_ICON_CLASS;
-  if (status.tone === "running") {
-    return (
-      <span
-        className={cn(
-          "inline-flex items-center justify-center motion-safe:animate-pulse",
-          iconSizeClass,
-          "text-success",
-        )}
-      >
-        <Icon
-          name={pluginIconName(status.icon)}
-          className={cn(
-            "pointer-events-none shrink-0 animate-shine-icon",
-            iconSizeClass,
-          )}
-          aria-label={status.label}
-        />
-      </span>
-    );
-  }
-
   return (
     <Icon
       name={pluginIconName(status.icon)}
       className={cn(
         "pointer-events-none shrink-0",
-        iconSizeClass,
-        status.tone === "success"
-          ? SIDEBAR_SUCCESS_STATUS_COLOR_CLASS
-          : status.tone === "error"
-            ? "text-destructive"
-            : "text-muted-foreground",
+        sizeClass,
+        rowStatusToneClass(status.tone),
       )}
       aria-label={status.label}
     />
@@ -118,11 +227,7 @@ export function resolveThreadStatus(
 ): ThreadStatusResolution {
   const indicatorKind = archived ? "archived" : indicator;
   const rowStatusIsVisible =
-    !archived &&
-    rowStatus !== null &&
-    indicatorKind !== "runtime" &&
-    indicatorKind !== "unread-error" &&
-    indicatorKind !== "waiting-for-input";
+    !archived && rowStatus !== null && threadListIndicatorRung(indicator) <= 1;
 
   return {
     accessibleLabel: rowStatusIsVisible
@@ -142,8 +247,7 @@ export function ThreadStatusGlyph({
   hideIdleDraftLabel = false,
   size = "default",
 }: PluginThreadStatusGlyphProps) {
-  const iconSizeClass =
-    size === "compact" ? "size-3.5" : SIDEBAR_STATUS_ICON_CLASS;
+  const sizeClass = glyphSizeClass(size);
   const { indicatorKind: kind, rowStatusIsVisible } = resolveThreadStatus(
     indicator,
     rowStatus,
@@ -151,7 +255,12 @@ export function ThreadStatusGlyph({
   );
 
   if (rowStatusIsVisible && rowStatus) {
-    return <PluginThreadRowStatusIndicator status={rowStatus} size={size} />;
+    return (
+      <PluginThreadRowStatusIndicator
+        status={rowStatus}
+        sizeClass={sizeClass}
+      />
+    );
   }
 
   switch (kind) {
@@ -159,71 +268,58 @@ export function ThreadStatusGlyph({
       return (
         <Icon
           name="Archive"
-          className={iconSizeClass}
+          className={sizeClass}
           aria-label="Archived thread"
+        />
+      );
+    case "waiting-for-input":
+      return (
+        <NeedsYouGlyph
+          label={getThreadListIndicatorLabel(kind)}
+          sizeClass={sizeClass}
         />
       );
     case "unread-error":
     case "queued-failed":
       return (
-        <Icon
-          name="CircleX"
-          className={cn("text-destructive", iconSizeClass)}
-          aria-label={getThreadListIndicatorLabel(kind) ?? undefined}
-        />
-      );
-    case "waiting-for-input":
-    case "queued-waiting":
-      return (
-        <Icon
-          name={WAITING_ICONS[kind]}
-          className={cn("text-muted-foreground/75", iconSizeClass)}
-          aria-label={getThreadListIndicatorLabel(kind) ?? undefined}
-        />
-      );
-    case "working-draft":
-      return <ThreadDraftIndicator isWorking size={size} />;
-    case "workflow":
-    case "background-agent":
-    case "background-command":
-    case "plan-mode":
-    case "goal":
-      return (
-        <Icon
-          name={WORKING_ACTIVITY_ICONS[kind]}
-          className={cn(
-            "animate-shine-icon",
-            SIDEBAR_WORKING_STATUS_COLOR_CLASS,
-            iconSizeClass,
-          )}
-          aria-label={getThreadListIndicatorLabel(kind) ?? undefined}
-        />
-      );
-    case "runtime":
-      return (
-        <Icon
-          name="Loading"
-          className={cn(
-            "animate-spin motion-reduce:animate-none",
-            SIDEBAR_WORKING_STATUS_COLOR_CLASS,
-            iconSizeClass,
-          )}
-          aria-label={getThreadListIndicatorLabel(kind) ?? undefined}
-        />
-      );
-    case "draft":
-      return (
-        <ThreadDraftIndicator
-          hideIdleLabel={hideIdleDraftLabel}
-          isWorking={false}
-          size={size}
+        <FailedGlyph
+          label={getThreadListIndicatorLabel(kind)}
+          sizeClass={sizeClass}
         />
       );
     case "unread-success":
       return (
-        <span
-          className={SIDEBAR_SUCCESS_STATUS_DOT_CLASS}
-          aria-label={getThreadListIndicatorLabel(kind) ?? undefined}
+        <NewGlyph
+          label={getThreadListIndicatorLabel(kind)}
+          sizeClass={sizeClass}
+        />
+      );
+    case "plan-mode":
+    case "goal":
+    case "runtime":
+    case "workflow":
+    case "background-agent":
+    case "background-command":
+    case "working-draft":
+      return (
+        <RunningGlyph
+          label={getThreadListIndicatorLabel(kind)}
+          sizeClass={sizeClass}
+        />
+      );
+    case "queued-waiting":
+      return (
+        <QueuedGlyph
+          label={getThreadListIndicatorLabel(kind)}
+          sizeClass={sizeClass}
+        />
+      );
+    case "draft":
+      return (
+        <DraftGlyph
+          label={getThreadListIndicatorLabel(kind)}
+          sizeClass={sizeClass}
+          hideLabel={hideIdleDraftLabel}
         />
       );
     case "none":

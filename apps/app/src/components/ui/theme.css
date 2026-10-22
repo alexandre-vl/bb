@@ -51,6 +51,7 @@
   --color-destructive-text: var(--destructive-text);
   --color-attention: var(--attention);
   --color-attention-foreground: var(--attention-foreground);
+  --color-attention-text: var(--attention-text);
   --color-warning: var(--warning);
   --color-warning-text: var(--warning-text);
   --color-success: var(--success);
@@ -84,6 +85,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-row-selected: var(--sidebar-row-selected);
+  --color-sidebar-foreground-quiet: var(--sidebar-foreground-quiet);
+  --color-sidebar-glyph-faint: var(--sidebar-glyph-faint);
+  --color-sidebar-guide: var(--sidebar-guide);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
@@ -508,6 +513,11 @@
    * fill is ~3.56:1 there) while keeping its 3:1 UI duties. */
   --destructive-text: oklch(0.45 0.19 25.8625);
   --attention: oklch(0.74 0.15 80);
+  --attention-text: color-mix(
+    in oklch,
+    var(--attention) 55%,
+    var(--destructive)
+  );
   /* Text on an --attention fill: the darkest anchor in each theme. */
   --attention-foreground: var(--ink);
   --warning: oklch(0.7 0.16 50);
@@ -593,6 +603,14 @@
   --sidebar-accent: color-mix(in oklch, var(--ink) 8%, var(--canvas));
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: color-mix(in oklch, var(--ink) 14%, var(--canvas));
+  --sidebar-row-selected: color-mix(in oklch, var(--ink) 13%, var(--canvas));
+  --sidebar-foreground-quiet: color-mix(
+    in oklch,
+    var(--ink) 72%,
+    var(--canvas)
+  );
+  --sidebar-glyph-faint: color-mix(in oklch, var(--ink) 62%, var(--canvas));
+  --sidebar-guide: color-mix(in oklch, var(--ink) 36%, var(--canvas));
   /* Search-match highlight: a manilla-folder tint over the canvas. Chromatic on
      purpose (the neutral ramp can't make beige) and mixed with the canvas so it
      tracks custom palettes instead of stranding a fixed swatch. Mix in oklab, not
@@ -740,6 +758,7 @@
    * dark canvas; the --destructive fill stays for icons/buttons/ring (3:1 UI). */
   --destructive-text: oklch(0.65 0.16 22);
   --attention: oklch(0.8 0.15 80);
+  --attention-text: var(--attention);
   --attention-foreground: var(--canvas);
   --warning: oklch(0.75 0.16 50);
   --warning-text: oklch(0.75 0.16 50);
@@ -816,6 +835,14 @@
   --sidebar-accent: color-mix(in oklch, var(--ink) 12%, var(--canvas));
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: color-mix(in oklch, var(--ink) 18.1%, var(--canvas));
+  --sidebar-row-selected: color-mix(in oklch, var(--ink) 18%, var(--canvas));
+  --sidebar-foreground-quiet: color-mix(
+    in oklch,
+    var(--ink) 75%,
+    var(--canvas)
+  );
+  --sidebar-glyph-faint: color-mix(in oklch, var(--ink) 66%, var(--canvas));
+  --sidebar-guide: color-mix(in oklch, var(--ink) 36%, var(--canvas));
   /* Search-match highlight: see the light block (oklab mix, same hue caveat).
      Mixed with the (dark) canvas so the manilla reads as a muted tan. */
   --sidebar-search-match: color-mix(

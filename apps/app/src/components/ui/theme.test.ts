@@ -290,6 +290,139 @@ describe("theme.css neutral ramp", () => {
   });
 });
 
+const SIDEBAR_V2_NEUTRAL_TOKENS = [
+  "sidebar-row-selected",
+  "sidebar-foreground-quiet",
+  "sidebar-glyph-faint",
+  "sidebar-guide",
+] as const;
+
+function compactValue(block: string, token: string): string {
+  return variableValue(block, token)
+    .replace(/\s+/g, " ")
+    .replace(/\( /g, "(")
+    .replace(/ \)/g, ")");
+}
+
+function mixOklch(
+  first: OklchColor,
+  firstWeight: number,
+  second: OklchColor,
+): OklchColor {
+  const firstHue = first.chroma === 0 ? second.hueDegrees : first.hueDegrees;
+  const secondHue = second.chroma === 0 ? first.hueDegrees : second.hueDegrees;
+  const hueDelta = ((secondHue - firstHue + 540) % 360) - 180;
+  const secondWeight = 1 - firstWeight;
+  return {
+    lightness: first.lightness * firstWeight + second.lightness * secondWeight,
+    chroma: first.chroma * firstWeight + second.chroma * secondWeight,
+    hueDegrees: (firstHue + hueDelta * secondWeight + 360) % 360,
+  };
+}
+
+function resolveColor(block: string, token: string): OklchColor {
+  const value = compactValue(block, token);
+  const alias = value.match(/^var\(--([a-z-]+)\)$/);
+  if (alias?.[1] !== undefined) return resolveColor(block, alias[1]);
+  const mix = value.match(
+    /^color-mix\(in oklch, var\(--([a-z-]+)\) ([\d.]+)%, var\(--([a-z-]+)\)\)$/,
+  );
+  if (mix?.[1] !== undefined && mix[2] !== undefined && mix[3] !== undefined) {
+    return mixOklch(
+      resolveColor(block, mix[1]),
+      Number(mix[2]) / 100,
+      resolveColor(block, mix[3]),
+    );
+  }
+  return parseOklch(value);
+}
+
+describe("theme.css sidebar V2 tokens", () => {
+  it("registers the sidebar V2 colors with Tailwind", () => {
+    for (const token of [...SIDEBAR_V2_NEUTRAL_TOKENS, "attention-text"]) {
+      expect(css).toMatch(
+        new RegExp(`--color-${token}:\\s*var\\(--${token}\\);`),
+      );
+    }
+  });
+
+  for (const mode of MODES) {
+    describe(mode, () => {
+      const block = modeBlock(mode);
+      const color = (token: string): OklchColor => resolveColor(block, token);
+      const surfaces = {
+        rest: color("sidebar"),
+        hover: color("sidebar-accent"),
+        selected: color("sidebar-row-selected"),
+      };
+      const lowestContrast = (token: string): number =>
+        Math.min(
+          ...Object.values(surfaces).map((surface) =>
+            contrastRatio(color(token), surface),
+          ),
+        );
+
+      it("derives the neutral tokens from the anchors in oklch", () => {
+        for (const token of SIDEBAR_V2_NEUTRAL_TOKENS) {
+          expect(compactValue(block, token)).toMatch(
+            /^color-mix\(in oklch, var\(--ink\) [\d.]+%, var\(--canvas\)\)$/,
+          );
+        }
+      });
+
+      it("derives the attention text from the semantic colors", () => {
+        expect(compactValue(block, "attention-text")).toBe(
+          mode === "light"
+            ? "color-mix(in oklch, var(--attention) 55%, var(--destructive))"
+            : "var(--attention)",
+        );
+      });
+
+      it("fills a selected row more strongly than a hovered one", () => {
+        expect(contrastRatio(surfaces.selected, surfaces.rest)).toBeGreaterThan(
+          contrastRatio(surfaces.hover, surfaces.rest),
+        );
+      });
+
+      it("keeps quiet text readable at rest and on hover", () => {
+        const quiet = color("sidebar-foreground-quiet");
+        expect(contrastRatio(quiet, surfaces.rest)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(quiet, surfaces.hover)).toBeGreaterThanOrEqual(
+          4.5,
+        );
+        expect(
+          lowestContrast("sidebar-foreground-quiet"),
+        ).toBeGreaterThanOrEqual(3);
+      });
+
+      it("keeps every status glyph at 3:1 on rest, hover, and selected rows", () => {
+        for (const token of [
+          "sidebar-glyph-faint",
+          "attention-text",
+          "destructive-text",
+          "sidebar-foreground",
+        ]) {
+          expect(lowestContrast(token), `--${token}`).toBeGreaterThanOrEqual(3);
+        }
+      });
+
+      it("steps the tones from guide to faint to quiet to ink", () => {
+        const onRest = (token: string): number =>
+          contrastRatio(color(token), surfaces.rest);
+        expect(onRest("sidebar-guide")).toBeLessThan(
+          onRest("sidebar-glyph-faint"),
+        );
+        expect(onRest("sidebar-glyph-faint")).toBeLessThan(
+          onRest("sidebar-foreground-quiet"),
+        );
+        expect(onRest("sidebar-foreground-quiet")).toBeLessThan(
+          onRest("sidebar-foreground"),
+        );
+      });
+    });
+  }
+});
+
 describe("theme.css Cadence text tokens", () => {
   it("registers Cadence color and type utilities with Tailwind", () => {
     expect(css).toMatch(
