@@ -23,7 +23,7 @@
   ],
   "engines": {
     "bb": ">=0.0",
-    "bbPluginSdk": ">=0.6.69"
+    "bbPluginSdk": ">=0.6.70"
   },
   "bb": {
     "name": "GitHub",
