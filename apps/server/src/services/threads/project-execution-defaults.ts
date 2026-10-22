@@ -5,13 +5,18 @@ import {
 import type {
   ProjectExecutionDefaults,
   ResolvedThreadExecutionOptions,
+  Thread,
 } from "@bb/domain";
 import type { AppDeps } from "../../types.js";
 import type {
   ThreadCreateServiceRequest,
   ThreadCreateServiceRequestInput,
 } from "./thread-create-request.js";
-import { resolveCreateThreadExecutionDefaults } from "./thread-default-policy.js";
+import {
+  resolveCreateThreadExecutionDefaults,
+  resolveParentThreadExecutionDefaults,
+} from "./thread-default-policy.js";
+import { getLastExecutionOptions } from "./thread-events.js";
 
 interface RememberProjectExecutionDefaultsForCreateArgs {
   execution: ResolvedThreadExecutionOptions;
@@ -21,6 +26,7 @@ interface RememberProjectExecutionDefaultsForCreateArgs {
 interface ResolveProjectExecutionDefaultsForCreateArgs {
   executionInputSources?: ThreadCreateServiceRequestInput["executionInputSources"];
   model?: ThreadCreateServiceRequestInput["model"];
+  parentThread: Pick<Thread, "id" | "providerId"> | null;
   projectId: string;
   providerId?: ThreadCreateServiceRequestInput["providerId"];
 }
@@ -92,11 +98,19 @@ export function resolveProjectExecutionDefaultsForCreate(
     sources: args.executionInputSources,
     value: args.model,
   });
+  const parentDefaults =
+    args.parentThread === null
+      ? null
+      : resolveParentThreadExecutionDefaults(deps.providerRegistry, {
+          parentExecution: getLastExecutionOptions(deps, args.parentThread.id),
+          parentProviderId: args.parentThread.providerId,
+          requestedProviderId,
+        });
   const resolution = resolveCreateThreadExecutionDefaults(
     deps.providerRegistry,
     {
       requestedProviderId,
-      storedDefaults,
+      storedDefaults: parentDefaults ?? storedDefaults,
     },
   );
   const { executionDefaults, providerId, providerFallbackCandidates } =

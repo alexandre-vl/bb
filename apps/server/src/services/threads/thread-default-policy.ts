@@ -3,6 +3,7 @@ import type {
   PermissionMode,
   ProjectExecutionDefaults,
   RecordedPermissionMode,
+  RecordedThreadExecutionOptions,
   ReasoningLevel,
   Thread,
 } from "@bb/domain";
@@ -70,6 +71,12 @@ interface CreateThreadExecutionDefaultsResolved {
   executionDefaults: ProjectExecutionDefaults | null;
   providerId: string;
   providerFallbackCandidates: readonly string[];
+}
+
+interface ResolveParentThreadExecutionDefaultsArgs {
+  parentExecution: RecordedThreadExecutionOptions | null;
+  parentProviderId: string;
+  requestedProviderId?: string;
 }
 
 interface IsManagedChildThreadArgs {
@@ -224,6 +231,30 @@ export function resolveCreateThreadExecutionDefaults(
     providerFallbackCandidates: defaultCandidates.filter(
       (id) => id !== providerId,
     ),
+  };
+}
+
+export function resolveParentThreadExecutionDefaults(
+  registry: ProviderRegistryService,
+  args: ResolveParentThreadExecutionDefaultsArgs,
+): ProjectExecutionDefaults | null {
+  if (
+    args.parentExecution === null ||
+    registry.get(args.parentProviderId)?.info.available !== true ||
+    registry.disabledProviderIds().has(args.parentProviderId) ||
+    (args.requestedProviderId !== undefined &&
+      args.requestedProviderId !== args.parentProviderId)
+  ) {
+    return null;
+  }
+  return {
+    providerId: args.parentProviderId,
+    model: args.parentExecution.model,
+    reasoningLevel: args.parentExecution.reasoningLevel,
+    permissionMode: normalizeRecordedPermissionMode(
+      args.parentExecution.permissionMode,
+    ),
+    serviceTier: args.parentExecution.serviceTier,
   };
 }
 

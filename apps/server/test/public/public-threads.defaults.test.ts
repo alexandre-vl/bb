@@ -7,6 +7,7 @@ import {
   createProjectSource,
   getProjectExecutionDefaults,
   listThreadsWithPendingInteractionState,
+  setDisabledProviderIds,
   setExperiments,
   upsertProjectExecutionDefaults,
 } from "@bb/db";
@@ -24,9 +25,89 @@ import {
   seedThreadRuntimeState,
   seedThread,
 } from "../helpers/seed.js";
-import { withTestHarness } from "../helpers/test-app.js";
+import { type TestAppHarness, withTestHarness } from "../helpers/test-app.js";
 import { installFakeGitWorktreeProvider } from "../helpers/environment-provider.js";
 import { beforeEach, describe, expect, it } from "vitest";
+
+interface StartChildOfParentArgs {
+  childRequest: Partial<
+    Record<"model" | "providerId" | "reasoningLevel" | "serviceTier", string>
+  >;
+  parentInOtherProject: boolean;
+  parentModel: string;
+  parentProviderId: string;
+  rememberedModel: string;
+  rememberedProviderId: string;
+}
+
+async function startChildOfParent(
+  harness: TestAppHarness,
+  args: StartChildOfParentArgs,
+) {
+  const { host } = seedHostSession(harness.deps);
+  const { project } = seedProjectWithSource(harness.deps, {
+    hostId: host.id,
+    path: "/tmp/thread-defaults-child",
+  });
+  const environment = seedEnvironment(harness.deps, {
+    hostId: host.id,
+    projectId: project.id,
+    path: "/tmp/thread-defaults-child",
+  });
+  const parentProjectId = args.parentInOtherProject
+    ? seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/thread-defaults-parent",
+      }).project.id
+    : project.id;
+  const parentThread = seedThread(harness.deps, {
+    projectId: parentProjectId,
+    providerId: args.parentProviderId,
+    status: "active",
+  });
+  seedThreadRuntimeState(harness.deps, {
+    threadId: parentThread.id,
+    environmentId: null,
+    providerThreadId: "provider-parent-execution",
+    model: args.parentModel,
+    reasoningLevel: "high",
+    serviceTier: "fast",
+    permissionMode: "full",
+  });
+  upsertProjectExecutionDefaults(harness.db, {
+    projectId: project.id,
+    providerId: args.rememberedProviderId,
+    model: args.rememberedModel,
+    serviceTier: "default",
+    reasoningLevel: "low",
+    permissionMode: "accept-edits",
+  });
+
+  const response = await harness.app.request("/api/v1/threads", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      origin: "cli",
+      projectId: project.id,
+      parentThreadId: parentThread.id,
+      ...args.childRequest,
+      input: [{ type: "text", text: "Take this part of the job" }],
+      environment: {
+        type: "reuse",
+        environmentId: environment.id,
+      },
+    }),
+  });
+
+  expect(response.status).toBe(201);
+  const createdThread = threadSchema.parse(await readJson(response));
+  const queuedStart = await waitForQueuedCommand(
+    harness,
+    ({ command }) =>
+      command.type === "thread.start" && command.threadId === createdThread.id,
+  );
+  return queuedStart.command;
+}
 
 describe("public thread default routes", () => {
   beforeEach(() => {
@@ -267,6 +348,142 @@ describe("public thread default routes", () => {
       });
     });
   });
+
+  it.each([
+    {
+      remembers: "another model of the parent's provider",
+      childRequest: {},
+      parentInOtherProject: false,
+      rememberedProviderId: "codex",
+      rememberedModel: "gpt-5-mini",
+    },
+    {
+      remembers: "another provider",
+      childRequest: {},
+      parentInOtherProject: false,
+      rememberedProviderId: "claude-code",
+      rememberedModel: "claude-haiku-remembered",
+    },
+    {
+      remembers: "another model while the parent belongs to another project",
+      childRequest: {},
+      parentInOtherProject: true,
+      rememberedProviderId: "codex",
+      rememberedModel: "gpt-5-mini",
+    },
+    {
+      remembers: "another model and the child names the parent's provider",
+      childRequest: { providerId: "codex" },
+      parentInOtherProject: false,
+      rememberedProviderId: "codex",
+      rememberedModel: "gpt-5-mini",
+    },
+  ])(
+    "starts a child on its parent's provider and execution when the project remembers $remembers",
+    async ({
+      childRequest,
+      parentInOtherProject,
+      rememberedProviderId,
+      rememberedModel,
+    }) => {
+      await withTestHarness(async (harness) => {
+        const command = await startChildOfParent(harness, {
+          childRequest,
+          parentInOtherProject,
+          parentModel: "gpt-5",
+          parentProviderId: "codex",
+          rememberedModel,
+          rememberedProviderId,
+        });
+
+        expect(command).toMatchObject({
+          providerId: "codex",
+          options: {
+            model: "gpt-5",
+            serviceTier: "fast",
+            reasoningLevel: "high",
+            permissionMode: "full",
+          },
+        });
+      });
+    },
+  );
+
+  it.each([
+    { field: "model", childRequest: { model: "gpt-5-codex" } },
+    { field: "reasoningLevel", childRequest: { reasoningLevel: "medium" } },
+    { field: "serviceTier", childRequest: { serviceTier: "default" } },
+  ])(
+    "replaces only the $field a child names and inherits the rest of its parent's execution",
+    async ({ childRequest }) => {
+      await withTestHarness(async (harness) => {
+        const command = await startChildOfParent(harness, {
+          childRequest,
+          parentInOtherProject: false,
+          parentModel: "gpt-5",
+          parentProviderId: "codex",
+          rememberedModel: "gpt-5-mini",
+          rememberedProviderId: "codex",
+        });
+
+        expect(command).toMatchObject({
+          providerId: "codex",
+          options: {
+            model: "gpt-5",
+            serviceTier: "fast",
+            reasoningLevel: "high",
+            ...childRequest,
+          },
+        });
+      });
+    },
+  );
+
+  it.each([
+    {
+      reason: "the child asks for another provider than its parent's",
+      childRequest: { providerId: "codex" },
+      disabledProviderIds: [],
+      parentProviderId: "claude-code",
+    },
+    {
+      reason: "the parent's provider is disabled",
+      childRequest: {},
+      disabledProviderIds: ["claude-code"],
+      parentProviderId: "claude-code",
+    },
+    {
+      reason: "the parent's provider is no longer registered",
+      childRequest: {},
+      disabledProviderIds: [],
+      parentProviderId: "retired-provider",
+    },
+  ])(
+    "uses the project's remembered defaults when $reason",
+    async ({ childRequest, disabledProviderIds, parentProviderId }) => {
+      await withTestHarness(async (harness) => {
+        setDisabledProviderIds(harness.db, disabledProviderIds);
+
+        const command = await startChildOfParent(harness, {
+          childRequest,
+          parentInOtherProject: false,
+          parentModel: "parent-model",
+          parentProviderId,
+          rememberedModel: "gpt-5-mini",
+          rememberedProviderId: "codex",
+        });
+
+        expect(command).toMatchObject({
+          providerId: "codex",
+          options: {
+            model: "gpt-5-mini",
+            serviceTier: "default",
+            reasoningLevel: "low",
+          },
+        });
+      });
+    },
+  );
 
   it("uses the explicit provider catalog default when stored defaults belong to another provider", async () => {
     await withTestHarness(async (harness) => {
