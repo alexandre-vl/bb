@@ -514,7 +514,7 @@ describe("plugin settings + storage", () => {
       expect(rerunRow.count).toBe(1);
     });
 
-    it("rejects a changed migration statement at an applied index", async () => {
+    it("runs a changed migration statement once and sets the replaced record aside", async () => {
       const rootDir = await writePlugin(workDir, {
         name: "bb-plugin-migration-collision",
         serverSource: `
@@ -532,11 +532,12 @@ describe("plugin settings + storage", () => {
       expect(api).toBeDefined();
       if (!api) throw new Error("migration-collision plugin did not load");
       const database = api.storage.database();
-      expect(() =>
-        api.storage.migrate(database, [
-          "CREATE TABLE replacements (id INTEGER PRIMARY KEY)",
-        ]),
-      ).toThrow(/migration 0 does not match the recorded statement/);
+      api.storage.migrate(database, [
+        "CREATE TABLE replacements (id INTEGER PRIMARY KEY)",
+      ]);
+      expect(
+        database.prepare("SELECT id FROM _bb_migrations ORDER BY id").all(),
+      ).toEqual([{ id: 0 }, { id: 1_000_000 }]);
     });
 
     it("reserves unknown legacy indexes before later statements can reuse them", async () => {

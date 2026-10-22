@@ -303,7 +303,7 @@ describe("storage", () => {
     ).rejects.toThrow(/limit is 262144 \(256KB\)/);
   });
 
-  it("database() returns one shared database and migrate() is append-only by index", () => {
+  it("database() returns one shared database and migrate() runs each statement once", () => {
     const { bb } = createFakePluginHost();
     const db = bb.storage.database();
     bb.storage.migrate(db, [
@@ -319,11 +319,12 @@ describe("storage", () => {
     ]);
     const rows = again.prepare("SELECT body, starred FROM notes").all();
     expect(rows).toEqual([{ body: "hello", starred: 0 }]);
-    expect(() =>
-      bb.storage.migrate(again, [
-        "CREATE TABLE replacements (id INTEGER PRIMARY KEY)",
-      ]),
-    ).toThrow(/migration 0 does not match the recorded statement/);
+    bb.storage.migrate(again, [
+      "CREATE TABLE replacements (id INTEGER PRIMARY KEY)",
+    ]);
+    expect(
+      again.prepare("SELECT id FROM _bb_migrations ORDER BY id").all(),
+    ).toEqual([{ id: 0 }, { id: 1_000_000 }, { id: 1_000_001 }]);
   });
 
   it("reserves unknown legacy migration indexes", () => {

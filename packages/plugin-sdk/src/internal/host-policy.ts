@@ -2755,6 +2755,7 @@ export function validateServerAccessProviderDeclaration(
 }
 
 const LEGACY_UNKNOWN_MIGRATION_HASH = "legacy-unknown";
+const SET_ASIDE_MIGRATION_ID = 1_000_000;
 
 function migrationStatementHash(statement: string): string {
   return createHash("sha256").update(statement).digest("hex");
@@ -2774,44 +2775,70 @@ export function runPluginStorageMigrations(
     database.exec("ALTER TABLE _bb_migrations ADD COLUMN statement_hash TEXT");
   }
   const rows = database
-    .prepare<[], { id: number; statement_hash: string | null }>(
-      "SELECT id, statement_hash FROM _bb_migrations ORDER BY id",
-    )
+    .prepare<
+      [],
+      { id: number; applied_at: number; statement_hash: string | null }
+    >("SELECT id, applied_at, statement_hash FROM _bb_migrations ORDER BY id")
     .all();
-  const applied = new Map<number, string | null>();
-  for (const row of rows) applied.set(row.id, row.statement_hash);
   const statementHashes = statements.map(migrationStatementHash);
+  const unmatchedIndexes = new Map<string, number[]>();
   statementHashes.forEach((statementHash, index) => {
-    const recordedHash = applied.get(index);
-    if (
-      recordedHash !== undefined &&
-      recordedHash !== null &&
-      recordedHash !== statementHash
-    ) {
+    unmatchedIndexes.set(statementHash, [
+      ...(unmatchedIndexes.get(statementHash) ?? []),
+      index,
+    ]);
+  });
+  let nextSetAsideId = Math.max(
+    SET_ASIDE_MIGRATION_ID,
+    ...rows.map((row) => row.id + 1),
+  );
+  const matched = new Set<number>();
+  const ledger = rows.map((row) => {
+    const statementHash =
+      row.statement_hash ??
+      statementHashes[row.id] ??
+      LEGACY_UNKNOWN_MIGRATION_HASH;
+    const index = unmatchedIndexes.get(statementHash)?.shift();
+    if (index !== undefined) matched.add(index);
+    const keepsId =
+      statementHash === LEGACY_UNKNOWN_MIGRATION_HASH ||
+      row.id >= SET_ASIDE_MIGRATION_ID;
+    return {
+      id: index ?? (keepsId ? row.id : nextSetAsideId++),
+      appliedAt: row.applied_at,
+      statementHash,
+    };
+  });
+  const occupied = new Set(ledger.map((entry) => entry.id));
+  const pending = statementHashes.flatMap((_, index) =>
+    matched.has(index) ? [] : [index],
+  );
+  for (const index of pending) {
+    if (occupied.has(index)) {
       throw new Error(
         `migration ${index} does not match the recorded statement; append a new migration instead of changing or reusing an index`,
       );
     }
-  });
-  const adopt = database.prepare(
-    "UPDATE _bb_migrations SET statement_hash = ? WHERE id = ? AND statement_hash IS NULL",
+  }
+  const rekeyed = ledger.some(
+    (entry, position) =>
+      entry.id !== rows[position].id ||
+      entry.statementHash !== rows[position].statement_hash,
   );
   const record = database.prepare(
     "INSERT INTO _bb_migrations (id, applied_at, statement_hash) VALUES (?, ?, ?)",
   );
   database.transaction(() => {
-    for (const row of rows) {
-      if (row.statement_hash !== null) continue;
-      adopt.run(
-        statementHashes[row.id] ?? LEGACY_UNKNOWN_MIGRATION_HASH,
-        row.id,
-      );
+    if (rekeyed) {
+      database.exec("DELETE FROM _bb_migrations");
+      for (const entry of ledger) {
+        record.run(entry.id, entry.appliedAt, entry.statementHash);
+      }
     }
-    statements.forEach((statement, index) => {
-      if (applied.has(index)) return;
-      database.exec(statement);
+    for (const index of pending) {
+      database.exec(statements[index]);
       record.run(index, Date.now(), statementHashes[index]);
-    });
+    }
   })();
 }
 
