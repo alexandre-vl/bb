@@ -23,54 +23,109 @@ function hash(statement: string): string {
   return createHash("sha256").update(statement).digest("hex");
 }
 
+function forkStatements(...statements: string[]): Map<string, number> {
+  return new Map(statements.map((statement) => [hash(statement), 1]));
+}
+
 function readLedger(database: Database.Database): unknown[] {
   return database
     .prepare("SELECT id, statement_hash FROM _bb_migrations ORDER BY id")
     .all();
 }
 
-it("moves a statement's record when a statement is inserted before it, without running it again", () => {
+it("records a fork statement outside upstream's indexes, so upstream can append its own", () => {
   const database = openDatabase();
-  runPluginStorageMigrations(database, [createItems, addPr]);
-
-  runPluginStorageMigrations(database, [createItems, addLabels, addPr]);
-
+  runPluginStorageMigrations(
+    database,
+    [createItems, addPr],
+    forkStatements(addPr),
+  );
   expect(readLedger(database)).toEqual([
     { id: 0, statement_hash: hash(createItems) },
-    { id: 1, statement_hash: hash(addLabels) },
-    { id: 2, statement_hash: hash(addPr) },
+    { id: 1_000_000, statement_hash: hash(addPr) },
   ]);
-});
 
-it("sets aside the record of a statement that left the list and does not run it again when it returns", () => {
-  const database = openDatabase();
-  runPluginStorageMigrations(database, [createItems, addPr]);
+  runPluginStorageMigrations(
+    database,
+    [createItems, addPr, addLabels],
+    forkStatements(addPr),
+  );
 
-  runPluginStorageMigrations(database, [createItems, addLabels]);
   expect(readLedger(database)).toEqual([
     { id: 0, statement_hash: hash(createItems) },
     { id: 1, statement_hash: hash(addLabels) },
     { id: 1_000_000, statement_hash: hash(addPr) },
   ]);
+  expect(() =>
+    runPluginStorageMigrations(database, [createItems, addLabels], new Map()),
+  ).not.toThrow();
+});
 
-  runPluginStorageMigrations(database, [createItems, addLabels, addPr]);
+it("keeps the record of a fork statement that left the list and does not run it again when it returns", () => {
+  const database = openDatabase();
+  runPluginStorageMigrations(
+    database,
+    [createItems, addPr],
+    forkStatements(addPr),
+  );
+  runPluginStorageMigrations(database, [createItems, addLabels], new Map());
+
+  runPluginStorageMigrations(
+    database,
+    [createItems, addLabels, addPr],
+    forkStatements(addPr),
+  );
+
   expect(readLedger(database)).toEqual([
     { id: 0, statement_hash: hash(createItems) },
     { id: 1, statement_hash: hash(addLabels) },
-    { id: 2, statement_hash: hash(addPr) },
+    { id: 1_000_000, statement_hash: hash(addPr) },
+  ]);
+});
+
+it("moves a fork statement that upstream merged to its upstream index without running it again", () => {
+  const database = openDatabase();
+  runPluginStorageMigrations(
+    database,
+    [createItems, addPr],
+    forkStatements(addPr),
+  );
+
+  runPluginStorageMigrations(database, [createItems, addPr], new Map());
+
+  expect(readLedger(database)).toEqual([
+    { id: 0, statement_hash: hash(createItems) },
+    { id: 1, statement_hash: hash(addPr) },
+  ]);
+});
+
+it("moves a fork statement recorded at an upstream index out of upstream's way", () => {
+  const database = openDatabase();
+  runPluginStorageMigrations(database, [createItems, addPr], new Map());
+
+  runPluginStorageMigrations(
+    database,
+    [createItems, addLabels, addPr],
+    forkStatements(addPr),
+  );
+
+  expect(readLedger(database)).toEqual([
+    { id: 0, statement_hash: hash(createItems) },
+    { id: 1, statement_hash: hash(addLabels) },
+    { id: 1_000_000, statement_hash: hash(addPr) },
   ]);
 });
 
 it("keeps the ledger as it was when a new statement fails", () => {
   const database = openDatabase();
-  runPluginStorageMigrations(database, [createItems, addPr]);
+  runPluginStorageMigrations(database, [createItems, addPr], new Map());
 
   expect(() =>
-    runPluginStorageMigrations(database, [
-      createItems,
-      "ALTER TABLE missing ADD COLUMN labels TEXT",
-      addPr,
-    ]),
+    runPluginStorageMigrations(
+      database,
+      [createItems, "ALTER TABLE missing ADD COLUMN labels TEXT", addPr],
+      forkStatements(addPr),
+    ),
   ).toThrow(/no such table: missing/);
   expect(readLedger(database)).toEqual([
     { id: 0, statement_hash: hash(createItems) },

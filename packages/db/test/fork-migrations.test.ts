@@ -83,9 +83,11 @@ function migrateWith(db: DbConnection, folder: string): void {
 }
 
 function count(db: DbConnection, table: string): number {
-  return db.$client
-    .prepare<[], { count: number }>(`SELECT COUNT(*) AS count FROM ${table}`)
-    .get()?.count ?? 0;
+  return (
+    db.$client
+      .prepare<[], { count: number }>(`SELECT COUNT(*) AS count FROM ${table}`)
+      .get()?.count ?? 0
+  );
 }
 
 function testForkTags(db: DbConnection): string[] {
@@ -252,4 +254,134 @@ it("puts back a fork column and index an upstream table rebuild drops, with the 
       )
       .all(),
   ).toHaveLength(1);
+});
+
+it("keeps a fork column's values when a later fork migration fails in the same start", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  appendUpstreamMigration(
+    folder,
+    "0147_upstream_gadgets",
+    "CREATE TABLE `upstream_gadgets` (\n\t`id` text PRIMARY KEY NOT NULL\n);\n",
+  );
+  const notes = {
+    tag: "9001_test_fork_gadget_notes",
+    when: 1,
+    sql: "ALTER TABLE `upstream_gadgets` ADD `fork_note` text;",
+  };
+  writeForkJournal(folder, [notes]);
+  migrateWith(db, folder);
+  db.$client.exec(
+    "INSERT INTO upstream_gadgets (id, fork_note) VALUES ('a', 'kept')",
+  );
+
+  appendUpstreamMigration(
+    folder,
+    "0148_upstream_gadgets_rebuild",
+    [
+      "CREATE TABLE `__new_upstream_gadgets` (\n\t`id` text PRIMARY KEY NOT NULL\n);\n",
+      'INSERT INTO `__new_upstream_gadgets`("id") SELECT "id" FROM `upstream_gadgets`;',
+      "DROP TABLE `upstream_gadgets`;",
+      "ALTER TABLE `__new_upstream_gadgets` RENAME TO `upstream_gadgets`;",
+    ].join("--> statement-breakpoint\n"),
+  );
+  writeForkJournal(folder, [
+    notes,
+    {
+      tag: "9002_test_fork_broken",
+      when: 2,
+      sql: "CREATE INDEX `broken_idx` ON `missing_table` (`id`);",
+    },
+  ]);
+  expect(() => migrateWith(db, folder)).toThrow(/no such table/);
+
+  writeForkJournal(folder, [notes]);
+  migrateWith(db, folder);
+
+  expect(
+    db.$client.prepare("SELECT id, fork_note FROM upstream_gadgets").all(),
+  ).toEqual([{ id: "a", fork_note: "kept" }]);
+});
+
+it("puts back a fork column an upstream migration rebuilt away, once its pull request merged upstream", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  appendUpstreamMigration(
+    folder,
+    "0147_upstream_gadgets",
+    "CREATE TABLE `upstream_gadgets` (\n\t`id` text PRIMARY KEY NOT NULL\n);\n",
+  );
+  const notesSql = "ALTER TABLE `upstream_gadgets` ADD `fork_note` text;";
+  writeForkJournal(folder, [
+    { tag: "9001_test_fork_gadget_notes", when: 1, sql: notesSql },
+  ]);
+  migrateWith(db, folder);
+  db.$client.exec(
+    "INSERT INTO upstream_gadgets (id, fork_note) VALUES ('a', 'kept')",
+  );
+
+  appendUpstreamMigration(
+    folder,
+    "0148_upstream_gadgets_rebuild",
+    [
+      "CREATE TABLE `__new_upstream_gadgets` (\n\t`id` text PRIMARY KEY NOT NULL\n);\n",
+      'INSERT INTO `__new_upstream_gadgets`("id") SELECT "id" FROM `upstream_gadgets`;',
+      "DROP TABLE `upstream_gadgets`;",
+      "ALTER TABLE `__new_upstream_gadgets` RENAME TO `upstream_gadgets`;",
+    ].join("--> statement-breakpoint\n"),
+  );
+  appendUpstreamMigration(folder, "0149_merged_gadget_notes", notesSql);
+  writeForkJournal(folder, []);
+  migrateWith(db, folder);
+
+  expect(
+    db.$client.prepare("SELECT id, fork_note FROM upstream_gadgets").all(),
+  ).toEqual([{ id: "a", fork_note: "kept" }]);
+});
+
+it("records an upstream migration that differs from a fork migration only in quoting and IF NOT EXISTS", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  writeForkJournal(folder, [
+    {
+      tag: "9001_test_fork_gizmos",
+      when: 1,
+      sql: "CREATE TABLE IF NOT EXISTS `fork_gizmos` (\n\t`id` text PRIMARY KEY NOT NULL\n);\n",
+    },
+  ]);
+  migrateWith(db, folder);
+  const upstreamApplied = count(db, "__drizzle_migrations");
+
+  appendUpstreamMigration(
+    folder,
+    "0147_merged_gizmos",
+    'CREATE TABLE "fork_gizmos" (\n  "id" text PRIMARY KEY NOT NULL\n);',
+  );
+  migrateWith(db, folder);
+
+  expect(count(db, "__drizzle_migrations")).toBe(upstreamApplied + 1);
+});
+
+it("puts back a fork column a database lost outside the fork's migrations, but not one a later fork migration drops", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  writeForkJournal(folder, [
+    {
+      tag: "9001_test_fork_flags",
+      when: 1,
+      sql: "ALTER TABLE `projects` ADD `fork_flag` integer DEFAULT 0 NOT NULL;--> statement-breakpoint\nALTER TABLE `projects` ADD `fork_scratch` text;",
+    },
+    {
+      tag: "9002_test_fork_drop_scratch",
+      when: 2,
+      sql: "ALTER TABLE `projects` DROP COLUMN `fork_scratch`;",
+    },
+  ]);
+  migrateWith(db, folder);
+  db.$client.exec("ALTER TABLE projects DROP COLUMN fork_flag");
+
+  migrateWith(db, folder);
+
+  expect(columns(db, "projects")).toContain("fork_flag");
+  expect(columns(db, "projects")).not.toContain("fork_scratch");
 });

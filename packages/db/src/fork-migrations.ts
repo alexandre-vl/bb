@@ -8,7 +8,19 @@ export interface ForkMigration {
   tag: string;
   when: number;
   hash: string;
+  shape: string;
   statements: string[];
+}
+
+export interface ForkMigrationRun {
+  migrationsFolder: string;
+  migrations: ForkMigration[];
+}
+
+interface RecordedForkMigration {
+  tag: string;
+  hash: string;
+  shape: string;
 }
 
 interface AddedColumn {
@@ -20,29 +32,60 @@ interface AddedColumn {
 interface CreatedIndex {
   index: string;
   table: string;
+  columns: string[] | null;
   statement: string;
 }
 
-interface DroppedColumn extends AddedColumn {
-  keys: string[];
-  copy: string | null;
-}
-
-export interface ForkMigrationRun {
-  migrations: ForkMigration[];
-  droppedColumns: DroppedColumn[];
-  droppedIndexes: CreatedIndex[];
-}
-
-const addColumnPattern =
-  /^\s*ALTER\s+TABLE\s+[`"[]?(\w+)[`"\]]?\s+ADD\s+(?:COLUMN\s+)?[`"[]?(\w+)[`"\]]?/i;
-const createIndexPattern =
-  /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"[]?(\w+)[`"\]]?\s+ON\s+[`"[]?(\w+)[`"\]]?/i;
-const dropTablePattern =
-  /\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[`"[]?(\w+)[`"\]]?/gi;
+const identifier = String.raw`[\x60"\[]?(\w+)[\x60"\]]?`;
+const addColumnPattern = new RegExp(
+  String.raw`^\s*ALTER\s+TABLE\s+${identifier}\s+ADD\s+(?:COLUMN\s+)?${identifier}`,
+  "i",
+);
+const createIndexPattern = new RegExp(
+  String.raw`^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?${identifier}\s+ON\s+${identifier}\s*\(([^)]*)\)`,
+  "i",
+);
+const createTablePattern = new RegExp(
+  String.raw`^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?${identifier}`,
+  "i",
+);
+const dropTablePattern = new RegExp(
+  String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?${identifier}`,
+  "gi",
+);
+const renameTablePattern = new RegExp(
+  String.raw`\bALTER\s+TABLE\s+${identifier}\s+RENAME\s+TO\b`,
+  "gi",
+);
+const dropColumnPattern = new RegExp(
+  String.raw`\bALTER\s+TABLE\s+${identifier}\s+DROP\s+(?:COLUMN\s+)?${identifier}`,
+  "gi",
+);
 
 function quote(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
+}
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+export function migrationShape(statements: string[]): string {
+  return sha256(
+    statements
+      .map((statement) =>
+        statement
+          .replace(/--[^\n]*/g, " ")
+          .replace(/[`"[\]]/g, "")
+          .replace(/\bif\s+(?:not\s+)?exists\b/gi, " ")
+          .replace(/\s+/g, " ")
+          .replace(/[\s;]+$/, "")
+          .trim()
+          .toLowerCase(),
+      )
+      .filter((statement) => statement.length > 0)
+      .join("\n"),
+  );
 }
 
 function tableExists(db: DbConnection, table: string): boolean {
@@ -72,7 +115,11 @@ function tableColumns(
     .all();
 }
 
-function columnExists(db: DbConnection, table: string, column: string): boolean {
+function columnExists(
+  db: DbConnection,
+  table: string,
+  column: string,
+): boolean {
   return tableColumns(db, table).some((info) => info.name === column);
 }
 
@@ -112,22 +159,32 @@ export function readForkMigrations(migrationsFolder: string): ForkMigration[] {
         join(migrationsFolder, `${entry.tag}.sql`),
         "utf8",
       );
+      const statements = sql.split("--> statement-breakpoint");
       return {
         ...entry,
-        hash: createHash("sha256").update(sql).digest("hex"),
-        statements: sql.split("--> statement-breakpoint"),
+        hash: sha256(sql),
+        shape: migrationShape(statements),
+        statements,
       };
     })
     .sort((left, right) => left.when - right.when);
 }
 
-function readRecordedForkMigrations(db: DbConnection): Map<string, string> {
+function ensureForkLedger(db: DbConnection): void {
+  db.$client.exec(
+    "CREATE TABLE IF NOT EXISTS __fork_migrations (tag TEXT PRIMARY KEY NOT NULL, hash TEXT NOT NULL, shape TEXT NOT NULL, applied_at INTEGER NOT NULL)",
+  );
+}
+
+function readRecordedForkMigrations(
+  db: DbConnection,
+): Map<string, RecordedForkMigration> {
   const rows = db.$client
-    .prepare<[], { tag: string; hash: string }>(
-      "SELECT tag, hash FROM __fork_migrations",
+    .prepare<[], RecordedForkMigration>(
+      "SELECT tag, hash, shape FROM __fork_migrations",
     )
     .all();
-  return new Map(rows.map((row) => [row.tag, row.hash]));
+  return new Map(rows.map((row) => [row.tag, row]));
 }
 
 function readPendingUpstreamMigrations(
@@ -145,76 +202,217 @@ function readPendingUpstreamMigrations(
   );
 }
 
-function addedColumns(migrations: ForkMigration[]): AddedColumn[] {
-  return migrations.flatMap((migration) =>
-    migration.statements.flatMap((statement) => {
-      const match = addColumnPattern.exec(statement);
-      return match ? [{ table: match[1], column: match[2], statement }] : [];
-    }),
-  );
+function addedColumns(statements: string[]): AddedColumn[] {
+  return statements.flatMap((statement) => {
+    const match = addColumnPattern.exec(statement);
+    return match ? [{ table: match[1], column: match[2], statement }] : [];
+  });
 }
 
-function createdIndexes(migrations: ForkMigration[]): CreatedIndex[] {
-  return migrations.flatMap((migration) =>
-    migration.statements.flatMap((statement) => {
-      const match = createIndexPattern.exec(statement);
-      return match ? [{ index: match[1], table: match[2], statement }] : [];
-    }),
-  );
+function createdIndexes(statements: string[]): CreatedIndex[] {
+  return statements.flatMap((statement) => {
+    const match = createIndexPattern.exec(statement);
+    if (!match) {
+      return [];
+    }
+    const columns = match[3].split(",").map((part) => {
+      const name = /^\s*[`"[]?(\w+)[`"\]]?(?:\s+(?:ASC|DESC))?\s*$/i.exec(part);
+      return name ? name[1] : null;
+    });
+    return [
+      {
+        index: match[1],
+        table: match[2],
+        columns: columns.every((column) => column !== null)
+          ? (columns as string[])
+          : null,
+        statement,
+      },
+    ];
+  });
 }
 
-function tablesDroppedBy(pending: MigrationMeta[]): Set<string> {
+function tablesRemovedBy(statements: string[]): Set<string> {
   return new Set(
-    pending.flatMap((migration) =>
-      migration.sql.flatMap((statement) =>
-        [...statement.matchAll(dropTablePattern)].map((match) => match[1]),
+    statements.flatMap((statement) => [
+      ...[...statement.matchAll(dropTablePattern)].map((match) => match[1]),
+      ...[...statement.matchAll(renameTablePattern)].map((match) => match[1]),
+    ]),
+  );
+}
+
+function columnsDroppedBy(statements: string[]): Set<string> {
+  return new Set(
+    statements.flatMap((statement) =>
+      [...statement.matchAll(dropColumnPattern)].map(
+        (match) => `${match[1]}.${match[2]}`,
       ),
     ),
   );
 }
 
-function saveColumn(
-  db: DbConnection,
-  column: AddedColumn,
-  position: number,
-): DroppedColumn {
-  const keys = tableColumns(db, column.table)
+function savedColumnTable(column: AddedColumn): string {
+  return `__fork_saved_column__${column.table}__${column.column}`;
+}
+
+function primaryKey(db: DbConnection, table: string): string[] {
+  return tableColumns(db, table)
     .filter((info) => info.pk > 0)
     .sort((left, right) => left.pk - right.pk)
     .map((info) => info.name);
+}
+
+function saveColumn(db: DbConnection, column: AddedColumn): void {
+  const keys = primaryKey(db, column.table);
   if (keys.length === 0) {
-    return { ...column, keys, copy: null };
+    return;
   }
-  const copy = `__fork_dropped_column_${position}`;
-  db.$client.exec(`DROP TABLE IF EXISTS temp.${copy}`);
+  const copy = quote(savedColumnTable(column));
+  db.$client.exec(`DROP TABLE IF EXISTS ${copy}`);
   db.$client.exec(
-    `CREATE TEMP TABLE ${copy} AS SELECT ${[...keys, column.column]
+    `CREATE TABLE ${copy} AS SELECT ${[...keys, column.column]
       .map(quote)
       .join(", ")} FROM ${quote(column.table)}`,
   );
-  return { ...column, keys, copy };
 }
 
-function applyUpstreamMigrationsTheForkRan(
+function putColumnBack(db: DbConnection, column: AddedColumn): void {
+  if (
+    !tableExists(db, column.table) ||
+    columnExists(db, column.table, column.column)
+  ) {
+    return;
+  }
+  db.$client.exec(column.statement);
+  const copyName = savedColumnTable(column);
+  if (!tableExists(db, copyName)) {
+    return;
+  }
+  const keys = tableColumns(db, copyName)
+    .map((info) => info.name)
+    .filter((name) => name !== column.column);
+  if (
+    keys.length === 0 ||
+    !keys.every((key) => columnExists(db, column.table, key))
+  ) {
+    return;
+  }
+  const copy = quote(copyName);
+  const match = keys
+    .map(
+      (key) => `${copy}.${quote(key)} = ${quote(column.table)}.${quote(key)}`,
+    )
+    .join(" AND ");
+  db.$client.exec(
+    `UPDATE ${quote(column.table)} SET ${quote(column.column)} = (SELECT ${copy}.${quote(column.column)} FROM ${copy} WHERE ${match}) WHERE EXISTS (SELECT 1 FROM ${copy} WHERE ${match})`,
+  );
+}
+
+function dropSavedColumnIfBack(db: DbConnection, column: AddedColumn): void {
+  const copyName = savedColumnTable(column);
+  if (
+    tableExists(db, copyName) &&
+    tableExists(db, column.table) &&
+    columnExists(db, column.table, column.column)
+  ) {
+    db.$client.exec(`DROP TABLE ${quote(copyName)}`);
+  }
+}
+
+function putIndexBack(db: DbConnection, index: CreatedIndex): void {
+  if (
+    index.columns === null ||
+    !tableExists(db, index.table) ||
+    indexExists(db, index.index) ||
+    !index.columns.every((column) => columnExists(db, index.table, column))
+  ) {
+    return;
+  }
+  db.$client.exec(index.statement);
+}
+
+function ensureEffects(db: DbConnection, statements: string[]): void {
+  for (const statement of statements) {
+    const table = createTablePattern.exec(statement);
+    if (table && !tableExists(db, table[1])) {
+      db.$client.exec(statement);
+    }
+  }
+  for (const column of addedColumns(statements)) {
+    putColumnBack(db, column);
+    dropSavedColumnIfBack(db, column);
+  }
+  for (const index of createdIndexes(statements)) {
+    putIndexBack(db, index);
+  }
+}
+
+export function prepareForkMigrations(
   db: DbConnection,
-  pending: MigrationMeta[],
-  forkHashes: Set<string>,
-): void {
+  migrationsFolder: string,
+): ForkMigrationRun {
+  const run = {
+    migrationsFolder,
+    migrations: readForkMigrations(migrationsFolder),
+  };
+  if (
+    !tableExists(db, "__fork_migrations") ||
+    !tableExists(db, "__drizzle_migrations")
+  ) {
+    return run;
+  }
+  const recorded = readRecordedForkMigrations(db);
+  for (const migration of run.migrations) {
+    const applied = recorded.get(migration.tag);
+    if (applied !== undefined && applied.hash !== migration.hash) {
+      throw new Error(
+        `Fork migration ${migration.tag} changed after it was applied. Restore the applied version and put the change in a new migration.`,
+      );
+    }
+  }
+  const forkHashes = new Set([...recorded.values()].map((row) => row.hash));
+  const forkShapes = new Set([...recorded.values()].map((row) => row.shape));
+  const pending = readPendingUpstreamMigrations(db, migrationsFolder);
+  const isForkEquivalent = (migration: MigrationMeta) =>
+    forkHashes.has(migration.hash) ||
+    forkShapes.has(migrationShape(migration.sql));
+  const removed = tablesRemovedBy(
+    pending
+      .filter((migration) => !isForkEquivalent(migration))
+      .flatMap((migration) => migration.sql),
+  );
+  const forkColumns = addedColumns([
+    ...run.migrations
+      .filter((migration) => recorded.has(migration.tag))
+      .flatMap((migration) => migration.statements),
+    ...pending.filter(isForkEquivalent).flatMap((migration) => migration.sql),
+  ]);
+  for (const column of forkColumns) {
+    if (
+      removed.has(column.table) &&
+      tableExists(db, column.table) &&
+      columnExists(db, column.table, column.column)
+    ) {
+      saveColumn(db, column);
+    }
+  }
   let last = -1;
   pending.forEach((migration, index) => {
-    if (forkHashes.has(migration.hash)) {
+    if (isForkEquivalent(migration)) {
       last = index;
     }
   });
   if (last === -1) {
-    return;
+    return run;
   }
   const record = db.$client.prepare<[string, number]>(
     "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
   );
   db.$client.transaction(() => {
     for (const migration of pending.slice(0, last + 1)) {
-      if (!forkHashes.has(migration.hash)) {
+      if (isForkEquivalent(migration)) {
+        ensureEffects(db, migration.sql);
+      } else {
         for (const statement of migration.sql) {
           db.$client.exec(statement);
         }
@@ -222,77 +420,43 @@ function applyUpstreamMigrationsTheForkRan(
       record.run(migration.hash, migration.folderMillis);
     }
   })();
+  return run;
 }
 
-export function prepareForkMigrations(
-  db: DbConnection,
-  migrationsFolder: string,
-): ForkMigrationRun {
-  const migrations = readForkMigrations(migrationsFolder);
-  if (
-    !tableExists(db, "__fork_migrations") ||
-    !tableExists(db, "__drizzle_migrations")
-  ) {
-    return { migrations, droppedColumns: [], droppedIndexes: [] };
-  }
+function repairForkSchema(db: DbConnection, run: ForkMigrationRun): void {
   const recorded = readRecordedForkMigrations(db);
-  for (const migration of migrations) {
-    const hash = recorded.get(migration.tag);
-    if (hash !== undefined && hash !== migration.hash) {
-      throw new Error(
-        `Fork migration ${migration.tag} changed after it was applied. Restore the applied version and put the change in a new migration.`,
-      );
-    }
-  }
-  const pending = readPendingUpstreamMigrations(db, migrationsFolder);
-  const dropped = tablesDroppedBy(pending);
-  const applied = migrations.filter((migration) => recorded.has(migration.tag));
-  const droppedColumns = addedColumns(applied)
-    .filter(
-      (column) =>
-        dropped.has(column.table) &&
-        columnExists(db, column.table, column.column),
-    )
-    .map((column, position) => saveColumn(db, column, position));
-  const droppedIndexes = createdIndexes(applied).filter(
-    (index) => dropped.has(index.table) && indexExists(db, index.index),
+  const statements = run.migrations
+    .filter((migration) => recorded.has(migration.tag))
+    .flatMap((migration) => migration.statements);
+  const forkStatements = run.migrations.flatMap(
+    (migration) => migration.statements,
   );
-  applyUpstreamMigrationsTheForkRan(db, pending, new Set(recorded.values()));
-  return { migrations, droppedColumns, droppedIndexes };
-}
-
-function restoreDroppedForkSchema(
-  db: DbConnection,
-  run: ForkMigrationRun,
-): void {
-  for (const column of run.droppedColumns) {
-    if (
-      tableExists(db, column.table) &&
-      !columnExists(db, column.table, column.column)
-    ) {
-      db.$client.exec(column.statement);
-      if (column.copy !== null) {
-        const copy = column.copy;
-        const match = column.keys
-          .map(
-            (key) =>
-              `${copy}.${quote(key)} = ${quote(column.table)}.${quote(key)}`,
-          )
-          .join(" AND ");
-        db.$client.exec(
-          `UPDATE ${quote(column.table)} SET ${quote(column.column)} = (SELECT ${copy}.${quote(column.column)} FROM ${copy} WHERE ${match}) WHERE EXISTS (SELECT 1 FROM ${copy} WHERE ${match})`,
-        );
-      }
+  const removedByFork = tablesRemovedBy(forkStatements);
+  const droppedColumns = new Set([
+    ...columnsDroppedBy(forkStatements),
+    ...columnsDroppedBy(
+      readMigrationFiles({ migrationsFolder: run.migrationsFolder }).flatMap(
+        (migration) => migration.sql,
+      ),
+    ),
+  ]);
+  const columns = addedColumns(statements).filter(
+    (column) =>
+      !removedByFork.has(column.table) &&
+      !droppedColumns.has(`${column.table}.${column.column}`),
+  );
+  const indexes = createdIndexes(statements).filter(
+    (index) => !removedByFork.has(index.table),
+  );
+  db.$client.transaction(() => {
+    for (const column of columns) {
+      putColumnBack(db, column);
+      dropSavedColumnIfBack(db, column);
     }
-    if (column.copy !== null) {
-      db.$client.exec(`DROP TABLE temp.${column.copy}`);
+    for (const index of indexes) {
+      putIndexBack(db, index);
     }
-  }
-  for (const index of run.droppedIndexes) {
-    if (tableExists(db, index.table) && !indexExists(db, index.index)) {
-      db.$client.exec(index.statement);
-    }
-  }
+  })();
 }
 
 export function applyForkMigrations(
@@ -302,33 +466,46 @@ export function applyForkMigrations(
   if (run.migrations.length === 0) {
     return;
   }
-  db.$client.exec(
-    "CREATE TABLE IF NOT EXISTS __fork_migrations (tag TEXT PRIMARY KEY NOT NULL, hash TEXT NOT NULL, applied_at INTEGER NOT NULL)",
-  );
+  ensureForkLedger(db);
+  repairForkSchema(db, run);
   const recorded = readRecordedForkMigrations(db);
-  const known = new Set([
-    ...recorded.values(),
-    ...db.$client
-      .prepare<[], { hash: string }>("SELECT hash FROM __drizzle_migrations")
+  const appliedUpstream = new Set(
+    db.$client
+      .prepare<[], { createdAt: number | null }>(
+        "SELECT created_at AS createdAt FROM __drizzle_migrations",
+      )
       .all()
-      .map((row) => row.hash),
+      .map((row) => Number(row.createdAt)),
+  );
+  const upstream = readMigrationFiles({
+    migrationsFolder: run.migrationsFolder,
+  }).filter((migration) => appliedUpstream.has(migration.folderMillis));
+  const knownHashes = new Set([
+    ...[...recorded.values()].map((row) => row.hash),
+    ...upstream.map((migration) => migration.hash),
   ]);
-  const record = db.$client.prepare<[string, string, number]>(
-    "INSERT INTO __fork_migrations (tag, hash, applied_at) VALUES (?, ?, ?)",
+  const knownShapes = new Set([
+    ...[...recorded.values()].map((row) => row.shape),
+    ...upstream.map((migration) => migrationShape(migration.sql)),
+  ]);
+  const record = db.$client.prepare<[string, string, string, number]>(
+    "INSERT INTO __fork_migrations (tag, hash, shape, applied_at) VALUES (?, ?, ?, ?)",
   );
   db.$client.transaction(() => {
     for (const migration of run.migrations) {
       if (recorded.has(migration.tag)) {
         continue;
       }
-      if (!known.has(migration.hash)) {
+      if (knownHashes.has(migration.hash) || knownShapes.has(migration.shape)) {
+        ensureEffects(db, migration.statements);
+      } else {
         for (const statement of migration.statements) {
           db.$client.exec(statement);
         }
-        known.add(migration.hash);
       }
-      record.run(migration.tag, migration.hash, Date.now());
+      knownHashes.add(migration.hash);
+      knownShapes.add(migration.shape);
+      record.run(migration.tag, migration.hash, migration.shape, Date.now());
     }
-    restoreDroppedForkSchema(db, run);
   })();
 }
