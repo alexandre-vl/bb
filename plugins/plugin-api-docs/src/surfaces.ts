@@ -253,6 +253,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginThreadActionChoices",
           "PluginThreadActionChoice",
           "PluginThreadActionEntry",
+          "ExperimentalThreadActionShortcut",
           "experimental_useThreadActions",
           "experimental_useThreadActionRegistrations",
           "experimental_ThreadActionsMenu",

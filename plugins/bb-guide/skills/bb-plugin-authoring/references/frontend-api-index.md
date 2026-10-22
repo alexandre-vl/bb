@@ -197,6 +197,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginThreadActionRegistration`
 - `PluginBoundThreadAction`
 - `PluginThreadActionEntry`
+- `ExperimentalThreadActionShortcut`
 - `PluginThreadActionRegistrationInfo`
 - `PluginThreadActionsOptions`
 - `PluginThreadActionsInlineItem`

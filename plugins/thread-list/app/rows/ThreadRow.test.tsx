@@ -45,10 +45,7 @@ import {
   preferenceValueAtom,
   resetPreferencesSyncForTest,
 } from "../preferences/preferences-sync.js";
-import {
-  CustomizeRowActionsContext,
-  ThreadRowActionsCustomizingContext,
-} from "../list/customizeRowActionsContext.js";
+import { ThreadRowActionsCustomizingContext } from "../list/customizeRowActionsContext.js";
 
 installTestPluginRuntime();
 const { SidebarDraftPresenceSync } =
@@ -98,7 +95,6 @@ interface HarnessProps {
   isActive?: boolean;
   options?: ThreadRowOptions;
   onRowEvent?: () => void;
-  onCustomizeRowActions?: (threadId: string) => void;
   onFinishCustomizingRowActions?: (restoreFocus: boolean) => void;
 }
 
@@ -111,7 +107,6 @@ function ThreadRowHarness({
   isActive = false,
   options = DEFAULT_OPTIONS,
   onRowEvent,
-  onCustomizeRowActions,
   onFinishCustomizingRowActions,
 }: HarnessProps) {
   const row = (
@@ -129,28 +124,24 @@ function ThreadRowHarness({
           <SidebarDraftPresenceSync />
           <ThreadRowNavigationProvider>
             <SidebarRenameProvider>
-              <CustomizeRowActionsContext.Provider
-                value={onCustomizeRowActions ?? null}
+              <ThreadRowActionsCustomizingContext.Provider
+                value={
+                  onFinishCustomizingRowActions
+                    ? {
+                        threadId: thread.id,
+                        onDone: onFinishCustomizingRowActions,
+                      }
+                    : null
+                }
               >
-                <ThreadRowActionsCustomizingContext.Provider
-                  value={
-                    onFinishCustomizingRowActions
-                      ? {
-                          threadId: thread.id,
-                          onDone: onFinishCustomizingRowActions,
-                        }
-                      : null
-                  }
+                <div
+                  onPointerDown={onRowEvent}
+                  onKeyDown={onRowEvent}
+                  onClick={onRowEvent}
                 >
-                  <div
-                    onPointerDown={onRowEvent}
-                    onKeyDown={onRowEvent}
-                    onClick={onRowEvent}
-                  >
-                    {row}
-                  </div>
-                </ThreadRowActionsCustomizingContext.Provider>
-              </CustomizeRowActionsContext.Provider>
+                  {row}
+                </div>
+              </ThreadRowActionsCustomizingContext.Provider>
             </SidebarRenameProvider>
           </ThreadRowNavigationProvider>
         </TooltipProvider>
@@ -345,6 +336,7 @@ function hostThreadActions({
         icon,
         run: () => run().catch(() => undefined),
       },
+      shortcut: null,
     });
     const isArchived = thread.archivedAt !== null;
     return [
@@ -522,12 +514,32 @@ describe("ThreadRow", () => {
             },
             run: async () => undefined,
           },
+          shortcut: null,
         },
       ],
     });
     expect(
       screen.getByRole("button", { name: "Notifications, Muted" }),
     ).not.toBeNull();
+  });
+
+  it("names the key bound to a row action in its tooltip", async () => {
+    getDefaultStore().set(preferenceValueAtom("rowActions"), [
+      "bb--core/archive",
+    ]);
+    const actions = hostThreadActions();
+    renderThreadRow({
+      threadActions: (thread, options) =>
+        actions(thread, options).map((entry) =>
+          entry.key === "bb--core/archive"
+            ? { ...entry, shortcut: { label: "E", ariaKeyshortcuts: "E" } }
+            : entry,
+        ),
+    });
+    const archive = screen.getByRole("button", { name: "Archive" });
+    expect(archive.getAttribute("aria-keyshortcuts")).toBe("E");
+    fireEvent.focus(archive);
+    expect((await screen.findByRole("tooltip")).textContent).toBe("ArchiveE");
   });
 
   it("shows the configured row actions in order and masks the title under them", async () => {
@@ -598,32 +610,6 @@ describe("ThreadRow", () => {
     expect(
       await screen.findByRole("textbox", { name: "Thread name" }),
     ).toHaveProperty("value", "Thread");
-  });
-
-  it.each(["dropdown", "context"] as const)(
-    "adds Customize actions to the %s menu",
-    async (surface) => {
-      const customize = vi.fn();
-      renderThreadRow({ onCustomizeRowActions: customize });
-      if (surface === "dropdown") {
-        fireEvent.click(screen.getByRole("button", { name: "Thread actions" }));
-      } else {
-        fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Thread" }));
-      }
-      fireEvent.click(
-        await screen.findByRole("menuitem", { name: "Customize actions" }),
-      );
-      expect(customize).toHaveBeenCalledWith("thr_test");
-    },
-  );
-
-  it("leaves Customize actions out when the list cannot customize", async () => {
-    renderThreadRow();
-    fireEvent.click(screen.getByRole("button", { name: "Thread actions" }));
-    await screen.findByRole("menuitem", { name: "Rename" });
-    expect(
-      screen.queryByRole("menuitem", { name: "Customize actions" }),
-    ).toBeNull();
   });
 
   it("customizes row actions on the real row until Done", () => {

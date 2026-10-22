@@ -129,11 +129,12 @@ hover, left to right before its actions menu, as thread action keys: bb's
 keys still work. The default is `'["bb--core/archive"]'` and `'[]'` leaves
 only the menu. For example,
 `bb thread-list prefs set rowActions '["bb--core/pin","bb--core/archive"]'`.
-In the app, a thread
-row's actions menu has Customize actions, which turns that row's quick
-actions into three editable slots in place; each slot picks an action, a filled
-slot can Hide, and filled slots drag to reorder. Done, Escape, or a click
-elsewhere finishes.
+In the app, the list
+header's Organize menu has Customize actions under Rows, which turns the open
+thread's row (or the first row in view) into three editable action slots in
+place; each slot picks an action, a filled slot can Hide, and filled slots drag
+to reorder. Done, Escape, or a click elsewhere finishes. A quick action's
+tooltip shows its key when bb binds one, such as Archive's E.
 
 Organize → Rows → Provider icons toggles the icon before each thread title.
 `showProviderIcons` defaults to `true`; use

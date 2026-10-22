@@ -1052,8 +1052,9 @@ the `workflows` skill.
 ### Thread list plugin
 
 The bundled Thread list plugin owns the sidebar thread list layout, synced to
-every window. Change it from the list header's Organize and Filter menus, a
-row's Customize actions, or `bb thread-list prefs get|set|reset <key>`
+every window. Change it from the list header's Organize and Filter menus
+(Organize → Customize actions edits a row's quick actions), or
+`bb thread-list prefs get|set|reset <key>`
 (`set` takes JSON; a bare word is a string). `bb thread-list collapse|expand
 <ref>|--all` writes the collapse lists. See the `thread-list` skill.
 

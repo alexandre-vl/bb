@@ -47,6 +47,7 @@ export function SidebarHeaderMenuContents({
   compact,
   page,
   onPageChange,
+  onCustomizeRowActions,
   children,
 }: {
   creation: HeaderCreationActions;
@@ -54,6 +55,7 @@ export function SidebarHeaderMenuContents({
   compact: boolean;
   page: SidebarViewPage | null;
   onPageChange: (page: SidebarViewPage | null) => void;
+  onCustomizeRowActions?: () => void;
   children?: ReactNode;
 }) {
   if (compact && page) {
@@ -69,7 +71,10 @@ export function SidebarHeaderMenuContents({
           Back
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <SidebarViewItems page={page} />
+        <SidebarViewItems
+          page={page}
+          onCustomizeRowActions={onCustomizeRowActions}
+        />
       </>
     );
   }
@@ -117,7 +122,10 @@ export function SidebarHeaderMenuContents({
                     : "w-max min-w-28 max-w-64"
                 }
               >
-                <SidebarViewItems page={item.page} />
+                <SidebarViewItems
+                  page={item.page}
+                  onCustomizeRowActions={onCustomizeRowActions}
+                />
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
@@ -161,7 +169,13 @@ function SidebarViewToggleItem({
   );
 }
 
-function SidebarViewItems({ page }: { page: SidebarViewPage }) {
+function SidebarViewItems({
+  page,
+  onCustomizeRowActions,
+}: {
+  page: SidebarViewPage;
+  onCustomizeRowActions?: () => void;
+}) {
   const [lifecycles, setLifecycles] = useAtom(sidebarThreadLifecyclesAtom);
   const [organization, setOrganization] = useAtom(sidebarOrganizationModeAtom);
   const [sort, setSort] = useAtom(sidebarChronologicalSortAtom);
@@ -287,6 +301,11 @@ function SidebarViewItems({ page }: { page: SidebarViewPage }) {
               {showProviderIcons && <Icon name="Check" className="size-4" />}
             </span>
           </DropdownMenuItem>
+          {onCustomizeRowActions && (
+            <DropdownMenuItem onSelect={onCustomizeRowActions}>
+              Customize actions
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
       </>
     );

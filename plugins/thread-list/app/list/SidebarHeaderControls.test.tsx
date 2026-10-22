@@ -23,6 +23,10 @@ import {
   sidebarShowProviderIconsAtom,
 } from "../preferences/atoms.js";
 import type { OrganizationMode } from "../../shared/preferences.js";
+import {
+  CustomizeRowActionsContext,
+  type StartCustomizingRowActions,
+} from "./customizeRowActionsContext.js";
 
 installTestPluginRuntime();
 const {
@@ -40,6 +44,7 @@ function setup(
   section = false,
   organization: OrganizationMode = "project",
   compact = false,
+  customizeRowActions: StartCustomizingRowActions | null = null,
 ) {
   const store = createStore();
   store.set(sidebarThreadLifecyclesAtom, ["active"]);
@@ -54,16 +59,18 @@ function setup(
     <Provider store={store}>
       <CompactViewportOverrideProvider isCompactViewport={compact}>
         <TooltipProvider>
-          <SidebarHeaderActionsProvider value={{ onNewSection: newSection }}>
-            <SidebarHeaderControls label={label} onNewThread={newThread}>
-              {section && (
-                <SidebarSectionMenuItems
-                  onRename={vi.fn()}
-                  onRemove={vi.fn()}
-                />
-              )}
-            </SidebarHeaderControls>
-          </SidebarHeaderActionsProvider>
+          <CustomizeRowActionsContext.Provider value={customizeRowActions}>
+            <SidebarHeaderActionsProvider value={{ onNewSection: newSection }}>
+              <SidebarHeaderControls label={label} onNewThread={newThread}>
+                {section && (
+                  <SidebarSectionMenuItems
+                    onRename={vi.fn()}
+                    onRemove={vi.fn()}
+                  />
+                )}
+              </SidebarHeaderControls>
+            </SidebarHeaderActionsProvider>
+          </CustomizeRowActionsContext.Provider>
         </TooltipProvider>
       </CompactViewportOverrideProvider>
     </Provider>,
@@ -171,7 +178,14 @@ describe("sidebar header controls", () => {
     await openMenu("Review");
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["New section", "Organize", "Sort by", "Filter", "Rename", "Remove"]);
+    ).toEqual([
+      "New section",
+      "Organize",
+      "Sort by",
+      "Filter",
+      "Rename",
+      "Remove",
+    ]);
     expect(screen.getAllByRole("separator")).toHaveLength(3);
     fireEvent.click(screen.getByRole("menuitem", { name: "New section" }));
     expect(newSection).toHaveBeenCalledOnce();
@@ -272,6 +286,35 @@ describe("sidebar header controls", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
+  it.each([
+    ["desktop submenu", false],
+    ["compact page", true],
+  ])(
+    "starts customizing row actions from the Organize Rows group on the %s",
+    async (_name, compact) => {
+      const customize = vi.fn();
+      setup("Pinned", false, "project", compact, customize);
+      if (compact) {
+        fireEvent.click(
+          screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+        );
+        fireEvent.click(
+          await screen.findByRole("menuitem", { name: "Organize" }),
+        );
+      } else {
+        await openMenu();
+        await openSubmenu("Organize");
+      }
+      fireEvent.click(
+        await screen.findByRole("menuitem", { name: "Customize actions" }),
+      );
+      await waitFor(() => expect(customize).toHaveBeenCalledTimes(1));
+      expect(customize).toHaveBeenCalledWith(
+        screen.getByRole("button", { name: /^Pinned actions/ }),
+      );
+    },
+  );
+
   it("resolves legacy sort, toggles direction, and resets it for another field", async () => {
     const { store } = setup();
     act(() => store.set(sidebarChronologicalSortAtom, "none"));
@@ -353,7 +396,9 @@ it.each([false, true])(
   async (compact) => {
     const { store } = setup("Pinned", false, "project", compact);
     if (compact) {
-      fireEvent.click(screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      );
       fireEvent.click(await screen.findByRole("menuitem", { name: "Filter" }));
     } else {
       await openMenu();

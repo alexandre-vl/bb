@@ -15,7 +15,6 @@ import {
 import { useComposedRefs } from "@radix-ui/react-compose-refs";
 import { useAtomValue } from "jotai";
 import { Icon } from "@/components/ui/icon";
-import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
 import {
   COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
   COARSE_POINTER_ROW_HEIGHT_CLASS,
@@ -40,7 +39,6 @@ import {
   experimental_ThreadActionsContextMenu as ThreadActionsContextMenu,
   experimental_ThreadActionsMenu as ThreadActionsMenu,
   experimental_ThreadStatusGlyph as ThreadStatusGlyph,
-  experimental_THREAD_ACTION_GROUPS,
   experimental_useThreadActions,
   experimental_useSidebarThreadSplit,
   experimental_ProviderIcon as ProviderIcon,
@@ -51,7 +49,6 @@ import {
   useSidebarThreadShortcut,
   useSdk,
   type PluginSidebarSplitPane,
-  type PluginThreadActionsInlineItem,
   type PluginThreadActionsTriggerProps,
   type PluginSidebarThreadRowStatus,
   type PluginProvidersState,
@@ -92,10 +89,7 @@ import { toThreadActionTarget } from "./threadActionTarget.js";
 import { useOpenThreadInSplit } from "./threadRowNavigation.js";
 import { Button } from "@/components/ui/button";
 import { COARSE_POINTER_ICON_SIZE_CLASS } from "@/components/ui/coarse-pointer-sizing";
-import {
-  useCustomizeThreadRowActions,
-  useThreadRowActionsCustomizing,
-} from "../list/customizeRowActionsContext.js";
+import { useThreadRowActionsCustomizing } from "../list/customizeRowActionsContext.js";
 import {
   ThreadRowActionsEditor,
   focusFirstRowActionSlot,
@@ -302,7 +296,6 @@ export function CollapsedThreadStatusGlyph({
 }
 
 const ARCHIVED_ROW_ACTION_KEYS = ["bb--core/archive"];
-const CUSTOMIZE_ROW_ACTIONS_KEY = "thread-list/customizeRowActions";
 
 function renderThreadActionsTrigger(props: PluginThreadActionsTriggerProps) {
   return (
@@ -447,27 +440,6 @@ function ThreadRowComponent({
       startEditing();
     },
   });
-  const customizeRowActions = useCustomizeThreadRowActions();
-  const isCompactViewport = useIsCompactViewport();
-  const pendingMenuCustomize = useRef<(() => void) | null>(null);
-  const inlineMenuActions: PluginThreadActionsInlineItem[] =
-    customizeRowActions === null
-      ? []
-      : [
-          {
-            key: CUSTOMIZE_ROW_ACTIONS_KEY,
-            group: experimental_THREAD_ACTION_GROUPS.settings,
-            action: {
-              label: "Customize actions",
-              icon: "FilterHorizontal",
-              run: () => {
-                const begin = () => customizeRowActions(thread.id);
-                if (isCompactViewport) begin();
-                else pendingMenuCustomize.current = begin;
-              },
-            },
-          },
-        ];
   const requestRenameFromMenu = () => {
     rename.startEditingFromMenu();
   };
@@ -580,16 +552,6 @@ function ThreadRowComponent({
     },
     [],
   );
-  const handleActionsMenuCloseAutoFocus = (event: Event) => {
-    const begin = pendingMenuCustomize.current;
-    if (begin) {
-      pendingMenuCustomize.current = null;
-      event.preventDefault();
-      begin();
-      return;
-    }
-    rename.onCloseAutoFocus(event);
-  };
   const showsProviderSlot = showProviderIcons && !hasChildren;
   const provider = showsProviderSlot
     ? providers.find((candidate) => candidate.id === thread.providerId)
@@ -727,13 +689,12 @@ function ThreadRowComponent({
               <ThreadActionsMenu
                 thread={actionTarget}
                 trigger={renderThreadActionsTrigger}
-                inline={inlineMenuActions}
                 requestRename={requestRenameFromMenu}
                 side="right"
                 align="start"
                 sideOffset={8}
                 onOpenChange={setIsDropdownActionsOpen}
-                onCloseAutoFocus={handleActionsMenuCloseAutoFocus}
+                onCloseAutoFocus={rename.onCloseAutoFocus}
               />
             </div>
             <span
@@ -806,13 +767,12 @@ function ThreadRowComponent({
                 <ThreadActionsMenu
                   thread={actionTarget}
                   trigger={renderThreadActionsTrigger}
-                  inline={inlineMenuActions}
                   requestRename={requestRenameFromMenu}
                   side="right"
                   align="start"
                   sideOffset={8}
                   onOpenChange={setIsDropdownActionsOpen}
-                  onCloseAutoFocus={handleActionsMenuCloseAutoFocus}
+                  onCloseAutoFocus={rename.onCloseAutoFocus}
                 />
               </SidebarRowControls>
             </div>
@@ -856,10 +816,9 @@ function ThreadRowComponent({
   return (
     <ThreadActionsContextMenu
       thread={actionTarget}
-      inline={inlineMenuActions}
       requestRename={requestRenameFromMenu}
       onOpenChange={setIsContextActionsOpen}
-      onCloseAutoFocus={handleActionsMenuCloseAutoFocus}
+      onCloseAutoFocus={rename.onCloseAutoFocus}
       disabled={isEditing}
       dragging={rowDragBindings?.isDragging ?? false}
     >
