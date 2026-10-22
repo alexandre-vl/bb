@@ -46,10 +46,6 @@ export const MarkdownLocalFileOpenTargetsContext = createContext<
   readonly WorkspaceOpenTarget[]
 >([]);
 
-export const MarkdownWebLinkClaimContext = createContext<
-  ((href: string) => boolean) | null
->(null);
-
 export interface MarkdownLocalFileLinkRouting {
   absoluteLinks: MarkdownAbsoluteLocalFileLinkRouting;
   onOpenLink: MarkdownPreviewLocalFileLinkHandler;

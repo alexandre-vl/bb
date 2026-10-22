@@ -2011,36 +2011,39 @@ Docs: `frontend-core-slots.md`.
 
 ## `PluginThreadPanelActionRegistration.experimental_claimUrl` (`@get-bb/plugin-sdk/app`)
 
-**Added 2026-10-22 (SDK 0.6.69).** One consumer: the GitHub plugin's GitHub
+**Added 2026-10-22 (SDK 0.6.70).** One consumer: the GitHub plugin's GitHub
 PR and GitHub issue tabs.
 
 A `threadPanelAction` claims web links its tab can show. A plain primary click
-on an http(s) link in Markdown inside a thread view (the timeline, and
-Markdown in its side panel, inline or hosted by a split pane) asks each
-action's claim in slot order, with a fresh `URL` each, before bb opens the
-link. The first claim that returns `{ title?, params? }` opens that action's
-tab with those options, as `openPanel` would, and `run` is not called. Null,
-or undefined, passes the link on to the next claim, then to the browser.
-Cmd-, Ctrl-, Shift-, and Alt-clicks skip claims, a claim the side panel
-declines falls back to the browser, and a claim that throws or returns
-anything but options or null is logged and skipped.
+on an http(s) link bb shows in a thread view (Markdown in the timeline and in
+its side panel, inline or hosted by a split pane, and the thread's pull
+request in the prompt banner and the Info tab) asks each action's claim in
+slot order, with a fresh `URL` each, before bb opens the link. The first claim
+that returns `{ title?, params? }` opens that action's tab with those options,
+as `openPanel` would, and `run` is not called. Null, or undefined, passes the
+link on to the next claim, then to the browser. Cmd-, Ctrl-, Shift-, and
+Alt-clicks skip claims, a claim the side panel declines falls back to the
+browser, and a claim that throws or returns anything but options or null is
+logged and skipped.
 
-**Core callers.** `MarkdownAnchor` offers plain web-link clicks to
-`MarkdownWebLinkClaimContext`, which `ThreadDetailView` provides around its
-timeline and its split-hosted side panel. `useOpenClaimedUrl` resolves the
+**Core callers.** `MarkdownAnchor`, the prompt banner's pull request link and
+the Info tab's Pull request row share `useOpenClaimedUrlOnClick`, which offers
+plain clicks to `PluginUrlClaimContext`; `ThreadDetailView` provides it around
+its timeline and its split-hosted side panel. `useOpenClaimedUrl` resolves the
 claim and opens the tab through `usePanelPluginPanels`, the opener that
 `useBbNavigate().openThreadPanel`, message actions, and timeline title actions
-use. `plugin-url-claims.test.tsx` covers resolution and
-`markdown-preview.test.tsx` the click contract.
+use. `plugin-url-claims.test.tsx` covers resolution, and
+`plugin-url-claims.surfaces.test.tsx` runs one click contract table against
+the three link surfaces.
 
 Docs: `frontend-core-slots.md`.
 
 **Audit before stabilizing.**
 
-1. **Link surfaces.** Only Markdown links in a thread view consult claims.
-   Decide whether terminal links, `UrlLink`, `useBbNavigate().openUrl`,
-   Markdown on the New thread screen, and bb's own pull request links in the
-   prompt banner and Info tab should route through the same claims.
+1. **Link surfaces.** Markdown links and the thread's pull request links
+   consult claims. Decide whether terminal links, `UrlLink`,
+   `useBbNavigate().openUrl`, and Markdown on the New thread screen should
+   too.
 2. **Conflicts.** The first claim in slot order wins: plugin id order, then
    registration order. Decide whether people need a preference per kind of
    link, like file openers' Open with, or a switch that turns claims off.
@@ -2055,6 +2058,45 @@ Docs: `frontend-core-slots.md`.
 5. **Slot placement.** Decide whether `experimental_newThreadPanelAction` and
    nav panels should claim links too, or a dedicated URL-claim slot should
    replace the per-action function.
+
+## `BbNavigate.openThreadPanel` `experimental_replace` (`@get-bb/plugin-sdk/app`)
+
+**Added 2026-10-22 (SDK 0.6.70).** One consumer: the GitHub plugin's GitHub
+PR and GitHub issue tabs, when a tab opened without params finds the thread's
+pull request, and when someone picks a pull request or issue in one.
+
+`useBbNavigate().openThreadPanel({ actionId, title?, params?,
+experimental_replace: true })` opens the tab in place of the side-panel tab
+the calling component renders in, so a tab that finds out what it shows takes
+that item's params, and a later open or claimed link with the same params
+focuses it. When a tab with those params is already open, bb focuses it and
+closes the calling tab. It returns false when the caller is not inside one of
+its own plugin's side-panel tabs (another plugin's content nested in the tab
+included), or once that tab has closed.
+
+**Core callers.** `PluginPanelTabContent` renders each plugin tab inside
+`PluginPanelTabContext`, which `useBbNavigate` reads to turn the flag into
+the tab's id, in the thread view and on the New thread screen. The opener
+passes it through `usePanelPluginPanels` and `createPanelActionOpenPanel` to
+`useThreadFileTabs().openPluginPanel`, whose `replaceSecondaryPanelTabInState`
+is the transition core uses when an item picked in the new-tab launcher
+replaces the launcher. `useThreadFileTabs.test.ts` covers the tab state,
+`usePanelPluginPanels.test.tsx` the opener on both surfaces, and
+`plugin-thread-panel-navigation.test.tsx` who may replace a tab.
+
+Docs: `frontend-hooks-and-ui.md`, `frontend-core-slots.md`.
+
+**Audit before stabilizing.**
+
+1. **Position.** A replacement keeps the tab's place, and a tab already open
+   keeps its own. Confirm people expect the merge to land on the existing
+   tab rather than where they were looking.
+2. **History.** A replaced tab is not offered by Reopen closed tab. Decide
+   whether back navigation inside a tab should restore the params it replaced.
+3. **Split panes.** The replacement becomes the active tab, as an item
+   picked in the new-tab launcher does, so a tab replaced while another pane
+   is focused lands in the focused pane. Confirm that is acceptable or carry
+   the pane over.
 
 ## `app.slots.experimental_newThreadPanelAction` (`@get-bb/plugin-sdk/app`)
 

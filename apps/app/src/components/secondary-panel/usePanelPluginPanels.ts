@@ -30,7 +30,7 @@ export function usePanelPluginPanels({
   slot,
 }: UsePanelPluginPanelsArgs): PluginThreadPanelOpenHandler {
   const openThreadPanel = useCallback<PluginThreadPanelOpenHandler>(
-    ({ pluginId, actionId, title, params }) => {
+    ({ pluginId, actionId, title, params, replaceTabId }) => {
       const action = actions.find(
         (candidate) =>
           candidate.pluginId === pluginId && candidate.id === actionId,
@@ -40,6 +40,7 @@ export function usePanelPluginPanels({
         action,
         slot,
         openPluginPanel,
+        replaceTabId,
       })({ title, params });
       if (accepted) reveal();
       return accepted;

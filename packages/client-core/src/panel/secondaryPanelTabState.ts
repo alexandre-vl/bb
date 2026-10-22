@@ -30,6 +30,12 @@ interface ReplaceNewTabWithSecondaryPanelTabInStateArgs {
   tab: FixedPanelTab;
 }
 
+interface ReplaceSecondaryPanelTabInStateArgs {
+  replacedTabId: string | undefined;
+  state: FixedPanelTabsState;
+  tab: FixedPanelTab;
+}
+
 interface UpdateSecondaryPanelTabInStateArgs {
   state: FixedPanelTabsState;
   tab: FixedPanelTab;
@@ -294,42 +300,57 @@ export function openSecondaryPanelTabInState({
   });
 }
 
-export function replaceNewTabWithSecondaryPanelTabInState({
+export function replaceSecondaryPanelTabInState({
+  replacedTabId,
   state,
   tab,
-}: ReplaceNewTabWithSecondaryPanelTabInStateArgs): FixedPanelTabsState {
-  const newTab = state.secondary.tabs.find(isNewTab) ?? null;
-  const tabsWithoutNewTab =
-    newTab === null
+}: ReplaceSecondaryPanelTabInStateArgs): FixedPanelTabsState {
+  const replacedTab =
+    replacedTabId === undefined
+      ? null
+      : findSecondaryPanelTab(state.secondary.tabs, replacedTabId);
+  const tabsWithoutReplacedTab =
+    replacedTab === null || replacedTab.id === tab.id
       ? state.secondary.tabs
-      : removeSecondaryPanelTab(state.secondary.tabs, newTab.id);
-  const existingPreviewTab = tabsWithoutNewTab.find(
+      : removeSecondaryPanelTab(state.secondary.tabs, replacedTab.id);
+  const existingTab = tabsWithoutReplacedTab.find(
     (currentTab) => currentTab.id === tab.id,
   );
 
-  if (existingPreviewTab) {
+  if (existingTab) {
     return setSecondaryPanelTabsInState({
-      replacedTabId: newTab?.id,
-      activeTabId: existingPreviewTab.id,
+      replacedTabId: replacedTab?.id,
+      activeTabId: existingTab.id,
       isOpen: true,
       state,
-      tabs: tabsWithoutNewTab,
+      tabs: tabsWithoutReplacedTab,
     });
   }
 
   const tabs =
-    newTab === null
-      ? upsertSecondaryPanelTab(tabsWithoutNewTab, tab, false)
+    replacedTab === null
+      ? upsertSecondaryPanelTab(tabsWithoutReplacedTab, tab, false)
       : state.secondary.tabs.map((currentTab) =>
-          currentTab.id === newTab.id ? tab : currentTab,
+          currentTab.id === replacedTab.id ? tab : currentTab,
         );
 
   return setSecondaryPanelTabsInState({
-    replacedTabId: newTab?.id,
+    replacedTabId: replacedTab?.id,
     activeTabId: tab.id,
     isOpen: true,
     state,
     tabs,
+  });
+}
+
+export function replaceNewTabWithSecondaryPanelTabInState({
+  state,
+  tab,
+}: ReplaceNewTabWithSecondaryPanelTabInStateArgs): FixedPanelTabsState {
+  return replaceSecondaryPanelTabInState({
+    replacedTabId: state.secondary.tabs.find(isNewTab)?.id,
+    state,
+    tab,
   });
 }
 

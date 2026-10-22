@@ -14,30 +14,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { highlightMarkdownCode } from "./markdown-code-highlight";
 import { MarkdownPreview } from "./markdown-preview";
 import { MARKDOWN_TABLE_START_OFFSET_VARIABLE } from "./markdown-table-breakout";
+import { PluginUrlClaimContext } from "@/components/plugin/plugin-url-claims";
 import {
   MarkdownLocalFileContextMenuContext,
   MarkdownLocalFileOpenTargetsContext,
-  MarkdownWebLinkClaimContext,
   type MarkdownLinkRouting,
 } from "./markdown-link-routing";
-
-const CLAIMABLE_HREF = "https://github.com/acme/app/pull/7";
-
-function renderClaimableLink(claimWebLink: (href: string) => boolean) {
-  const onOpenLink = vi.fn(() => true);
-  render(
-    <MarkdownWebLinkClaimContext.Provider value={claimWebLink}>
-      <MarkdownPreview
-        content={`See [the pull request](${CLAIMABLE_HREF}).`}
-        linkRouting={{ onOpenLink }}
-      />
-    </MarkdownWebLinkClaimContext.Provider>,
-  );
-  return {
-    link: screen.getByRole("link", { name: "the pull request" }),
-    onOpenLink,
-  };
-}
 
 const workspaceLinkRouting = {
   localFile: {
@@ -675,12 +657,12 @@ describe("MarkdownPreview", () => {
     const href = `${window.location.origin}/threads/thr_localhost`;
 
     render(
-      <MarkdownWebLinkClaimContext.Provider value={claimWebLink}>
+      <PluginUrlClaimContext.Provider value={claimWebLink}>
         <MarkdownPreview
           content={`Open [local thread](${href}).`}
           linkRouting={{ onOpenLink }}
         />
-      </MarkdownWebLinkClaimContext.Provider>,
+      </PluginUrlClaimContext.Provider>,
     );
 
     fireEvent.click(screen.getByRole("link", { name: "local thread" }));
@@ -690,38 +672,6 @@ describe("MarkdownPreview", () => {
     expect(
       screen.getByRole("link", { name: "local thread" }).getAttribute("href"),
     ).toBe(href);
-  });
-
-  it.each([
-    ["takes", true, 0],
-    ["declines", false, 1],
-  ])(
-    "offers a plain web-link click to the claim, which %s it",
-    (_name, claimed, browserOpens) => {
-      const claimWebLink = vi.fn(() => claimed);
-      const { link, onOpenLink } = renderClaimableLink(claimWebLink);
-
-      expect(fireEvent.click(link)).toBe(false);
-      expect(claimWebLink).toHaveBeenCalledExactlyOnceWith(CLAIMABLE_HREF);
-      expect(onOpenLink).toHaveBeenCalledTimes(browserOpens);
-    },
-  );
-
-  it.each([
-    ["Cmd", { metaKey: true }],
-    ["Ctrl", { ctrlKey: true }],
-    ["Shift", { shiftKey: true }],
-    ["Alt", { altKey: true }],
-  ])("leaves a %s-click on a claimable link to the browser", (_, keys) => {
-    const claimWebLink = vi.fn(() => true);
-    const { link, onOpenLink } = renderClaimableLink(claimWebLink);
-
-    fireEvent.click(link, keys);
-
-    expect(claimWebLink).not.toHaveBeenCalled();
-    expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({
-      href: CLAIMABLE_HREF,
-    });
   });
 
   it("routes editor file links to the local file handler with their editor", () => {

@@ -16,6 +16,7 @@ import {
   buildSuggestions,
   claimItemUrl,
   itemRefFromParams,
+  itemTabOptions,
   itemUrl,
   matchesQuery,
   parseQuery,
@@ -1890,99 +1891,182 @@ function ItemPickerList({
   );
 }
 
-function PullPanelTab({ threadId, params }: PluginThreadPanelProps) {
-  const linked = itemRefFromParams(params);
-  if (linked !== null) {
-    return <PullDetailView repo={linked.repo} number={linked.number} compact />;
-  }
-  return <ThreadPullPanel threadId={threadId} />;
+interface ThreadPull extends ItemRef {
+  environmentId: string | null;
 }
 
-function ThreadPullPanel({ threadId }: { threadId: string }) {
+const ITEM_PANEL_ACTION_IDS: Record<Item["kind"], string> = {
+  pr: "pull",
+  issue: "issue",
+};
+
+function isSameItem(a: ItemRef, b: ItemRef): boolean {
+  return a.repo === b.repo && a.number === b.number;
+}
+
+function useThreadPull(
+  threadId: string,
+  onResolved?: (pull: ThreadPull | null) => void,
+): ThreadPull | null | undefined {
   const rpc = useRpc<typeof githubRpcContract>();
-  const [resolved, setResolved] = useState(false);
-  const [selected, setSelected] = useState<{
-    repo: string;
-    number: number;
-    environmentId: string | null;
+  const onResolvedRef = useRef(onResolved);
+  const [lookup, setLookup] = useState<{
+    threadId: string;
+    pull: ThreadPull | null;
   } | null>(null);
 
   useEffect(() => {
+    onResolvedRef.current = onResolved;
+  });
+
+  useEffect(() => {
     let cancelled = false;
+    const resolve = (pull: ThreadPull | null) => {
+      if (cancelled) return;
+      setLookup({ threadId, pull });
+      onResolvedRef.current?.(pull);
+    };
     rpc.call("pullForThread", { threadId }).then(
-      (result) => {
-        if (cancelled) return;
-        if (result.pull !== null) setSelected(result.pull);
-        setResolved(true);
-      },
-      () => {
-        if (!cancelled) setResolved(true);
-      },
+      (result) => resolve(result.pull),
+      () => resolve(null),
     );
     return () => {
       cancelled = true;
     };
   }, [rpc, threadId]);
 
-  if (!resolved) {
+  return lookup?.threadId === threadId ? lookup.pull : undefined;
+}
+
+function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
+  const navigate = useBbNavigate();
+  return useCallback(
+    (item) =>
+      navigate.openThreadPanel({
+        actionId: ITEM_PANEL_ACTION_IDS[kind],
+        ...itemTabOptions(kind, item),
+        experimental_replace: true,
+      }),
+    [kind, navigate],
+  );
+}
+
+function PullPanelTab({ threadId, params }: PluginThreadPanelProps) {
+  const linked = itemRefFromParams(params);
+  if (linked === null) return <ThreadPullPanel threadId={threadId} />;
+  return (
+    <LinkedPullPanel
+      key={`${linked.repo}#${linked.number}`}
+      threadId={threadId}
+      pull={linked}
+    />
+  );
+}
+
+function LinkedPullPanel({
+  threadId,
+  pull,
+}: {
+  threadId: string;
+  pull: ItemRef;
+}) {
+  const threadPull = useThreadPull(threadId);
+  return (
+    <PullDetailView
+      repo={pull.repo}
+      number={pull.number}
+      compact
+      workspaceEnvironmentId={
+        threadPull !== undefined &&
+        threadPull !== null &&
+        isSameItem(threadPull, pull)
+          ? threadPull.environmentId
+          : null
+      }
+    />
+  );
+}
+
+function ThreadPullPanel({ threadId }: { threadId: string }) {
+  const showInThisTab = useShowItemInThisTab("pr");
+  const [choice, setChoice] = useState<"picker" | ThreadPull | null>(null);
+  const threadPull = useThreadPull(threadId, (pull) => {
+    if (pull !== null && !showInThisTab(pull)) setChoice(pull);
+  });
+
+  if (threadPull === undefined) {
     return <DetailSkeleton />;
   }
-  if (selected === null) {
+  const view = choice ?? (threadPull === null ? "picker" : null);
+  if (view === null) {
+    return <DetailSkeleton />;
+  }
+  if (view === "picker") {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">
-          No pull request is linked to this thread yet — pick one:
+          {threadPull === null
+            ? "No pull request is linked to this thread yet — pick one:"
+            : "Pick a pull request to show here:"}
         </p>
         <ItemPickerList
           kind="pr"
-          onPick={(repo, number) =>
-            setSelected({ repo, number, environmentId: null })
-          }
+          onPick={(repo, number) => {
+            const pull = { repo, number, environmentId: null };
+            if (!showInThisTab(pull)) setChoice(pull);
+          }}
         />
       </div>
     );
   }
   return (
     <PullDetailView
-      repo={selected.repo}
-      number={selected.number}
+      repo={view.repo}
+      number={view.number}
       compact
-      workspaceEnvironmentId={selected.environmentId}
+      workspaceEnvironmentId={view.environmentId}
       backLabel="All PRs"
-      onBack={() => setSelected(null)}
+      onBack={() => setChoice("picker")}
     />
   );
 }
 
 function IssuePanelTab({ params }: PluginThreadPanelProps) {
   const linked = itemRefFromParams(params);
-  if (linked !== null) {
-    return (
-      <IssueDetailView repo={linked.repo} number={linked.number} compact />
-    );
-  }
-  return <IssuePickerPanel />;
+  if (linked === null) return <IssuePickerPanel />;
+  return (
+    <IssueDetailView
+      key={`${linked.repo}#${linked.number}`}
+      repo={linked.repo}
+      number={linked.number}
+      compact
+    />
+  );
 }
 
 function IssuePickerPanel() {
-  const [selected, setSelected] = useState<ItemRef | null>(null);
-  if (selected === null) {
+  const showInThisTab = useShowItemInThisTab("issue");
+  const [shown, setShown] = useState<ItemRef | null>(null);
+  if (shown === null) {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">Pick an issue:</p>
         <ItemPickerList
           kind="issue"
-          onPick={(repo, number) => setSelected({ repo, number })}
+          onPick={(repo, number) => {
+            const issue = { repo, number };
+            if (!showInThisTab(issue)) setShown(issue);
+          }}
         />
       </div>
     );
   }
   return (
     <IssueDetailView
-      repo={selected.repo}
-      number={selected.number}
+      repo={shown.repo}
+      number={shown.number}
       compact
-      onBack={() => setSelected(null)}
+      onBack={() => setShown(null)}
     />
   );
 }

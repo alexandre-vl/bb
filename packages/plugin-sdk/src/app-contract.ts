@@ -1065,10 +1065,12 @@ export interface PluginThreadPanelActionRegistration {
   layout?: "padded" | "flush";
   /**
    * Claim web links this action's tab can show. A plain click on an http(s)
-   * link in Markdown inside a thread view (its messages, and Markdown in its
-   * side panel) calls this with the link's URL before bb opens it. Return
-   * the options `openPanel` takes to open this action's tab instead, or null
-   * (undefined counts as null) to leave the link to the browser. It runs on
+   * link bb shows in a thread view (Markdown in its messages and side panel,
+   * and the thread's pull request in the prompt banner and the Info tab)
+   * calls this with the link's URL before bb opens it. Return the options
+   * `openPanel` takes to open this action's tab instead, or null (undefined
+   * counts as null) to leave the link to the browser. Return the same params
+   * for the same resource, so a second click focuses its tab. It runs on
    * every such click, so keep it synchronous and cheap; `run` is not called.
    * Clicks with Cmd, Ctrl, Shift, or Alt still open the URL, and so does a
    * claim the side panel declines. When several actions claim a link, the
@@ -3957,7 +3959,21 @@ export interface BbNavigate {
    * commands and thread actions use the focused thread view's opener. Returns false when the surface has no side
    * panel actions (plugin pages) or the action is unavailable.
    */
-  openThreadPanel(options: PluginTargetedPanelActionOpenOptions): boolean;
+  openThreadPanel(
+    options: PluginTargetedPanelActionOpenOptions & {
+      /**
+       * Open it in place of the side-panel tab the calling component renders
+       * in, as `toPluginPanel`'s `replace` swaps a history entry: use it when
+       * a tab finds out what it shows, such as a picker's pick, so the tab
+       * takes that item's params and a later open of the same params focuses
+       * it. When a tab with those params is already open, bb focuses it and
+       * closes the calling tab. Returns false outside one of this plugin's
+       * side-panel tabs, or once that tab has closed. Experimental: see
+       * docs/api_to_audit.md.
+       */
+      experimental_replace?: boolean;
+    },
+  ): boolean;
   /**
    * Open an HTTP(S) URL using this client's BB browser preference. Returns
    * false for schemes the host does not own. Experimental: see

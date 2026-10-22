@@ -204,7 +204,10 @@ import {
 } from "@/components/plugin/PluginPanelActions";
 import { createFileOpenerOriginalTab } from "@/components/plugin/file-opener-tabs";
 import { PluginThreadPanelNavigationProvider } from "@/components/plugin/plugin-thread-panel-navigation";
-import { useOpenClaimedUrl } from "@/components/plugin/plugin-url-claims";
+import {
+  PluginUrlClaimContext,
+  useOpenClaimedUrl,
+} from "@/components/plugin/plugin-url-claims";
 import { ThreadTimelineNavigationProvider } from "@/components/thread/timeline/ThreadTimelineNavigationContext";
 import {
   AttachmentOpenerContext,
@@ -260,7 +263,6 @@ import {
 import {
   MarkdownLocalFileContextMenuContext,
   MarkdownLocalFileOpenTargetsContext,
-  MarkdownWebLinkClaimContext,
   type MarkdownLinkRouting,
   type MarkdownLocalFileContextMenuItem,
   type MarkdownLocalFileLinkRouting,
@@ -2788,11 +2790,15 @@ function ThreadDetailViewInternal(
                 <MarkdownLocalFileOpenTargetsContext.Provider
                   value={fileOpenTargets}
                 >
-                  <MarkdownWebLinkClaimContext.Provider value={openClaimedUrl}>
-                    <UrlOpenRoutingProvider openInAppBrowser={openBrowser}>
-                      {panel}
-                    </UrlOpenRoutingProvider>
-                  </MarkdownWebLinkClaimContext.Provider>
+                  <PluginUrlClaimContext.Provider value={openClaimedUrl}>
+                    <PluginThreadPanelNavigationProvider
+                      openThreadPanel={handleOpenTimelinePluginPanel}
+                    >
+                      <UrlOpenRoutingProvider openInAppBrowser={openBrowser}>
+                        {panel}
+                      </UrlOpenRoutingProvider>
+                    </PluginThreadPanelNavigationProvider>
+                  </PluginUrlClaimContext.Provider>
                 </MarkdownLocalFileOpenTargetsContext.Provider>
               </MarkdownLocalFileContextMenuContext.Provider>
             )}
@@ -2936,11 +2942,11 @@ function ThreadDetailViewInternal(
             <MarkdownLocalFileOpenTargetsContext.Provider
               value={fileOpenTargets}
             >
-              <MarkdownWebLinkClaimContext.Provider value={openClaimedUrl}>
+              <PluginUrlClaimContext.Provider value={openClaimedUrl}>
                 <AttachmentOpenerContext.Provider value={openAttachment}>
                   {threadDetailContent}
                 </AttachmentOpenerContext.Provider>
-              </MarkdownWebLinkClaimContext.Provider>
+              </PluginUrlClaimContext.Provider>
             </MarkdownLocalFileOpenTargetsContext.Provider>
           </PluginDetailPanelContext.Provider>
         </PluginThreadPanelNavigationProvider>

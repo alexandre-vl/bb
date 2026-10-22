@@ -1911,7 +1911,7 @@ describe("plugin thread panel actions", () => {
     openPluginPanel,
   }: {
     threadId: string | null;
-    openPluginPanel: (args: OpenPluginPanelArgs) => void;
+    openPluginPanel: (args: OpenPluginPanelArgs) => boolean;
   }) {
     const entries = usePluginPanelActions({ openPluginPanel, threadId });
     return (
@@ -1953,9 +1953,10 @@ describe("plugin thread panel actions", () => {
         <>
           <ActionsProbe
             threadId="thr_9"
-            openPluginPanel={(args) =>
-              setTab(createPluginPanelFixedPanelTab(args))
-            }
+            openPluginPanel={(args) => {
+              setTab(createPluginPanelFixedPanelTab(args));
+              return true;
+            }}
           />
           {tab ? (
             <PluginPanelTabContent
@@ -2055,11 +2056,11 @@ describe("plugin thread panel actions", () => {
 
     function BothActionsHarness() {
       const threadEntries = usePluginPanelActions({
-        openPluginPanel: () => undefined,
+        openPluginPanel: () => true,
         threadId: "thr_9",
       });
       const rootEntries = usePluginNewThreadPanelActions({
-        openPluginPanel: () => undefined,
+        openPluginPanel: () => true,
         projectId: "proj_1",
       });
       return (
@@ -2122,7 +2123,10 @@ describe("plugin thread panel actions", () => {
         typeof createPluginPanelFixedPanelTab
       > | null>(null);
       const entries = usePluginNewThreadPanelActions({
-        openPluginPanel: (args) => setTab(createPluginPanelFixedPanelTab(args)),
+        openPluginPanel: (args) => {
+          setTab(createPluginPanelFixedPanelTab(args));
+          return true;
+        },
         projectId: "proj_1",
       });
       const actions = useNewTabActions({

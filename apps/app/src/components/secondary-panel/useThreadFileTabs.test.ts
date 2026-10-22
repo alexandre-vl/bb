@@ -1138,6 +1138,112 @@ describe("useThreadFileTabs plugin panel tabs", () => {
     });
   });
 
+  it.each([
+    {
+      name: "takes the calling tab's place",
+      openTarget: false,
+      expectedOrder: ["Issue #2", "Notes"],
+    },
+    {
+      name: "closes the calling tab and focuses the tab already showing it",
+      openTarget: true,
+      expectedOrder: ["Notes", "Issue #2"],
+    },
+  ])(
+    "a plugin tab that replaces itself $name",
+    ({ openTarget, expectedOrder }) => {
+      const threadId = `plugin-panel-replace-${String(openTarget)}`;
+      const { result } = renderThreadHook(() =>
+        useThreadFileTabsWithActiveTab({
+          panelStateId: threadId,
+          syncThreadId: threadId,
+          environmentId: "env_1",
+          storageFiles: undefined,
+          terminalSessions: undefined,
+        }),
+      );
+      const issue = (n: number) => ({
+        pluginId: "demo",
+        actionId: "issue",
+        title: `Issue #${n}`,
+        paramsJson: JSON.stringify({ n }),
+      });
+      act(() => {
+        result.current.openPluginPanel({
+          pluginId: "demo",
+          actionId: "issue",
+          title: "Picker",
+          paramsJson: null,
+        });
+        result.current.openPluginPanel({
+          pluginId: "demo",
+          actionId: "notes",
+          title: "Notes",
+          paramsJson: null,
+        });
+        if (openTarget) result.current.openPluginPanel(issue(2));
+      });
+      const caller = result.current.orderedSecondaryFileTabs[0];
+      act(() => result.current.activateTab(caller?.id ?? ""));
+
+      let replaced = false;
+      act(() => {
+        replaced = result.current.openPluginPanel({
+          ...issue(2),
+          replaceTabId: caller?.id,
+        });
+      });
+
+      expect(replaced).toBe(true);
+      expect(
+        result.current.orderedSecondaryFileTabs.map((tab) =>
+          tab.kind === "plugin-panel" ? tab.title : tab.kind,
+        ),
+      ).toEqual(expectedOrder);
+      expect(result.current.activeTab).toMatchObject({
+        kind: "plugin-panel",
+        paramsJson: JSON.stringify({ n: 2 }),
+      });
+    },
+  );
+
+  it("declines to replace a tab that has closed", () => {
+    const threadId = "plugin-panel-replace-closed";
+    const { result } = renderThreadHook(() =>
+      useThreadFileTabsWithActiveTab({
+        panelStateId: threadId,
+        syncThreadId: threadId,
+        environmentId: "env_1",
+        storageFiles: undefined,
+        terminalSessions: undefined,
+      }),
+    );
+    act(() => {
+      result.current.openPluginPanel({
+        pluginId: "demo",
+        actionId: "issue",
+        title: "Picker",
+        paramsJson: null,
+      });
+    });
+    const caller = result.current.activeTab;
+    act(() => result.current.closeTab(caller?.id ?? ""));
+
+    let replaced = true;
+    act(() => {
+      replaced = result.current.openPluginPanel({
+        pluginId: "demo",
+        actionId: "issue",
+        title: "Issue #2",
+        paramsJson: '{"n":2}',
+        replaceTabId: caller?.id,
+      });
+    });
+
+    expect(replaced).toBe(false);
+    expect(result.current.orderedSecondaryFileTabs).toEqual([]);
+  });
+
   it("replaces a transient new-tab like the other launchers", () => {
     const threadId = "plugin-panel-replace-new-tab";
     const { result } = renderThreadHook(() =>

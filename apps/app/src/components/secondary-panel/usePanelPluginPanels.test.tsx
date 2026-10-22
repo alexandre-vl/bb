@@ -28,8 +28,12 @@ const SURFACES: readonly SurfaceCase[] = [
   },
 ];
 
-function renderSurface(surface: SurfaceCase, isFocused = true) {
-  const openPluginPanel = vi.fn();
+function renderSurface(
+  surface: SurfaceCase,
+  isFocused = true,
+  tabStateAccepts = true,
+) {
+  const openPluginPanel = vi.fn(() => tabStateAccepts);
   const reveal = vi.fn();
   const openThreadPanel = renderHookStatically(() =>
     usePanelPluginPanels({
@@ -87,6 +91,35 @@ describe.each(SURFACES)("panel plugin tabs on the $name", (surface) => {
     ).toBe(false);
     expect(openPluginPanel).not.toHaveBeenCalled();
     expect(reveal).not.toHaveBeenCalled();
+  });
+
+  it("replaces the calling tab when asked, and reports a tab state decline", () => {
+    const accepted = renderSurface(surface);
+    expect(
+      accepted.openThreadPanel({
+        pluginId: "demo",
+        actionId: "board",
+        params: { id: 7 },
+        replaceTabId: "plugin-panel:demo:board:",
+      }),
+    ).toBe(true);
+    expect(accepted.openPluginPanel).toHaveBeenCalledWith({
+      pluginId: "demo",
+      actionId: "board",
+      title: "Board",
+      paramsJson: JSON.stringify({ id: 7 }),
+      replaceTabId: "plugin-panel:demo:board:",
+    });
+
+    const declined = renderSurface(surface, true, false);
+    expect(
+      declined.openThreadPanel({
+        pluginId: "demo",
+        actionId: "board",
+        replaceTabId: "closed",
+      }),
+    ).toBe(false);
+    expect(declined.reveal).not.toHaveBeenCalled();
   });
 
   it("publishes itself as the plugin command opener only while focused", () => {

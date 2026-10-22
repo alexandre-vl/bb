@@ -47,16 +47,24 @@ function githubItemFromUrl(
   return Number.isSafeInteger(parsed) ? { kind, repo, number: parsed } : null;
 }
 
+export function itemTabOptions(
+  kind: Item["kind"],
+  item: ItemRef,
+): PluginPanelActionOpenOptions {
+  return {
+    title: `${kind === "pr" ? "PR" : "Issue"} #${item.number}`,
+    params: { repo: item.repo, number: item.number },
+  };
+}
+
 export function claimItemUrl(
   kind: Item["kind"],
   url: URL,
 ): PluginPanelActionOpenOptions | null {
   const item = githubItemFromUrl(url);
-  if (item === null || item.kind !== kind) return null;
-  return {
-    title: `${kind === "pr" ? "PR" : "Issue"} #${item.number}`,
-    params: { repo: item.repo, number: item.number },
-  };
+  return item === null || item.kind !== kind
+    ? null
+    : itemTabOptions(kind, item);
 }
 
 export function itemRefFromParams(params: JsonValue | null): ItemRef | null {

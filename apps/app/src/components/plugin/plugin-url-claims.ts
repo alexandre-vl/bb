@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { createContext, useCallback, useContext } from "react";
 import { z } from "zod";
 import { jsonValueSchema } from "@bb/domain";
 import type { PluginPanelActionOpenOptions } from "@get-bb/plugin-sdk";
@@ -7,9 +7,19 @@ import {
   usePluginSlots,
   type PluginThreadPanelActionSlot,
 } from "@/lib/plugin-slots";
+import {
+  isPlainPrimaryClick,
+  useUrlAnchorClickHandler,
+  type UrlAnchorClickEvent,
+  type UrlAnchorClickHandler,
+} from "@/lib/url-open-routing";
 import type { PluginThreadPanelOpenHandler } from "./plugin-thread-panel-navigation";
 
 type PluginUrlClaim = Parameters<PluginThreadPanelOpenHandler>[0];
+
+export const PluginUrlClaimContext = createContext<
+  ((href: string) => boolean) | null
+>(null);
 
 const claimedOpenOptionsSchema = z.object({
   title: z.string().optional(),
@@ -78,5 +88,40 @@ export function useOpenClaimedUrl(
       return claim !== null && latest.openThreadPanel(claim);
     },
     [latestRef],
+  );
+}
+
+export function useOpenClaimedUrlOnClick(): (
+  event: UrlAnchorClickEvent,
+  href: string,
+) => boolean {
+  const openClaimedUrl = useContext(PluginUrlClaimContext);
+  return useCallback(
+    (event, href) => {
+      if (
+        openClaimedUrl === null ||
+        !isPlainPrimaryClick(event) ||
+        !openClaimedUrl(href)
+      ) {
+        return false;
+      }
+      event.preventDefault();
+      return true;
+    },
+    [openClaimedUrl],
+  );
+}
+
+export function useClaimableUrlAnchorClickHandler(
+  url: string | undefined,
+): UrlAnchorClickHandler {
+  const openClaimedUrlOnClick = useOpenClaimedUrlOnClick();
+  const handleUrlClick = useUrlAnchorClickHandler(url);
+  return useCallback(
+    (event) => {
+      if (url !== undefined && openClaimedUrlOnClick(event, url)) return;
+      handleUrlClick(event);
+    },
+    [handleUrlClick, openClaimedUrlOnClick, url],
   );
 }

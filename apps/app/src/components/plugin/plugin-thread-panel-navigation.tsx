@@ -6,16 +6,25 @@ import {
   type ReactNode,
   useContext,
 } from "react";
-import type { BbNavigate } from "@get-bb/plugin-sdk";
+import type { PluginTargetedPanelActionOpenOptions } from "@get-bb/plugin-sdk";
 
 export type PluginThreadPanelOpenHandler = (
-  options: Parameters<BbNavigate["openThreadPanel"]>[0] & {
+  options: PluginTargetedPanelActionOpenOptions & {
     pluginId: string;
+    replaceTabId?: string;
   },
 ) => boolean;
 
+export interface PluginPanelTabIdentity {
+  pluginId: string;
+  tabId: string;
+}
+
 const PluginThreadPanelNavigationContext =
   createContext<PluginThreadPanelOpenHandler | null>(null);
+
+export const PluginPanelTabContext =
+  createContext<PluginPanelTabIdentity | null>(null);
 
 export function PluginThreadPanelNavigationProvider({
   children,
@@ -33,6 +42,10 @@ export function PluginThreadPanelNavigationProvider({
 
 export function usePluginThreadPanelOpenHandler(): PluginThreadPanelOpenHandler | null {
   return useContext(PluginThreadPanelNavigationContext);
+}
+
+export function usePluginPanelTab(): PluginPanelTabIdentity | null {
+  return useContext(PluginPanelTabContext);
 }
 
 const focusedOpeners = new Map<symbol, PluginThreadPanelOpenHandler>();

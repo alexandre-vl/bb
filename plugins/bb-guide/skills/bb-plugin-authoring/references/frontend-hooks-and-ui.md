@@ -43,15 +43,22 @@ Hooks:
   and in `renderSlot`.
 - `useBbNavigate()` → `{ toThread(id), toProject(id), toPluginPanel(path,
 { subPath?, replace? }?), toCompose({ initialPrompt?, focusPrompt? }?),
-openThreadPanel({ actionId, title?, params? }), openUrl(url),
-experimental_openFilePreview(options), experimental_openFileExternally(options),
-experimental_openTerminal({ terminalId }) }`.
+openThreadPanel({ actionId, title?, params?, experimental_replace? }),
+openUrl(url), experimental_openFilePreview(options),
+experimental_openFileExternally(options), experimental_openTerminal({
+terminalId }) }`.
   `toCompose` opens the root compose screen; pass `initialPrompt` to seed the
   composer draft and `focusPrompt: true` to focus it. The panel
   opener opens one of the current plugin's registered `threadPanelAction` tabs
   in a thread, or its `experimental_newThreadPanelAction` tabs on the New
   thread screen, and returns whether the host accepted it; it returns false on
-  plugin pages, which have no panel actions.
+  plugin pages, which have no panel actions. With `experimental_replace: true`
+  it opens the tab in place of the side-panel tab the calling component
+  renders in, the way `toPluginPanel`'s `replace` swaps a history entry: a
+  picker or lookup tab becomes the tab of what it found. When a tab with
+  those params is already open, bb focuses it and closes the calling tab. It
+  returns false outside one of the plugin's own side-panel tabs, or once that
+  tab has closed. Experimental: see `docs/api_to_audit.md`.
   `openUrl` owns HTTP(S) only and returns false for schemes BB
   leaves to normal anchor behavior. The two file methods accept an
   `ExperimentalFileOpenOptions` live-file target.

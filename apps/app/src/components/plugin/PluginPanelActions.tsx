@@ -17,6 +17,7 @@ import {
   parseFileOpenerParams,
 } from "./file-opener-tabs";
 import { PluginSlotMount } from "./PluginSlotMount";
+import { PluginPanelTabContext } from "./plugin-thread-panel-navigation";
 import { PluginReplacementSlot } from "./PluginReplacementSlot";
 import { resolveReplacement } from "@/lib/plugin-slot-resolvers";
 
@@ -25,9 +26,10 @@ export interface OpenPluginPanelArgs {
   actionId: string;
   title: string;
   paramsJson: string | null;
+  replaceTabId?: string;
 }
 
-export type OpenPluginPanelHandler = (args: OpenPluginPanelArgs) => void;
+export type OpenPluginPanelHandler = (args: OpenPluginPanelArgs) => boolean;
 
 export interface PluginPanelActionEntry {
   id: string;
@@ -45,12 +47,14 @@ interface PanelActionOpenPanelArgs {
   action: { pluginId: string; id: string; title: string };
   slot: string;
   openPluginPanel: OpenPluginPanelHandler;
+  replaceTabId?: string;
 }
 
 export function createPanelActionOpenPanel({
   action,
   slot,
   openPluginPanel,
+  replaceTabId,
 }: PanelActionOpenPanelArgs): (
   options?: PluginPanelActionOpenOptions,
 ) => boolean {
@@ -64,13 +68,13 @@ export function createPanelActionOpenPanel({
       );
       return false;
     }
-    openPluginPanel({
+    return openPluginPanel({
       pluginId: action.pluginId,
       actionId: action.id,
       title: options?.title ?? action.title,
       paramsJson,
+      ...(replaceTabId === undefined ? {} : { replaceTabId }),
     });
-    return true;
   };
 }
 
@@ -264,6 +268,24 @@ function usePersistedActionParams(tab: PluginPanelFixedPanelTab) {
   );
 }
 
+function PluginPanelTabProvider({
+  tab,
+  children,
+}: {
+  tab: PluginPanelFixedPanelTab;
+  children: ReactNode;
+}) {
+  const identity = useMemo(
+    () => ({ pluginId: tab.pluginId, tabId: tab.id }),
+    [tab.id, tab.pluginId],
+  );
+  return (
+    <PluginPanelTabContext.Provider value={identity}>
+      {children}
+    </PluginPanelTabContext.Provider>
+  );
+}
+
 function ThreadActionTabContent({
   tab,
   threadId,
@@ -290,7 +312,9 @@ function ThreadActionTabContent({
         slotKind="threadPanelAction"
         slotId={action.id}
       >
-        <action.component threadId={threadId} params={params} />
+        <PluginPanelTabProvider tab={tab}>
+          <action.component threadId={threadId} params={params} />
+        </PluginPanelTabProvider>
       </PluginSlotMount>
     </PanelActionTabFrame>
   );
@@ -322,7 +346,9 @@ function NewThreadActionTabContent({
         slotKind="newThreadPanelAction"
         slotId={action.id}
       >
-        <action.component projectId={projectId} params={params} />
+        <PluginPanelTabProvider tab={tab}>
+          <action.component projectId={projectId} params={params} />
+        </PluginPanelTabProvider>
       </PluginSlotMount>
     </PanelActionTabFrame>
   );

@@ -212,16 +212,22 @@ target? })`. Inside the fixed-tab component,
   persistence) and re-fetch fresh data by id rather than embedding whole
   payloads in params.
   `experimental_claimUrl(url: URL)` claims web links the tab can show. A
-  plain click on an http(s) link in Markdown inside a thread view (its
-  messages, and Markdown in its side panel) calls it before bb opens the
-  link; return `openPanel` options (`{ title?, params? }`) to open this
-  action's tab instead, or null (undefined counts as null) to leave the link
-  to the browser. Keep it synchronous and cheap: it runs on every such click,
-  and `run` is not called. Cmd-, Ctrl-, Shift-, and Alt-clicks still open
-  the URL, as does a claim the side panel declines. The first claiming action
-  in slot order wins; a claim that throws or returns anything but options or
+  plain click on an http(s) link bb shows in a thread view (Markdown in its
+  messages and side panel, and the thread's pull request in the prompt
+  banner and the Info tab) calls it before bb opens the link; return
+  `openPanel` options (`{ title?, params? }`) to open this action's tab
+  instead, or null (undefined counts as null) to leave the link to the
+  browser. Keep it synchronous and cheap: it runs on every such click, and
+  `run` is not called. Cmd-, Ctrl-, Shift-, and Alt-clicks still open the
+  URL, as does a claim the side panel declines. The first claiming action in
+  slot order wins; a claim that throws or returns anything but options or
   null is logged and skipped. Return the same `params` for the same resource
   so a second click focuses its tab. Experimental: see `docs/api_to_audit.md`.
+  A tab that finds out what it shows after it opens, such as a picker or a
+  tab opened without params that looks up the thread's item, calls
+  `useBbNavigate().openThreadPanel({ actionId, title, params,
+experimental_replace: true })` to become that item's tab, so a claimed link
+  to the same item focuses it rather than opening a second tab.
 - `experimental_newThreadPanelAction` → the root New thread counterpart to
   `threadPanelAction`. It appears in that screen's right-panel Actions list
   and never appears beside an existing thread. Registration has the same

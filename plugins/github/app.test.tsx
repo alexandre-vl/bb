@@ -130,7 +130,7 @@ describe("GitHub app navigation", () => {
   it("keeps removed pull-request files out of live workspace navigation", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: null },
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
       {
         rpc: {
           pullForThread: () => ({
@@ -282,6 +282,94 @@ describe("GitHub links opened from a thread", () => {
     slot.lifecycle.unmount();
   });
 
+  it.each([
+    ["takes its place", true, null],
+    ["shows it inline when bb declines", false, "Thread PR"],
+  ])(
+    "a tab opened without params finds this thread's pull request and %s",
+    async (_name, accepted, inlineTitle) => {
+      const slot = renderSlot(
+        threadPanelAction("pull"),
+        { threadId: "thr-1", params: null },
+        {
+          rpc: {
+            pullForThread: () => ({
+              pull: { repo: "get-bb/bb", number: 42, environmentId: "env-1" },
+            }),
+            getPull: () => ({ pull: pullDetail({ title: "Thread PR" }) }),
+            listLinks: () => ({ links: {} }),
+          },
+          openThreadPanel: () => accepted,
+        },
+      );
+
+      await act(async () => {});
+      expect(slot.navigateCalls).toEqual([
+        {
+          method: "openThreadPanel",
+          options: {
+            actionId: "pull",
+            title: "PR #42",
+            params: { repo: "get-bb/bb", number: 42 },
+            experimental_replace: true,
+          },
+        },
+      ]);
+      if (inlineTitle === null) {
+        expect(slot.queryByText("Thread PR")).toBeNull();
+      } else {
+        expect(await slot.findByText(inlineTitle)).toBeTruthy();
+      }
+      slot.lifecycle.unmount();
+    },
+  );
+
+  it("replaces the tab with the pull request picked in it", async () => {
+    const slot = renderSlot(
+      threadPanelAction("pull"),
+      { threadId: "thr-1", params: null },
+      {
+        rpc: {
+          pullForThread: () => ({ pull: null }),
+          listItems: () => ({
+            items: [
+              {
+                repo: "get-bb/bb",
+                number: 9,
+                kind: "pr",
+                title: "Open PR",
+                state: "OPEN",
+                author: "octocat",
+                labels: [],
+                assignees: [],
+                url: "https://github.com/get-bb/bb/pull/9",
+                body: "",
+                updatedAt: "2026-08-20T00:00:00.000Z",
+              },
+            ],
+          }),
+          listLinks: () => ({ links: {} }),
+        },
+        openThreadPanel: () => true,
+      },
+    );
+
+    const openPull = await slot.findByText("Open PR");
+    await act(async () => openPull.click());
+    expect(slot.navigateCalls).toEqual([
+      {
+        method: "openThreadPanel",
+        options: {
+          actionId: "pull",
+          title: "PR #9",
+          params: { repo: "get-bb/bb", number: 9 },
+          experimental_replace: true,
+        },
+      },
+    ]);
+    slot.lifecycle.unmount();
+  });
+
   it("shows the linked issue, and offers open issues when opened without one", async () => {
     const getIssue = vi.fn((input: unknown) => {
       const number = requestedNumber(input);
@@ -334,6 +422,17 @@ describe("GitHub links opened from a thread", () => {
     expect(getIssue.mock.calls).toEqual([
       [{ repo: "get-bb/bb", number: 7 }],
       [{ repo: "get-bb/bb", number: 9 }],
+    ]);
+    expect(picker.navigateCalls).toEqual([
+      {
+        method: "openThreadPanel",
+        options: {
+          actionId: "issue",
+          title: "Issue #9",
+          params: { repo: "get-bb/bb", number: 9 },
+          experimental_replace: true,
+        },
+      },
     ]);
     picker.lifecycle.unmount();
   });
