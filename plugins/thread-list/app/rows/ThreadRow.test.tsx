@@ -59,8 +59,7 @@ const {
   resetSidebarTitleDoubleClickForTest,
   SidebarProvidersContext,
   ThreadRow,
-} =
-  await import("./ThreadRow.js");
+} = await import("./ThreadRow.js");
 
 const DEFAULT_OPTIONS: ThreadRowOptions = {
   kind: "default",
@@ -70,7 +69,11 @@ const DEFAULT_OPTIONS: ThreadRowOptions = {
 function createThread(
   overrides: Partial<PluginSidebarThread> = {},
 ): PluginSidebarThread {
-  return makeSidebarThread({ lastReadAt: 1, latestAttentionAt: 1, ...overrides });
+  return makeSidebarThread({
+    lastReadAt: 1,
+    latestAttentionAt: 1,
+    ...overrides,
+  });
 }
 
 function activity(
@@ -122,35 +125,35 @@ function ThreadRowHarness({
   const content = (
     <SidebarProjectsContext.Provider value={projects}>
       <SidebarProvidersContext.Provider value={providers}>
-      <TooltipProvider>
-      <SidebarDraftPresenceSync />
-      <ThreadRowNavigationProvider>
-        <SidebarRenameProvider>
-          <CustomizeRowActionsContext.Provider
-            value={onCustomizeRowActions ?? null}
-          >
-            <ThreadRowActionsCustomizingContext.Provider
-              value={
-                onFinishCustomizingRowActions
-                  ? {
-                      threadId: thread.id,
-                      onDone: onFinishCustomizingRowActions,
-                    }
-                  : null
-              }
-            >
-              <div
-                onPointerDown={onRowEvent}
-                onKeyDown={onRowEvent}
-                onClick={onRowEvent}
+        <TooltipProvider>
+          <SidebarDraftPresenceSync />
+          <ThreadRowNavigationProvider>
+            <SidebarRenameProvider>
+              <CustomizeRowActionsContext.Provider
+                value={onCustomizeRowActions ?? null}
               >
-                {row}
-              </div>
-            </ThreadRowActionsCustomizingContext.Provider>
-          </CustomizeRowActionsContext.Provider>
-        </SidebarRenameProvider>
-      </ThreadRowNavigationProvider>
-      </TooltipProvider>
+                <ThreadRowActionsCustomizingContext.Provider
+                  value={
+                    onFinishCustomizingRowActions
+                      ? {
+                          threadId: thread.id,
+                          onDone: onFinishCustomizingRowActions,
+                        }
+                      : null
+                  }
+                >
+                  <div
+                    onPointerDown={onRowEvent}
+                    onKeyDown={onRowEvent}
+                    onClick={onRowEvent}
+                  >
+                    {row}
+                  </div>
+                </ThreadRowActionsCustomizingContext.Provider>
+              </CustomizeRowActionsContext.Provider>
+            </SidebarRenameProvider>
+          </ThreadRowNavigationProvider>
+        </TooltipProvider>
       </SidebarProvidersContext.Provider>
     </SidebarProjectsContext.Provider>
   );
@@ -541,9 +544,7 @@ describe("ThreadRow", () => {
         button.getAttribute("aria-label"),
       ),
     ).toEqual(["Pin", "Copy link", "Archive", "Thread actions"]);
-    expect(
-      titleMaskInset(),
-    ).toBe("110px");
+    expect(titleMaskInset()).toBe("110px");
     fireEvent.click(screen.getByRole("button", { name: "Pin" }));
     await waitFor(() =>
       expect(ran).toEqual([{ key: "bb--core/pin", threadId: "thr_test" }]),
@@ -563,9 +564,7 @@ describe("ThreadRow", () => {
       screen.queryByRole("button", { name: "Move to section" }),
     ).toBeNull();
     expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
-    expect(
-      titleMaskInset(),
-    ).toBe("50px");
+    expect(titleMaskInset()).toBe("50px");
   });
 
   it("shows only the actions menu when every row action is turned off", () => {
@@ -573,9 +572,7 @@ describe("ThreadRow", () => {
     renderThreadRow();
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
     expect(screen.getByRole("button", { name: "Thread actions" })).toBeTruthy();
-    expect(
-      titleMaskInset(),
-    ).toBe("20px");
+    expect(titleMaskInset()).toBe("20px");
   });
 
   it.each([
@@ -611,9 +608,7 @@ describe("ThreadRow", () => {
       if (surface === "dropdown") {
         fireEvent.click(screen.getByRole("button", { name: "Thread actions" }));
       } else {
-        fireEvent.contextMenu(
-          screen.getByRole("treeitem", { name: "Thread" }),
-        );
+        fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Thread" }));
       }
       fireEvent.click(
         await screen.findByRole("menuitem", { name: "Customize actions" }),
@@ -652,9 +647,7 @@ describe("ThreadRow", () => {
       if (surface === "dropdown") {
         fireEvent.click(screen.getByRole("button", { name: "Thread actions" }));
       } else {
-        fireEvent.contextMenu(
-          screen.getByRole("treeitem", { name: "Thread" }),
-        );
+        fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Thread" }));
       }
       fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
       const input = await screen.findByRole("textbox", { name: "Thread name" });
@@ -750,7 +743,10 @@ describe("ThreadRow", () => {
 
   it.each([
     ["idle", createThread()],
-    ["unread error only", createThread({ status: "error", latestAttentionAt: 2 })],
+    [
+      "unread error only",
+      createThread({ status: "error", latestAttentionAt: 2 }),
+    ],
   ])("keeps the split map static for %s", (_label, thread) => {
     renderSplitThreadRow({ thread });
 
@@ -1196,13 +1192,13 @@ describe("ThreadRow", () => {
     expect(tier?.getAttribute("style")).toContain(
       "calc(var(--bb-sidebar-tree-step) * 2)",
     );
-    expect(tier?.firstElementChild?.hasAttribute("data-sidebar-tree-item")).toBe(
-      true,
-    );
     expect(
-      tier?.querySelector("[data-sidebar-tree-chevron]")?.getAttribute(
-        "aria-expanded",
-      ),
+      tier?.firstElementChild?.hasAttribute("data-sidebar-tree-item"),
+    ).toBe(true);
+    expect(
+      tier
+        ?.querySelector("[data-sidebar-tree-chevron]")
+        ?.getAttribute("aria-expanded"),
     ).toBe("true");
   });
 

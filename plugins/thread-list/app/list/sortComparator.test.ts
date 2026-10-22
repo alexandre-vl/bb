@@ -152,17 +152,11 @@ describe("getSidebarThreadComparator", () => {
       ];
 
       expect(
-        order(
-          getSidebarThreadComparator(sort, "ascending"),
-          entries,
-        ),
+        order(getSidebarThreadComparator(sort, "ascending"), entries),
       ).toEqual(["active_old", "active_new", "idle_old", "idle_new"]);
       for (const direction of ["default", "descending"] as const) {
         expect(
-          order(
-            getSidebarThreadComparator(sort, direction),
-            entries,
-          ),
+          order(getSidebarThreadComparator(sort, direction), entries),
         ).toEqual(["active_new", "active_old", "idle_new", "idle_old"]);
       }
     },

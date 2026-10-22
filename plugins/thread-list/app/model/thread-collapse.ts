@@ -17,10 +17,7 @@ export function collapsedParentIds(
   return collapsed;
 }
 
-export function toggleThreadId(
-  ids: readonly string[],
-  id: string,
-): string[] {
+export function toggleThreadId(ids: readonly string[], id: string): string[] {
   return ids.includes(id)
     ? ids.filter((current) => current !== id)
     : [...ids, id];

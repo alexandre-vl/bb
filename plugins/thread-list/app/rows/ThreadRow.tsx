@@ -207,7 +207,8 @@ export const REORDER_PLACEMENT_CLASS: Record<SidebarReorderPlacement, string> =
 
 function getHoverActionsWidth(actionCount: number): number {
   return (
-    HOVER_ACTION_WIDTH_PX * (actionCount + 1) + HOVER_ACTION_GAP_PX * actionCount
+    HOVER_ACTION_WIDTH_PX * (actionCount + 1) +
+    HOVER_ACTION_GAP_PX * actionCount
   );
 }
 
@@ -658,7 +659,9 @@ function ThreadRowComponent({
           "pointer-events-none relative flex min-w-0 flex-1 items-center self-stretch",
           !isActionsOpen &&
             "group-data-[sidebar-touch-armed=true]/thread-row:hidden",
-          !isEditing && !isCustomizingActions && SIDEBAR_HOVER_ACTIONS_MASK_CLASS,
+          !isEditing &&
+            !isCustomizingActions &&
+            SIDEBAR_HOVER_ACTIONS_MASK_CLASS,
         )}
         style={getTitleBoxStyle(titleEnd, hoverActionsWidth)}
       >

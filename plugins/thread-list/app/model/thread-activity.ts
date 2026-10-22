@@ -113,23 +113,22 @@ export function getThreadListIndicatorLabel(
   return kind === "none" ? null : THREAD_LIST_INDICATOR_LABELS[kind];
 }
 
-const THREAD_LIST_STATE_TEXT: Record<ThreadListIndicatorKind, string | null> =
-  {
-    "waiting-for-input": "needs your input",
-    "unread-error": "failed",
-    "queued-failed": "message failed to send",
-    "unread-success": "new result",
-    "plan-mode": "planning",
-    goal: "working toward a goal",
-    runtime: "working",
-    workflow: "running a workflow",
-    "background-agent": "running a background agent",
-    "background-command": "running a background command",
-    "working-draft": "working",
-    "queued-waiting": "queued message",
-    draft: "unsent draft",
-    none: null,
-  };
+const THREAD_LIST_STATE_TEXT: Record<ThreadListIndicatorKind, string | null> = {
+  "waiting-for-input": "needs your input",
+  "unread-error": "failed",
+  "queued-failed": "message failed to send",
+  "unread-success": "new result",
+  "plan-mode": "planning",
+  goal: "working toward a goal",
+  runtime: "working",
+  workflow: "running a workflow",
+  "background-agent": "running a background agent",
+  "background-command": "running a background command",
+  "working-draft": "working",
+  "queued-waiting": "queued message",
+  draft: "unsent draft",
+  none: null,
+};
 
 export function getThreadListStateText(
   kind: ThreadListIndicatorKind,

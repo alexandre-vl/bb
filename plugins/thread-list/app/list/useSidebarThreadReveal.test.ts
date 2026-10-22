@@ -98,9 +98,9 @@ describe("useSidebarThreadReveal", () => {
     });
     expect(initial).toEqual([]);
     expect(reveal({ threadsReady: true })).toEqual(["first"]);
-    expect(reveal({ threads: [thread("first", { title: "Renamed" })] })).toEqual(
-      [],
-    );
+    expect(
+      reveal({ threads: [thread("first", { title: "Renamed" })] }),
+    ).toEqual([]);
   });
 
   it("waits for preferences and the destination thread before revealing navigation", () => {

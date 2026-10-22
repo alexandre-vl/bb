@@ -431,7 +431,9 @@ describe("ProjectRow interactions", () => {
       }),
     });
 
-    expect(screen.queryByText("Child", { selector: "[data-thread-title]" })).toBeNull();
+    expect(
+      screen.queryByText("Child", { selector: "[data-thread-title]" }),
+    ).toBeNull();
     expect(
       container
         .querySelector("[data-sidebar-reorder-placement]")
@@ -600,7 +602,9 @@ describe("ProjectRow interactions", () => {
     const child = group?.querySelector<HTMLElement>(
       '[data-sidebar-thread-id="thr_child_a"]',
     );
-    const guide = group?.querySelector<HTMLElement>("[data-sidebar-tree-guide]");
+    const guide = group?.querySelector<HTMLElement>(
+      "[data-sidebar-tree-guide]",
+    );
 
     expect(
       container.querySelector('[data-sidebar-thread-id="thr_parent"]'),
@@ -612,8 +616,7 @@ describe("ProjectRow interactions", () => {
       "calc(var(--bb-sidebar-tree-step) * 1 + var(--bb-sidebar-chevron-zone) / 2 - 0.5px)",
     );
     expect(
-      child?.closest<HTMLElement>("[data-sidebar-tree-row]")?.style
-        .paddingLeft,
+      child?.closest<HTMLElement>("[data-sidebar-tree-row]")?.style.paddingLeft,
     ).toBe(
       "calc(var(--bb-sidebar-tree-step) * 2 + var(--bb-sidebar-text-inset))",
     );
@@ -830,7 +833,9 @@ describe("ProjectRow interactions", () => {
       await screen.findByRole("menuitem", { name: "Hide from list" }),
     );
 
-    expect(screen.queryByText("Loose thread", { selector: "[data-thread-title]" })).toBeNull();
+    expect(
+      screen.queryByText("Loose thread", { selector: "[data-thread-title]" }),
+    ).toBeNull();
     expect(store.get(sidebarHiddenGroupsAtom)).toEqual(["threads"]);
     expect(store.get(sidebarManualSectionOrderAtom)).toEqual(savedOrder);
     await waitFor(() =>
@@ -904,7 +909,11 @@ describe("ProjectRow interactions", () => {
     );
 
     expect(screen.queryByText("Review parent")).toBeNull();
-    expect(screen.queryByText("Inherited child", { selector: "[data-thread-title]" })).toBeNull();
+    expect(
+      screen.queryByText("Inherited child", {
+        selector: "[data-thread-title]",
+      }),
+    ).toBeNull();
     expect(store.get(sidebarHiddenGroupsAtom)).toEqual(["section:sec_review"]);
     expect(store.get(sidebarManualSectionOrderAtom)).toEqual(savedOrder);
     await waitFor(() =>

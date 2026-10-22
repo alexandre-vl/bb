@@ -7,10 +7,7 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
-import {
-  SidebarStickyGroup,
-  SidebarStickyTier,
-} from "../ui/sidebar.js";
+import { SidebarStickyGroup, SidebarStickyTier } from "../ui/sidebar.js";
 import {
   SIDEBAR_HOVER_ACTIONS_CLASS,
   SIDEBAR_HOVER_ACTIONS_FADE_CLASS,
@@ -30,7 +27,10 @@ import {
   describeThreadRollup,
   type ThreadRollup,
 } from "../model/thread-activity.js";
-import { CollapsedThreadStatusGlyph, useRollupIndicatorKind } from "../rows/ThreadRow.js";
+import {
+  CollapsedThreadStatusGlyph,
+  useRollupIndicatorKind,
+} from "../rows/ThreadRow.js";
 import {
   useThreadGroupSplitIndicator,
   type ThreadSplitIndicatorTarget,
@@ -248,7 +248,9 @@ export function TopLevelSidebarSection({
             {showRollupIndicator ? (
               <span
                 data-sidebar-collapsed-activity-edge=""
-                data-sidebar-hover-actions-open={actionsOpen ? "true" : undefined}
+                data-sidebar-hover-actions-open={
+                  actionsOpen ? "true" : undefined
+                }
                 className={cn(
                   SIDEBAR_TREE_STATUS_BOX_CLASS,
                   "pointer-events-none",

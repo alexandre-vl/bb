@@ -49,7 +49,9 @@ const preferenceKeySchema = z.enum(
 const preferenceValuesSchema = z.object(
   Object.fromEntries(
     PREFERENCE_KEYS.map((key) => [key, preferenceDefinitions[key].schema]),
-  ) as { [Key in PreferenceKey]: (typeof preferenceDefinitions)[Key]["schema"] },
+  ) as {
+    [Key in PreferenceKey]: (typeof preferenceDefinitions)[Key]["schema"];
+  },
 );
 
 export const threadListRpcContract = defineRpcContract({
@@ -59,15 +61,11 @@ export const threadListRpcContract = defineRpcContract({
   },
   setPreference: {
     input: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
-    output: z
-      .object({ key: preferenceKeySchema, value: z.unknown() })
-      .strict(),
+    output: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
   },
   resetPreference: {
     input: z.object({ key: preferenceKeySchema }).strict(),
-    output: z
-      .object({ key: preferenceKeySchema, value: z.unknown() })
-      .strict(),
+    output: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
   },
   listAttention: {
     input: z
@@ -77,7 +75,9 @@ export const threadListRpcContract = defineRpcContract({
     output: z.object({ threads: z.array(attentionThreadSchema) }).strict(),
   },
   setCollapsed: {
-    input: z.object({ ref: collapseRefSchema, collapsed: z.boolean() }).strict(),
+    input: z
+      .object({ ref: collapseRefSchema, collapsed: z.boolean() })
+      .strict(),
     output: z
       .object({ key: collapseListKeySchema, value: z.array(z.string()) })
       .strict(),
@@ -206,7 +206,9 @@ export async function migrateFromUiPreferences(
     if (legacy === undefined) continue;
     const parsed = parsePreferenceValue(key, legacy.value);
     if (!parsed.success) continue;
-    if (JSON.stringify(parsed.value) === JSON.stringify(getPreferenceDefault(key))) {
+    if (
+      JSON.stringify(parsed.value) === JSON.stringify(getPreferenceDefault(key))
+    ) {
       continue;
     }
     await bb.storage.kv.set(kvKey(key), parsed.value);
@@ -220,7 +222,9 @@ type PreferenceEntry = {
   [Key in PreferenceKey]: { key: Key; value: PreferenceValue<Key> };
 }[PreferenceKey];
 
-function sidebarV2Preferences(groupByReadStatus: boolean | null): PreferenceEntry[] {
+function sidebarV2Preferences(
+  groupByReadStatus: boolean | null,
+): PreferenceEntry[] {
   if (groupByReadStatus === null) return [];
   if (!groupByReadStatus) return [{ key: "attentionFirst", value: false }];
   return [
@@ -263,9 +267,9 @@ function isNotFoundResponse(error: unknown): boolean {
   return error instanceof Error && "status" in error && error.status === 404;
 }
 
-function lifecycleFilter(
-  lifecycles: PreferenceValue<"threadLifecycles">,
-): { archived?: boolean } {
+function lifecycleFilter(lifecycles: PreferenceValue<"threadLifecycles">): {
+  archived?: boolean;
+} {
   if (lifecycles.includes("active") && lifecycles.includes("archived")) {
     return {};
   }
@@ -276,7 +280,9 @@ function createThreadListService(bb: BbPluginApi, store: PreferenceStore) {
   async function listLiveThreads(projectId: string | null) {
     try {
       return await bb.sdk.threads.list(
-        projectId === null ? { archived: false } : { archived: false, projectId },
+        projectId === null
+          ? { archived: false }
+          : { archived: false, projectId },
       );
     } catch (error) {
       if (projectId !== null && isNotFoundResponse(error)) {
@@ -355,7 +361,10 @@ function requireCliProjectId(raw: string | undefined): string | null {
   });
 }
 
-function requireCliCollapseRef(raw: string | undefined, all: boolean): CollapseRef {
+function requireCliCollapseRef(
+  raw: string | undefined,
+  all: boolean,
+): CollapseRef {
   if (raw !== undefined && all) {
     throw new PluginCliError("<ref> and --all cannot be combined", {
       code: "unexpected_argument",
@@ -375,9 +384,12 @@ function requireCliCollapseRef(raw: string | undefined, all: boolean): CollapseR
 }
 
 function formatAttentionThread(thread: AttentionThread): string {
-  return [thread.attention, thread.threadId, thread.projectId, thread.title].join(
-    "\t",
-  );
+  return [
+    thread.attention,
+    thread.threadId,
+    thread.projectId,
+    thread.title,
+  ].join("\t");
 }
 
 const JSON_OPTION = {
@@ -391,7 +403,10 @@ function collapseCommand(service: ThreadListService, collapsed: boolean) {
     summary: `${verb} a parent thread, project, environment, or section`,
     description: `<ref> is ${COLLAPSE_REF_FORMS}. Thread refs and --all write collapsedThreads, or expandedThreads while parentsStartCollapsed is on.`,
     positionals: [
-      { name: "ref", description: `What to ${verb.toLowerCase()}: ${COLLAPSE_REF_FORMS}` },
+      {
+        name: "ref",
+        description: `What to ${verb.toLowerCase()}: ${COLLAPSE_REF_FORMS}`,
+      },
     ],
     options: {
       all: {
@@ -401,7 +416,10 @@ function collapseCommand(service: ThreadListService, collapsed: boolean) {
       json: JSON_OPTION,
     },
     async run(input) {
-      const ref = requireCliCollapseRef(input.positionals.ref, input.options.all);
+      const ref = requireCliCollapseRef(
+        input.positionals.ref,
+        input.options.all,
+      );
       try {
         const { key, value } = await service.setCollapsed(ref, collapsed);
         return {
@@ -433,7 +451,9 @@ export default async function threadListPlugin(bb: BbPluginApi) {
     },
     async listAttention(input) {
       try {
-        return { threads: await service.listAttention(input?.projectId ?? null) };
+        return {
+          threads: await service.listAttention(input?.projectId ?? null),
+        };
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           throw new experimental_PluginRpcRefusal({
@@ -536,7 +556,8 @@ export default async function threadListPlugin(bb: BbPluginApi) {
             { name: "key", description: "Preference name", required: true },
             {
               name: "value",
-              description: 'JSON value, e.g. \'"machine"\' or \'["pinned","threads"]\'',
+              description:
+                'JSON value, e.g. \'"machine"\' or \'["pinned","threads"]\'',
               required: true,
             },
           ],

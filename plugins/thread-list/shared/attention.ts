@@ -72,9 +72,11 @@ function compareAttentionThreads(
   left: AttentionThread,
   right: AttentionThread,
 ): number {
-  const byRung = ATTENTION_RANK[left.attention] - ATTENTION_RANK[right.attention];
+  const byRung =
+    ATTENTION_RANK[left.attention] - ATTENTION_RANK[right.attention];
   if (byRung !== 0) return byRung;
-  if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt;
+  if (left.updatedAt !== right.updatedAt)
+    return right.updatedAt - left.updatedAt;
   if (left.threadId === right.threadId) return 0;
   return left.threadId < right.threadId ? -1 : 1;
 }

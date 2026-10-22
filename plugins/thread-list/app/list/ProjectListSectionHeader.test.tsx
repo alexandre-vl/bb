@@ -150,7 +150,11 @@ describe("TopLevelSidebarSection", () => {
       <TopLevelSidebarSection
         label="kops-discordbot"
         rollup={rollUpThreads([
-          makeSidebarThread({ id: "one", status: "error", latestAttentionAt: 5 }),
+          makeSidebarThread({
+            id: "one",
+            status: "error",
+            latestAttentionAt: 5,
+          }),
           makeSidebarThread({ id: "two", lastReadAt: 1 }),
           makeSidebarThread({ id: "three", lastReadAt: 1 }),
           makeSidebarThread({ id: "four", lastReadAt: 1 }),

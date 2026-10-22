@@ -36,7 +36,11 @@ function thread(id: string, overrides: Partial<TestThread> = {}): TestThread {
 
 function listThreads(
   threads: readonly TestThread[],
-  args: { archived?: boolean; includeHidden?: boolean; projectId?: string } = {},
+  args: {
+    archived?: boolean;
+    includeHidden?: boolean;
+    projectId?: string;
+  } = {},
 ): TestThread[] {
   if (args.projectId !== undefined && !KNOWN_PROJECT_IDS.has(args.projectId)) {
     throw Object.assign(new Error("HTTP 404: Project not found"), {
@@ -46,18 +50,21 @@ function listThreads(
   }
   return threads.filter(
     (candidate) =>
-      (args.projectId === undefined || candidate.projectId === args.projectId) &&
+      (args.projectId === undefined ||
+        candidate.projectId === args.projectId) &&
       (args.includeHidden === true || candidate.visibility === "visible") &&
       (args.archived === undefined ||
         (candidate.archivedAt !== null) === args.archived),
   );
 }
 
-function setup(options: {
-  uiPreferences?: Record<string, { revision: number; value: unknown }>;
-  uiPreferencesFail?: boolean;
-  threads?: readonly TestThread[];
-} = {}) {
+function setup(
+  options: {
+    uiPreferences?: Record<string, { revision: number; value: unknown }>;
+    uiPreferencesFail?: boolean;
+    threads?: readonly TestThread[];
+  } = {},
+) {
   return createFakePluginHost({
     pluginId: PLUGIN_ID,
     sdk: {
@@ -89,10 +96,14 @@ describe("thread-list preferences rpc", () => {
   it("lists defaults on a fresh install and round-trips a valid write", async () => {
     const { bb, harness } = setup();
     await plugin(bb);
-    await expect(harness.behavior.callRpc("listPreferences", null)).resolves.toEqual({
+    await expect(
+      harness.behavior.callRpc("listPreferences", null),
+    ).resolves.toEqual({
       preferences: defaultPreferences(),
     });
-    await expect(harness.behavior.callRpc("listPreferences", null)).resolves.toMatchObject({
+    await expect(
+      harness.behavior.callRpc("listPreferences", null),
+    ).resolves.toMatchObject({
       preferences: { showProviderIcons: true },
     });
     await harness.behavior.callRpc("setPreference", {
@@ -100,7 +111,9 @@ describe("thread-list preferences rpc", () => {
       value: false,
     });
     await migrateFromUiPreferences(bb);
-    await expect(harness.behavior.callRpc("listPreferences", null)).resolves.toMatchObject({
+    await expect(
+      harness.behavior.callRpc("listPreferences", null),
+    ).resolves.toMatchObject({
       preferences: { showProviderIcons: false },
     });
 
@@ -110,16 +123,25 @@ describe("thread-list preferences rpc", () => {
         value: "machine",
       }),
     ).resolves.toEqual({ key: "organizationMode", value: "machine" });
-    await expect(bb.storage.kv.get("preference:organizationMode")).resolves.toBe(
-      "machine",
-    );
-    const listed = (await harness.behavior.callRpc("listPreferences", null)) as {
+    await expect(
+      bb.storage.kv.get("preference:organizationMode"),
+    ).resolves.toBe("machine");
+    const listed = (await harness.behavior.callRpc(
+      "listPreferences",
+      null,
+    )) as {
       preferences: { organizationMode: string };
     };
     expect(listed.preferences.organizationMode).toBe("machine");
     expect(harness.realtimeSignals).toEqual([
-      { channel: "preferences", payload: { key: "showProviderIcons", value: false } },
-      { channel: "preferences", payload: { key: "organizationMode", value: "machine" } },
+      {
+        channel: "preferences",
+        payload: { key: "showProviderIcons", value: false },
+      },
+      {
+        channel: "preferences",
+        payload: { key: "organizationMode", value: "machine" },
+      },
     ]);
   });
 
@@ -132,7 +154,9 @@ describe("thread-list preferences rpc", () => {
         value: "sideways",
       }),
     ).rejects.toThrow(/Invalid value for organizationMode/);
-    await expect(bb.storage.kv.get("preference:organizationMode")).resolves.toBeUndefined();
+    await expect(
+      bb.storage.kv.get("preference:organizationMode"),
+    ).resolves.toBeUndefined();
     await expect(
       harness.behavior.callRpc("setPreference", {
         key: "hiddenGroups",
@@ -162,13 +186,18 @@ describe("thread-list preferences rpc", () => {
     await expect(
       harness.behavior.callRpc("resetPreference", { key: "hiddenGroups" }),
     ).resolves.toEqual({ key: "hiddenGroups", value: [] });
-    await expect(bb.storage.kv.get("preference:hiddenGroups")).resolves.toBeUndefined();
+    await expect(
+      bb.storage.kv.get("preference:hiddenGroups"),
+    ).resolves.toBeUndefined();
   });
 
   it("defaults row actions to archive, migrates bare ids, dedupes them, and rejects malformed or too many keys", async () => {
     const { bb, harness } = setup();
     await plugin(bb);
-    const listed = (await harness.behavior.callRpc("listPreferences", null)) as {
+    const listed = (await harness.behavior.callRpc(
+      "listPreferences",
+      null,
+    )) as {
       preferences: { rowActions: string[] };
     };
     expect(listed.preferences.rowActions).toEqual(["bb--core/archive"]);
@@ -213,7 +242,10 @@ describe("thread-list preferences rpc", () => {
       "core/rename",
     ]);
     await plugin(bb);
-    const listed = (await harness.behavior.callRpc("listPreferences", null)) as {
+    const listed = (await harness.behavior.callRpc(
+      "listPreferences",
+      null,
+    )) as {
       preferences: { rowActions: string[] };
     };
     expect(listed.preferences.rowActions).toEqual([
@@ -227,7 +259,10 @@ describe("thread-list preferences rpc", () => {
     const { bb, harness } = setup();
     await bb.storage.kv.set("preference:chronologicalSort", "by-vibes");
     await plugin(bb);
-    const listed = (await harness.behavior.callRpc("listPreferences", null)) as {
+    const listed = (await harness.behavior.callRpc(
+      "listPreferences",
+      null,
+    )) as {
       preferences: { chronologicalSort: string };
     };
     expect(listed.preferences.chronologicalSort).toBe("updated");
@@ -247,25 +282,33 @@ describe("migration from bb's sidebar preferences", () => {
     await bb.storage.kv.set("preference:sectionOrder", ["proj_mine"]);
     const first = await migrateFromUiPreferences(bb);
     expect(first.migrated).toEqual(["organizationMode"]);
-    await expect(bb.storage.kv.get("preference:organizationMode")).resolves.toBe(
-      "machine",
+    await expect(
+      bb.storage.kv.get("preference:organizationMode"),
+    ).resolves.toBe("machine");
+    await expect(bb.storage.kv.get("preference:sectionOrder")).resolves.toEqual(
+      ["proj_mine"],
     );
-    await expect(bb.storage.kv.get("preference:sectionOrder")).resolves.toEqual([
-      "proj_mine",
-    ]);
-    await expect(bb.storage.kv.get("preference:chronologicalSort")).resolves.toBeUndefined();
-    await expect(bb.storage.kv.get("preference:hiddenGroups")).resolves.toBeUndefined();
+    await expect(
+      bb.storage.kv.get("preference:chronologicalSort"),
+    ).resolves.toBeUndefined();
+    await expect(
+      bb.storage.kv.get("preference:hiddenGroups"),
+    ).resolves.toBeUndefined();
 
     await bb.storage.kv.delete("preference:organizationMode");
     const second = await migrateFromUiPreferences(bb);
     expect(second.migrated).toEqual([]);
-    await expect(bb.storage.kv.get("preference:organizationMode")).resolves.toBeUndefined();
+    await expect(
+      bb.storage.kv.get("preference:organizationMode"),
+    ).resolves.toBeUndefined();
   });
 
   it("skips the migration without marking it done when bb cannot be read", async () => {
     const { bb } = setup({ uiPreferencesFail: true });
     expect((await migrateFromUiPreferences(bb)).migrated).toEqual([]);
-    await expect(bb.storage.kv.get("migration:ui-preferences:v1")).resolves.toBeUndefined();
+    await expect(
+      bb.storage.kv.get("migration:ui-preferences:v1"),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -297,29 +340,53 @@ describe("bb thread-list prefs", () => {
       '["threads","pinned","sections"]',
     ]);
     expect(set.exitCode).toBe(0);
-    expect(set.stdout).toBe('manualSectionOrder = ["threads","pinned","sections"]');
+    expect(set.stdout).toBe(
+      'manualSectionOrder = ["threads","pinned","sections"]',
+    );
 
-    const bare = await harness.behavior.runCli(["prefs", "set", "organizationMode", "project"]);
+    const bare = await harness.behavior.runCli([
+      "prefs",
+      "set",
+      "organizationMode",
+      "project",
+    ]);
     expect(bare.exitCode).toBe(0);
 
-    const got = await harness.behavior.runCli(["prefs", "get", "organizationMode"]);
+    const got = await harness.behavior.runCli([
+      "prefs",
+      "get",
+      "organizationMode",
+    ]);
     expect(got.stdout).toBe('"project"');
 
     const iconsOn = await harness.behavior.runCli([
-      "prefs", "set", "showProviderIcons", "true",
+      "prefs",
+      "set",
+      "showProviderIcons",
+      "true",
     ]);
     expect(iconsOn.exitCode).toBe(0);
     expect(iconsOn.stdout).toBe("showProviderIcons = true");
-    await expect(bb.storage.kv.get("preference:showProviderIcons")).resolves.toBe(true);
+    await expect(
+      bb.storage.kv.get("preference:showProviderIcons"),
+    ).resolves.toBe(true);
     const resetIcons = await harness.behavior.runCli([
-      "prefs", "reset", "showProviderIcons", "--json",
+      "prefs",
+      "reset",
+      "showProviderIcons",
+      "--json",
     ]);
     expect(JSON.parse(resetIcons.stdout)).toEqual({
       key: "showProviderIcons",
       value: true,
     });
 
-    const bad = await harness.behavior.runCli(["prefs", "set", "organizationMode", "nope"]);
+    const bad = await harness.behavior.runCli([
+      "prefs",
+      "set",
+      "organizationMode",
+      "nope",
+    ]);
     expect(bad.exitCode).not.toBe(0);
     expect(bad.stderr).toMatch(/Invalid value for organizationMode/);
 
@@ -327,7 +394,12 @@ describe("bb thread-list prefs", () => {
     expect(unknown.exitCode).not.toBe(0);
     expect(unknown.stderr).toMatch(/Unknown preference: colour/);
 
-    const reset = await harness.behavior.runCli(["prefs", "reset", "organizationMode", "--json"]);
+    const reset = await harness.behavior.runCli([
+      "prefs",
+      "reset",
+      "organizationMode",
+      "--json",
+    ]);
     expect(JSON.parse(reset.stdout)).toEqual({
       key: "organizationMode",
       value: "chronological",
@@ -338,14 +410,33 @@ describe("bb thread-list prefs", () => {
 it("validates lifecycle selection through CLI and RPC and broadcasts it", async () => {
   const { bb, harness } = setup();
   await plugin(bb);
-  expect((await harness.behavior.runCli(["prefs", "set", "threadLifecycles", '["archived"]'])).exitCode).toBe(0);
-  await expect(bb.storage.kv.get("preference:threadLifecycles")).resolves.toEqual(["archived"]);
+  expect(
+    (
+      await harness.behavior.runCli([
+        "prefs",
+        "set",
+        "threadLifecycles",
+        '["archived"]',
+      ])
+    ).exitCode,
+  ).toBe(0);
+  await expect(
+    bb.storage.kv.get("preference:threadLifecycles"),
+  ).resolves.toEqual(["archived"]);
   for (const value of [[], ["archived", "archived"], ["deleted"]]) {
-    await expect(harness.behavior.callRpc("setPreference", { key: "threadLifecycles", value })).rejects.toThrow(/Invalid value/);
+    await expect(
+      harness.behavior.callRpc("setPreference", {
+        key: "threadLifecycles",
+        value,
+      }),
+    ).rejects.toThrow(/Invalid value/);
   }
-  await expect(bb.storage.kv.get("preference:threadLifecycles")).resolves.toEqual(["archived"]);
+  await expect(
+    bb.storage.kv.get("preference:threadLifecycles"),
+  ).resolves.toEqual(["archived"]);
   expect(harness.realtimeSignals).toContainEqual({
-    channel: "preferences", payload: { key: "threadLifecycles", value: ["archived"] },
+    channel: "preferences",
+    payload: { key: "threadLifecycles", value: ["archived"] },
   });
 });
 
@@ -356,34 +447,64 @@ describe("migration to sidebar V2", () => {
     await expect(migrateToSidebarV2(bb)).resolves.toEqual({
       migrated: ["attentionFirst", "parentsStartCollapsed", "expandedThreads"],
     });
-    await expect(bb.storage.kv.get("preference:attentionFirst")).resolves.toBe(true);
-    await expect(bb.storage.kv.get("preference:parentsStartCollapsed")).resolves.toBe(true);
-    await expect(bb.storage.kv.get("preference:expandedThreads")).resolves.toEqual([]);
-    await expect(bb.storage.kv.get("preference:groupByReadStatus")).resolves.toBeUndefined();
-    await expect(bb.storage.kv.get("migration:sidebar-v2:v1")).resolves.toBe(true);
+    await expect(bb.storage.kv.get("preference:attentionFirst")).resolves.toBe(
+      true,
+    );
+    await expect(
+      bb.storage.kv.get("preference:parentsStartCollapsed"),
+    ).resolves.toBe(true);
+    await expect(
+      bb.storage.kv.get("preference:expandedThreads"),
+    ).resolves.toEqual([]);
+    await expect(
+      bb.storage.kv.get("preference:groupByReadStatus"),
+    ).resolves.toBeUndefined();
+    await expect(bb.storage.kv.get("migration:sidebar-v2:v1")).resolves.toBe(
+      true,
+    );
     expect(harness.inspection.realtimeSignals).toEqual([
-      { channel: "preferences", payload: { key: "attentionFirst", value: true } },
-      { channel: "preferences", payload: { key: "parentsStartCollapsed", value: true } },
-      { channel: "preferences", payload: { key: "expandedThreads", value: [] } },
+      {
+        channel: "preferences",
+        payload: { key: "attentionFirst", value: true },
+      },
+      {
+        channel: "preferences",
+        payload: { key: "parentsStartCollapsed", value: true },
+      },
+      {
+        channel: "preferences",
+        payload: { key: "expandedThreads", value: [] },
+      },
     ]);
   });
 
   it("turns attention first off for a user who had grouping off", async () => {
     const { bb } = setup();
     await bb.storage.kv.set("preference:groupByReadStatus", false);
-    await expect(migrateToSidebarV2(bb)).resolves.toEqual({ migrated: ["attentionFirst"] });
-    await expect(bb.storage.kv.get("preference:attentionFirst")).resolves.toBe(false);
-    await expect(bb.storage.kv.get("preference:parentsStartCollapsed")).resolves.toBeUndefined();
-    await expect(bb.storage.kv.get("preference:groupByReadStatus")).resolves.toBeUndefined();
+    await expect(migrateToSidebarV2(bb)).resolves.toEqual({
+      migrated: ["attentionFirst"],
+    });
+    await expect(bb.storage.kv.get("preference:attentionFirst")).resolves.toBe(
+      false,
+    );
+    await expect(
+      bb.storage.kv.get("preference:parentsStartCollapsed"),
+    ).resolves.toBeUndefined();
+    await expect(
+      bb.storage.kv.get("preference:groupByReadStatus"),
+    ).resolves.toBeUndefined();
   });
 
   it("writes nothing when grouping was never stored or no longer parses, so the defaults apply", async () => {
     for (const stored of [undefined, "yes"]) {
       const { bb, harness } = setup();
-      if (stored !== undefined) await bb.storage.kv.set("preference:groupByReadStatus", stored);
+      if (stored !== undefined)
+        await bb.storage.kv.set("preference:groupByReadStatus", stored);
       await expect(migrateToSidebarV2(bb)).resolves.toEqual({ migrated: [] });
       await expect(bb.storage.kv.list("preference:")).resolves.toEqual([]);
-      await expect(bb.storage.kv.get("migration:sidebar-v2:v1")).resolves.toBe(true);
+      await expect(bb.storage.kv.get("migration:sidebar-v2:v1")).resolves.toBe(
+        true,
+      );
       expect(harness.inspection.realtimeSignals).toEqual([]);
     }
   });
@@ -396,10 +517,12 @@ describe("migration to sidebar V2", () => {
     await expect(migrateToSidebarV2(bb)).resolves.toEqual({
       migrated: ["parentsStartCollapsed"],
     });
-    await expect(bb.storage.kv.get("preference:attentionFirst")).resolves.toBe(false);
-    await expect(bb.storage.kv.get("preference:expandedThreads")).resolves.toEqual([
-      "thr_open",
-    ]);
+    await expect(bb.storage.kv.get("preference:attentionFirst")).resolves.toBe(
+      false,
+    );
+    await expect(
+      bb.storage.kv.get("preference:expandedThreads"),
+    ).resolves.toEqual(["thr_open"]);
   });
 
   it("runs once", async () => {
@@ -419,7 +542,9 @@ describe("migration to sidebar V2", () => {
     const { bb, harness } = setup();
     await bb.storage.kv.set("preference:groupByReadStatus", true);
     await plugin(bb);
-    await expect(harness.behavior.callRpc("listPreferences", null)).resolves.toMatchObject({
+    await expect(
+      harness.behavior.callRpc("listPreferences", null),
+    ).resolves.toMatchObject({
       preferences: {
         attentionFirst: true,
         parentsStartCollapsed: true,
@@ -427,13 +552,20 @@ describe("migration to sidebar V2", () => {
         foldSettled: true,
       },
     });
-    const listed = (await harness.behavior.callRpc("listPreferences", null)) as {
+    const listed = (await harness.behavior.callRpc(
+      "listPreferences",
+      null,
+    )) as {
       preferences: Record<string, unknown>;
     };
     expect(listed.preferences).not.toHaveProperty("groupByReadStatus");
 
     const set = await harness.behavior.runCli([
-      "prefs", "set", "groupByReadStatus", "true", "--json",
+      "prefs",
+      "set",
+      "groupByReadStatus",
+      "true",
+      "--json",
     ]);
     expect(set.exitCode).toBe(1);
     expect(parseCliError(set.stdout)).toEqual({
@@ -442,7 +574,10 @@ describe("migration to sidebar V2", () => {
       hint: expect.stringContaining("attentionFirst"),
     });
     await expect(
-      harness.behavior.callRpc("setPreference", { key: "groupByReadStatus", value: true }),
+      harness.behavior.callRpc("setPreference", {
+        key: "groupByReadStatus",
+        value: true,
+      }),
     ).rejects.toMatchObject({ code: "invalid_input" });
   });
 });
@@ -465,8 +600,17 @@ const ATTENTION_THREADS = [
     updatedAt: 10,
   }),
   thread("thr_running", { status: "active", lastReadAt: 10, updatedAt: 800 }),
-  thread("thr_archived", { status: "error", lastReadAt: 10, archivedAt: 5, updatedAt: 700 }),
-  thread("thr_hidden", { hasPendingInteraction: true, visibility: "hidden", updatedAt: 600 }),
+  thread("thr_archived", {
+    status: "error",
+    lastReadAt: 10,
+    archivedAt: 5,
+    updatedAt: 700,
+  }),
+  thread("thr_hidden", {
+    hasPendingInteraction: true,
+    visibility: "hidden",
+    updatedAt: 600,
+  }),
 ];
 
 describe("listAttention", () => {
@@ -476,7 +620,9 @@ describe("listAttention", () => {
     const result = (await harness.behavior.callRpc("listAttention", null)) as {
       threads: Array<{ threadId: string; attention: string }>;
     };
-    expect(result.threads.map(({ threadId, attention }) => [threadId, attention])).toEqual([
+    expect(
+      result.threads.map(({ threadId, attention }) => [threadId, attention]),
+    ).toEqual([
       ["thr_needs_you", "needs-you"],
       ["thr_queue_failed", "failed"],
       ["thr_failed_child", "failed"],
@@ -491,7 +637,9 @@ describe("listAttention", () => {
       attention: "needs-you",
       updatedAt: 10,
     });
-    expect(harness.inspection.sdk.callsTo("threads.list")).toEqual([[{ archived: false }]]);
+    expect(harness.inspection.sdk.callsTo("threads.list")).toEqual([
+      [{ archived: false }],
+    ]);
   });
 
   it("filters by project and refuses an unknown one", async () => {
@@ -528,7 +676,11 @@ describe("listAttention", () => {
     expect(json.exitCode).toBe(0);
     expect(JSON.parse(json.stdout)).toEqual(rpc.threads);
 
-    const text = await harness.behavior.runCli(["attention", "--project", "proj_a"]);
+    const text = await harness.behavior.runCli([
+      "attention",
+      "--project",
+      "proj_a",
+    ]);
     expect(text.exitCode).toBe(0);
     expect(text.stdout.split("\n")).toEqual([
       "failed\tthr_queue_failed\tproj_a\tthr_queue_failed",
@@ -537,7 +689,11 @@ describe("listAttention", () => {
       "new\tthr_new_old\tproj_a\tthr_new_old",
     ]);
 
-    const quiet = await harness.behavior.runCli(["attention", "--project", "proj_quiet"]);
+    const quiet = await harness.behavior.runCli([
+      "attention",
+      "--project",
+      "proj_quiet",
+    ]);
     expect(quiet.stdout).toBe("No threads need attention.");
   });
 
@@ -545,15 +701,27 @@ describe("listAttention", () => {
     const { bb, harness } = setup({ threads: ATTENTION_THREADS });
     await plugin(bb);
     const missing = await harness.behavior.runCli([
-      "attention", "--project", "proj_missing", "--json",
+      "attention",
+      "--project",
+      "proj_missing",
+      "--json",
     ]);
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toMatch(/Project not found: proj_missing/);
-    expect(parseCliError(missing.stdout)).toMatchObject({ code: "project_not_found" });
+    expect(parseCliError(missing.stdout)).toMatchObject({
+      code: "project_not_found",
+    });
 
-    const empty = await harness.behavior.runCli(["attention", "--project", "", "--json"]);
+    const empty = await harness.behavior.runCli([
+      "attention",
+      "--project",
+      "",
+      "--json",
+    ]);
     expect(empty.exitCode).toBe(1);
-    expect(parseCliError(empty.stdout)).toMatchObject({ code: "invalid_value" });
+    expect(parseCliError(empty.stdout)).toMatchObject({
+      code: "invalid_value",
+    });
   });
 });
 
@@ -562,10 +730,19 @@ const TREE_THREADS = [
   thread("thr_child_1a", { parentThreadId: "thr_parent_1" }),
   thread("thr_child_1b", { parentThreadId: "thr_parent_1" }),
   thread("thr_parent_2", { projectId: "proj_b" }),
-  thread("thr_child_2", { parentThreadId: "thr_parent_2", projectId: "proj_b" }),
+  thread("thr_child_2", {
+    parentThreadId: "thr_parent_2",
+    projectId: "proj_b",
+  }),
   thread("thr_archived_parent", { archivedAt: 5 }),
-  thread("thr_archived_child", { parentThreadId: "thr_archived_parent", archivedAt: 5 }),
-  thread("thr_hidden_child", { parentThreadId: "thr_leaf", visibility: "hidden" }),
+  thread("thr_archived_child", {
+    parentThreadId: "thr_archived_parent",
+    archivedAt: 5,
+  }),
+  thread("thr_hidden_child", {
+    parentThreadId: "thr_leaf",
+    visibility: "hidden",
+  }),
   thread("thr_leaf"),
 ];
 
@@ -579,23 +756,135 @@ interface CollapseCase {
 }
 
 const COLLAPSE_CASES: CollapseCase[] = [
-  { parentsStartCollapsed: false, ref: "thr_b", collapsed: true, stored: { collapsedThreads: ["thr_a"] }, key: "collapsedThreads", value: ["thr_a", "thr_b"] },
-  { parentsStartCollapsed: false, ref: "thr_a", collapsed: false, stored: { collapsedThreads: ["thr_a", "thr_b"] }, key: "collapsedThreads", value: ["thr_b"] },
-  { parentsStartCollapsed: true, ref: "thr_a", collapsed: true, stored: { expandedThreads: ["thr_a", "thr_b"] }, key: "expandedThreads", value: ["thr_b"] },
-  { parentsStartCollapsed: true, ref: "thr_b", collapsed: false, stored: { expandedThreads: ["thr_a"] }, key: "expandedThreads", value: ["thr_a", "thr_b"] },
-  { parentsStartCollapsed: false, ref: "all", collapsed: true, stored: { collapsedThreads: ["thr_gone", "thr_parent_2"] }, key: "collapsedThreads", value: ["thr_gone", "thr_parent_2", "thr_parent_1"] },
-  { parentsStartCollapsed: false, ref: "all", collapsed: false, stored: { collapsedThreads: ["thr_parent_1"] }, key: "collapsedThreads", value: [] },
-  { parentsStartCollapsed: true, ref: "all", collapsed: true, stored: { expandedThreads: ["thr_parent_1"] }, key: "expandedThreads", value: [] },
-  { parentsStartCollapsed: true, ref: "all", collapsed: false, stored: { expandedThreads: ["thr_gone"] }, key: "expandedThreads", value: ["thr_gone", "thr_parent_1", "thr_parent_2"] },
+  {
+    parentsStartCollapsed: false,
+    ref: "thr_b",
+    collapsed: true,
+    stored: { collapsedThreads: ["thr_a"] },
+    key: "collapsedThreads",
+    value: ["thr_a", "thr_b"],
+  },
+  {
+    parentsStartCollapsed: false,
+    ref: "thr_a",
+    collapsed: false,
+    stored: { collapsedThreads: ["thr_a", "thr_b"] },
+    key: "collapsedThreads",
+    value: ["thr_b"],
+  },
+  {
+    parentsStartCollapsed: true,
+    ref: "thr_a",
+    collapsed: true,
+    stored: { expandedThreads: ["thr_a", "thr_b"] },
+    key: "expandedThreads",
+    value: ["thr_b"],
+  },
+  {
+    parentsStartCollapsed: true,
+    ref: "thr_b",
+    collapsed: false,
+    stored: { expandedThreads: ["thr_a"] },
+    key: "expandedThreads",
+    value: ["thr_a", "thr_b"],
+  },
+  {
+    parentsStartCollapsed: false,
+    ref: "all",
+    collapsed: true,
+    stored: { collapsedThreads: ["thr_gone", "thr_parent_2"] },
+    key: "collapsedThreads",
+    value: ["thr_gone", "thr_parent_2", "thr_parent_1"],
+  },
+  {
+    parentsStartCollapsed: false,
+    ref: "all",
+    collapsed: false,
+    stored: { collapsedThreads: ["thr_parent_1"] },
+    key: "collapsedThreads",
+    value: [],
+  },
+  {
+    parentsStartCollapsed: true,
+    ref: "all",
+    collapsed: true,
+    stored: { expandedThreads: ["thr_parent_1"] },
+    key: "expandedThreads",
+    value: [],
+  },
+  {
+    parentsStartCollapsed: true,
+    ref: "all",
+    collapsed: false,
+    stored: { expandedThreads: ["thr_gone"] },
+    key: "expandedThreads",
+    value: ["thr_gone", "thr_parent_1", "thr_parent_2"],
+  },
   ...[false, true].flatMap((parentsStartCollapsed): CollapseCase[] => [
-    { parentsStartCollapsed, ref: "project:proj_a", collapsed: true, stored: {}, key: "collapsedProjects", value: ["proj_a"] },
-    { parentsStartCollapsed, ref: "project:proj_a", collapsed: false, stored: { collapsedProjects: ["proj_a", "proj_b"] }, key: "collapsedProjects", value: ["proj_b"] },
-    { parentsStartCollapsed, ref: "env:env_a", collapsed: true, stored: { collapsedEnvironments: ["env_b"] }, key: "collapsedEnvironments", value: ["env_b", "env_a"] },
-    { parentsStartCollapsed, ref: "env:env_a", collapsed: false, stored: { collapsedEnvironments: ["env_a"] }, key: "collapsedEnvironments", value: [] },
-    { parentsStartCollapsed, ref: "section:sec_a", collapsed: true, stored: {}, key: "collapsedThreadSections", value: ["chronological::sec_a"] },
-    { parentsStartCollapsed, ref: "section:sec_a", collapsed: false, stored: { collapsedThreadSections: ["chronological::sec_a"] }, key: "collapsedThreadSections", value: [] },
-    { parentsStartCollapsed, ref: "section:threads", collapsed: true, stored: { collapsedSections: ["pinned"] }, key: "collapsedSections", value: ["pinned", "threads"] },
-    { parentsStartCollapsed, ref: "section:pinned", collapsed: false, stored: { collapsedSections: ["pinned", "threads"] }, key: "collapsedSections", value: ["threads"] },
+    {
+      parentsStartCollapsed,
+      ref: "project:proj_a",
+      collapsed: true,
+      stored: {},
+      key: "collapsedProjects",
+      value: ["proj_a"],
+    },
+    {
+      parentsStartCollapsed,
+      ref: "project:proj_a",
+      collapsed: false,
+      stored: { collapsedProjects: ["proj_a", "proj_b"] },
+      key: "collapsedProjects",
+      value: ["proj_b"],
+    },
+    {
+      parentsStartCollapsed,
+      ref: "env:env_a",
+      collapsed: true,
+      stored: { collapsedEnvironments: ["env_b"] },
+      key: "collapsedEnvironments",
+      value: ["env_b", "env_a"],
+    },
+    {
+      parentsStartCollapsed,
+      ref: "env:env_a",
+      collapsed: false,
+      stored: { collapsedEnvironments: ["env_a"] },
+      key: "collapsedEnvironments",
+      value: [],
+    },
+    {
+      parentsStartCollapsed,
+      ref: "section:sec_a",
+      collapsed: true,
+      stored: {},
+      key: "collapsedThreadSections",
+      value: ["chronological::sec_a"],
+    },
+    {
+      parentsStartCollapsed,
+      ref: "section:sec_a",
+      collapsed: false,
+      stored: { collapsedThreadSections: ["chronological::sec_a"] },
+      key: "collapsedThreadSections",
+      value: [],
+    },
+    {
+      parentsStartCollapsed,
+      ref: "section:threads",
+      collapsed: true,
+      stored: { collapsedSections: ["pinned"] },
+      key: "collapsedSections",
+      value: ["pinned", "threads"],
+    },
+    {
+      parentsStartCollapsed,
+      ref: "section:pinned",
+      collapsed: false,
+      stored: { collapsedSections: ["pinned", "threads"] },
+      key: "collapsedSections",
+      value: ["threads"],
+    },
   ]),
 ];
 
@@ -605,18 +894,24 @@ describe("setCollapsed", () => {
     async ({ parentsStartCollapsed, ref, collapsed, stored, key, value }) => {
       const { bb, harness } = setup({ threads: TREE_THREADS });
       await plugin(bb);
-      await bb.storage.kv.set("preference:parentsStartCollapsed", parentsStartCollapsed);
+      await bb.storage.kv.set(
+        "preference:parentsStartCollapsed",
+        parentsStartCollapsed,
+      );
       for (const [storedKey, storedValue] of Object.entries(stored)) {
         await bb.storage.kv.set(`preference:${storedKey}`, storedValue);
       }
       await expect(
         harness.behavior.callRpc("setCollapsed", { ref, collapsed }),
       ).resolves.toEqual({ key, value });
-      await expect(bb.storage.kv.get(`preference:${key}`)).resolves.toEqual(value);
+      await expect(bb.storage.kv.get(`preference:${key}`)).resolves.toEqual(
+        value,
+      );
       expect(harness.inspection.realtimeSignals).toEqual([
         { channel: "preferences", payload: { key, value } },
       ]);
-      const listsEveryParent = ref === "all" && collapsed !== parentsStartCollapsed;
+      const listsEveryParent =
+        ref === "all" && collapsed !== parentsStartCollapsed;
       expect(harness.inspection.sdk.callsTo("threads.list")).toEqual(
         listsEveryParent ? [[{ archived: false }]] : [],
       );
@@ -626,7 +921,10 @@ describe("setCollapsed", () => {
   it("finds every parent among the lifecycles the list shows", async () => {
     const { bb, harness } = setup({ threads: TREE_THREADS });
     await plugin(bb);
-    await bb.storage.kv.set("preference:threadLifecycles", ["active", "archived"]);
+    await bb.storage.kv.set("preference:threadLifecycles", [
+      "active",
+      "archived",
+    ]);
     await expect(
       harness.behavior.callRpc("setCollapsed", { ref: "all", collapsed: true }),
     ).resolves.toEqual({
@@ -637,18 +935,32 @@ describe("setCollapsed", () => {
     await bb.storage.kv.delete("preference:collapsedThreads");
     await expect(
       harness.behavior.callRpc("setCollapsed", { ref: "all", collapsed: true }),
-    ).resolves.toEqual({ key: "collapsedThreads", value: ["thr_archived_parent"] });
-    expect(harness.inspection.sdk.callsTo("threads.list")).toEqual([[{}], [{ archived: true }]]);
+    ).resolves.toEqual({
+      key: "collapsedThreads",
+      value: ["thr_archived_parent"],
+    });
+    expect(harness.inspection.sdk.callsTo("threads.list")).toEqual([
+      [{}],
+      [{ archived: true }],
+    ]);
   });
 
   it("keeps both of two concurrent changes to the same list", async () => {
     const { bb, harness } = setup();
     await plugin(bb);
     await Promise.all([
-      harness.behavior.callRpc("setCollapsed", { ref: "thr_a", collapsed: true }),
-      harness.behavior.callRpc("setCollapsed", { ref: "thr_b", collapsed: true }),
+      harness.behavior.callRpc("setCollapsed", {
+        ref: "thr_a",
+        collapsed: true,
+      }),
+      harness.behavior.callRpc("setCollapsed", {
+        ref: "thr_b",
+        collapsed: true,
+      }),
     ]);
-    const stored = await bb.storage.kv.get<string[]>("preference:collapsedThreads");
+    const stored = await bb.storage.kv.get<string[]>(
+      "preference:collapsedThreads",
+    );
     expect([...(stored ?? [])].sort()).toEqual(["thr_a", "thr_b"]);
   });
 
@@ -668,27 +980,47 @@ describe("bb thread-list collapse and expand", () => {
   it("writes the same lists as setCollapsed and prints the key and value", async () => {
     const { bb, harness } = setup({ threads: TREE_THREADS });
     await plugin(bb);
-    const collapsed = await harness.behavior.runCli(["collapse", "thr_parent_1", "--json"]);
+    const collapsed = await harness.behavior.runCli([
+      "collapse",
+      "thr_parent_1",
+      "--json",
+    ]);
     expect(collapsed.exitCode).toBe(0);
     expect(JSON.parse(collapsed.stdout)).toEqual({
       key: "collapsedThreads",
       value: ["thr_parent_1"],
     });
-    const section = await harness.behavior.runCli(["collapse", "section:sec_a"]);
-    expect(section.stdout).toBe('collapsedThreadSections = ["chronological::sec_a"]');
+    const section = await harness.behavior.runCli([
+      "collapse",
+      "section:sec_a",
+    ]);
+    expect(section.stdout).toBe(
+      'collapsedThreadSections = ["chronological::sec_a"]',
+    );
 
-    await harness.behavior.runCli(["prefs", "set", "parentsStartCollapsed", "true"]);
+    await harness.behavior.runCli([
+      "prefs",
+      "set",
+      "parentsStartCollapsed",
+      "true",
+    ]);
     const expandedAll = await harness.behavior.runCli(["expand", "--all"]);
     expect(expandedAll.exitCode).toBe(0);
-    expect(expandedAll.stdout).toBe('expandedThreads = ["thr_parent_1","thr_parent_2"]');
-    const collapsedOne = await harness.behavior.runCli(["collapse", "thr_parent_2", "--json"]);
+    expect(expandedAll.stdout).toBe(
+      'expandedThreads = ["thr_parent_1","thr_parent_2"]',
+    );
+    const collapsedOne = await harness.behavior.runCli([
+      "collapse",
+      "thr_parent_2",
+      "--json",
+    ]);
     expect(JSON.parse(collapsedOne.stdout)).toEqual({
       key: "expandedThreads",
       value: ["thr_parent_1"],
     });
-    await expect(bb.storage.kv.get("preference:collapsedThreads")).resolves.toEqual([
-      "thr_parent_1",
-    ]);
+    await expect(
+      bb.storage.kv.get("preference:collapsedThreads"),
+    ).resolves.toEqual(["thr_parent_1"]);
   });
 
   it("requires exactly one of <ref> and --all and rejects a malformed ref", async () => {
@@ -696,9 +1028,21 @@ describe("bb thread-list collapse and expand", () => {
     await plugin(bb);
     const cases: Array<[string[], string, RegExp]> = [
       [["collapse", "--json"], "missing_required", /<ref> or --all/],
-      [["expand", "thr_a", "--all", "--json"], "unexpected_argument", /cannot be combined/],
-      [["collapse", "folder:a", "--json"], "invalid_ref", /Unknown ref "folder:a"/],
-      [["expand", "env:", "--json"], "invalid_ref", /Invalid environment id ""/],
+      [
+        ["expand", "thr_a", "--all", "--json"],
+        "unexpected_argument",
+        /cannot be combined/,
+      ],
+      [
+        ["collapse", "folder:a", "--json"],
+        "invalid_ref",
+        /Unknown ref "folder:a"/,
+      ],
+      [
+        ["expand", "env:", "--json"],
+        "invalid_ref",
+        /Invalid environment id ""/,
+      ],
     ];
     for (const [argv, code, message] of cases) {
       const result = await harness.behavior.runCli(argv);

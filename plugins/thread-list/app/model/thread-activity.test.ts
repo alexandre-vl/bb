@@ -139,9 +139,7 @@ describe("thread-activity", () => {
       expect(isUnreadDoneThread({ status: "error", isUnread: true })).toBe(
         true,
       );
-      expect(isUnreadDoneThread({ status: "idle", isUnread: true })).toBe(
-        true,
-      );
+      expect(isUnreadDoneThread({ status: "idle", isUnread: true })).toBe(true);
       expect(isUnreadDoneThread({ status: "active", isUnread: true })).toBe(
         false,
       );
