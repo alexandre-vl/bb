@@ -1,0 +1,1785 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  definePluginApp,
+  experimental_Icon as Icon,
+  useBbNavigate,
+  useRpc,
+  type PluginCommandRegistration,
+  type PluginNavPanelProps,
+  type PluginThreadPanelProps,
+} from "@get-bb/plugin-sdk/app";
+import { Button } from "@/components/ui/button";
+import { DelayedLoading } from "@/components/ui/delayed-loading";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+<<<<<<<
+=======
+  buildSuggestions,
+  byLinkKey,
+>>>>>>>
+  claimItemUrl,
+  isSameItem,
+  itemRefFromParams,
+  itemTabOptions,
+  itemUrl,
+<<<<<<<
+=======
+  linkKey,
+  matchesQuery,
+  parseQuery,
+>>>>>>>
+  parseSubPath,
+  pullRowModels,
+  routeToSubPath,
+  splitTitle,
+  type Item,
+  type ItemRef,
+  type Route,
+} from "./app-logic.js";
+import type { PullGlyph } from "./pull-status.js";
+import type { githubRpcContract } from "./server.js";
+import { AgentSheet, type AgentTarget } from "./components/agent-sheet.js";
+import { GithubHomeSection, useInboxBadge } from "./components/home-section.js";
+import { IssueDetailView, NewIssueForm } from "./components/issues.js";
+import { PullDetailView } from "./components/pull-detail.js";
+import { ListMessage, rowGlyph } from "./components/pull-list.js";
+import {
+  errorText,
+  PANEL_PATH,
+  PULL_TONE_CLASS,
+  relativeTime,
+  TipButton,
+  useItems,
+  useStatus,
+  useSync,
+  useViewer,
+  type Status,
+} from "./components/shared.js";
+import { PullWorkspace, type PanelNavigator } from "./components/workspace.js";
+
+function usePanelNavigator(): PanelNavigator {
+  const bbNavigate = useBbNavigate();
+  const backTo = useRef<string | null>(null);
+  return useMemo(
+    () => ({
+      go(route: Route, options?: { replace?: boolean }) {
+        const replace = options?.replace === true;
+        const deeper =
+          route.view === "pull" ||
+          route.view === "issue" ||
+          route.view === "new";
+        if (!replace) backTo.current = deeper ? window.location.href : null;
+        bbNavigate.toPluginPanel(PANEL_PATH, {
+          subPath: routeToSubPath(route),
+          ...(replace ? { replace: true } : {}),
+        });
+      },
+      back(fallback: Route) {
+        const from = backTo.current;
+        backTo.current = null;
+        if (from !== null && from !== window.location.href) {
+          window.history.back();
+          return;
+        }
+        bbNavigate.toPluginPanel(PANEL_PATH, {
+          subPath: routeToSubPath(fallback),
+          replace: true,
+        });
+      },
+    }),
+    [bbNavigate],
+  );
+}
+
+<<<<<<<
+function PanelHeader() {
+  const status = useStatus();
+  const sync = useSync();
+  const label = sync.syncing
+    ? "Syncing…"
+    : status?.lastSyncedAt == null
+      ? "Refresh"
+      : `Refresh · Synced ${relativeTime(status.lastSyncedAt)}`;
+=======
+function useItems(kind: "issue" | "pr"): {
+  items: Item[] | null;
+  error: string | null;
+} {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const [state, setState] = useState<{
+    items: Item[] | null;
+    error: string | null;
+  }>({
+    items: null,
+    error: null,
+  });
+  const refetch = useCallback(() => {
+    rpc.call("listItems", { kind }).then(
+      (result) => setState({ items: result.items, error: null }),
+      (error: unknown) => setState({ items: null, error: errorText(error) }),
+    );
+  }, [rpc, kind]);
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+  useRealtime("data-changed", refetch);
+  return state;
+}
+
+function useLinks(): LinksMap {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const [links, setLinks] = useState<LinksMap>({});
+  const refetch = useCallback(() => {
+    rpc.call("listLinks").then(
+      (result) => setLinks(byLinkKey(result.links)),
+      () => {},
+    );
+  }, [rpc]);
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+  useRealtime("links-changed", refetch);
+  return links;
+}
+
+function useSpawn(): {
+  spawn: (
+    method: "startWork" | "startReview",
+    repo: string,
+    number: number,
+  ) => void;
+  spawningKey: string | null;
+} {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const navigate = useBbNavigate();
+  const [spawningKey, setSpawningKey] = useState<string | null>(null);
+  const spawn = useCallback(
+    (method: "startWork" | "startReview", repo: string, number: number) => {
+      setSpawningKey(`${repo}#${number}`);
+      rpc
+        .call(method, { repo, number })
+        .then((result) => {
+          navigate.toThread(result.threadId);
+        })
+        .catch((error: unknown) => toast.error(errorText(error)))
+        .finally(() => setSpawningKey(null));
+    },
+    [rpc, navigate],
+  );
+  return { spawn, spawningKey };
+}
+
+let viewerLogin: string | null = null;
+
+function useViewer(): string | null {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const [login, setLogin] = useState<string | null>(viewerLogin);
+  useEffect(() => {
+    if (viewerLogin !== null) return;
+    rpc.call("viewer").then(
+      (result) => {
+        viewerLogin = result.login;
+        setLogin(result.login);
+      },
+      () => {},
+    );
+  }, [rpc]);
+  return login;
+}
+
+function Avatar({
+  login,
+  size = "size-5",
+  className,
+}: {
+  login: string;
+  size?: string;
+  className?: string;
+}) {
+>>>>>>>
+  return (
+    <TipButton
+      label={label}
+      icon="RotateCcw"
+      busy={sync.syncing}
+      onClick={sync.refresh}
+    />
+  );
+}
+
+function SetupMessage({ status }: { status: Status }) {
+  const [title, detail] = !status.ghOk
+    ? [
+        "Connect the GitHub CLI",
+        <>
+          Install it from cli.github.com, run <code>gh auth login</code>, then
+          reload the plugin. {status.ghError ?? ""}
+        </>,
+      ]
+    : [
+        "No GitHub repositories tracked yet",
+        "Create a bb project whose checkout has a GitHub origin remote, or add repositories in the extraRepos plugin setting.",
+      ];
+  return <ListMessage icon="Github" title={title} detail={detail} />;
+}
+
+function GithubPanel({ subPath }: PluginNavPanelProps) {
+  const route = useMemo(() => parseSubPath(subPath), [subPath]);
+  const navigator = usePanelNavigator();
+  const status = useStatus();
+  let body: ReactNode;
+  if (
+    status !== null &&
+    ((status.ghState !== "unavailable" && !status.ghOk) ||
+      status.repos.length === 0)
+  ) {
+    body = <SetupMessage status={status} />;
+  } else if (route.view === "issue") {
+    body = (
+      <IssueDetailView
+        key={`${route.repo}#${route.number}`}
+        repo={route.repo}
+        number={route.number}
+        onBack={() => navigator.back({ view: "issues" })}
+      />
+    );
+  } else if (route.view === "new") {
+    body = (
+      <NewIssueForm
+        repos={status?.repos ?? []}
+        onCreated={(repo, number) =>
+          navigator.go(
+            number === null
+              ? { view: "issues" }
+              : { view: "issue", repo, number },
+            { replace: true },
+          )
+        }
+        onCancel={() => navigator.back({ view: "issues" })}
+      />
+    );
+  } else {
+    body = (
+<<<<<<<
+      <PullWorkspace route={route} navigator={navigator} status={status} />
+    );
+  }
+  return (
+    <div className="@container/github flex min-h-0 flex-1 flex-col">{body}</div>
+  );
+}
+
+function PanelSkeleton() {
+  return (
+    <DelayedLoading>
+      <div aria-hidden className="flex flex-col gap-2.5">
+        <Skeleton className="h-4 w-4/5" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="mt-2 h-24 w-full rounded-lg" />
+      </div>
+    </DelayedLoading>
+  );
+}
+
+function PullPicker({
+  intro,
+  onPick,
+}: {
+  intro: string;
+  onPick: (repo: string, number: number) => void;
+}) {
+  const viewer = useViewer();
+  const { items, error, refetch } = useItems("pr");
+  const rows = useMemo(() => {
+    if (items === null) return null;
+    const me = viewer?.toLowerCase() ?? null;
+    return pullRowModels(items, viewer)
+      .filter((row) => row.pr.state === "open" || row.pr.state === "draft")
+      .sort(
+        (a, b) =>
+          Number(b.item.author.toLowerCase() === me) -
+            Number(a.item.author.toLowerCase() === me) ||
+          b.item.updatedAt.localeCompare(a.item.updatedAt),
+      );
+  }, [items, viewer]);
+  if (error !== null && rows === null) {
+    return (
+      <ListMessage
+        icon="CloudOff"
+        title="Can't reach GitHub"
+        detail={error}
+        action={
+          <Button type="button" size="sm" variant="ghost" onClick={refetch}>
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+  if (rows === null) return <PanelSkeleton />;
+  if (rows.length === 0) {
+    return (
+      <ListMessage
+        icon="GitPullRequest"
+        title="No open pull requests"
+        detail="Pull requests in the tracked repositories show up here."
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-subtle-foreground">{intro}</p>
+      <div className="flex flex-col">
+        {rows.map((row) => (
+          <PickerRow
+            key={row.key}
+            glyph={rowGlyph(row, null)}
+            title={splitTitle(row.item.title).text}
+            detail={`${row.item.repo}#${row.item.number}`}
+            onPick={() => onPick(row.item.repo, row.item.number)}
+=======
+      <div className="divide-y divide-border">
+        {items.map((item) => (
+          <ItemRow
+            key={`${item.repo}#${item.number}`}
+            item={item}
+            links={links[linkKey(kind, item)]}
+            onOpen={() => onOpenItem(item.repo, item.number)}
+>>>>>>>
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+<<<<<<<
+const OPEN_ISSUE_GLYPH: PullGlyph = {
+  icon: "Circle",
+  tone: "ready",
+  label: "Open",
+=======
+function SidebarHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+      {children}
+    </h3>
+  );
+}
+
+function AssigneePicker({
+  repo,
+  assignees,
+  onToggle,
+}: {
+  repo: string;
+  assignees: string[];
+  onToggle: (login: string, assigned: boolean) => void;
+}) {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const viewer = useViewer();
+  const [users, setUsers] = useState<string[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    if (users !== null) return;
+    rpc.call("assignableUsers", { repo }).then(
+      (result) => setUsers(result.users),
+      (error: unknown) => setLoadError(errorText(error)),
+    );
+  }, [rpc, repo, users]);
+
+  const ordered =
+    users === null
+      ? null
+      : [...users].sort((a, b) => Number(b === viewer) - Number(a === viewer));
+
+  return (
+    <DropdownMenu onOpenChange={(open) => open && load()}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-xs text-muted-foreground"
+        >
+          Edit
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="max-h-72 w-56 overflow-y-auto"
+      >
+        <DropdownMenuLabel>Assignees</DropdownMenuLabel>
+        {loadError !== null ? (
+          <DropdownMenuItem disabled>{loadError}</DropdownMenuItem>
+        ) : ordered === null ? (
+          <DropdownMenuItem disabled>Loading…</DropdownMenuItem>
+        ) : ordered.length === 0 ? (
+          <DropdownMenuItem disabled>No assignable users</DropdownMenuItem>
+        ) : (
+          ordered.map((login) => (
+            <DropdownMenuCheckboxItem
+              key={login}
+              checked={assignees.includes(login)}
+              onCheckedChange={(checked) => onToggle(login, checked)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Avatar login={login} size="size-4" />
+                <span className="truncate">
+                  {login}
+                  {login === viewer ? " (you)" : ""}
+                </span>
+              </span>
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function LabelPicker({
+  repo,
+  labels,
+  onToggle,
+}: {
+  repo: string;
+  labels: string[];
+  onToggle: (label: string, enabled: boolean) => void;
+}) {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const [available, setAvailable] = useState<string[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    if (available !== null) return;
+    rpc.call("repositoryLabels", { repo }).then(
+      (result) => setAvailable(result.labels),
+      (error: unknown) => setLoadError(errorText(error)),
+    );
+  }, [rpc, repo, available]);
+
+  const ordered =
+    available === null
+      ? null
+      : [...new Set([...labels, ...available])].sort((a, b) =>
+          a.localeCompare(b),
+        );
+
+  return (
+    <DropdownMenu onOpenChange={(open) => open && load()}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-xs text-muted-foreground"
+        >
+          Edit
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="max-h-72 w-56 overflow-y-auto"
+      >
+        <DropdownMenuLabel>Labels</DropdownMenuLabel>
+        {loadError !== null ? (
+          <DropdownMenuItem disabled>{loadError}</DropdownMenuItem>
+        ) : ordered === null ? (
+          <DropdownMenuItem disabled>Loading…</DropdownMenuItem>
+        ) : ordered.length === 0 ? (
+          <DropdownMenuItem disabled>No labels in repo</DropdownMenuItem>
+        ) : (
+          ordered.map((label) => (
+            <DropdownMenuCheckboxItem
+              key={label}
+              checked={labels.includes(label)}
+              onCheckedChange={(checked) => onToggle(label, checked === true)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              <span className="min-w-0 truncate">{label}</span>
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DetailError({ message, url }: { message: string; url: string }) {
+  return (
+    <div className="flex flex-col items-center">
+      <EmptyState message={message} />
+      <UrlLink href={url} className="text-xs underline hover:text-foreground">
+        Open on GitHub ↗
+      </UrlLink>
+    </div>
+  );
+}
+
+function IssueDetailView({
+  repo,
+  number,
+  onBack,
+  compact = false,
+}: {
+  repo: string;
+  number: number;
+  onBack?: () => void;
+  compact?: boolean;
+}) {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const links = useLinks();
+  const { spawn, spawningKey } = useSpawn();
+  const { setIssueState, setAssignees, setLabels } = useIssueMutations();
+  const [detail, setDetail] = useState<IssueDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [comment, setComment] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  const load = useCallback(() => {
+    rpc.call("getIssue", { repo, number }).then(
+      (result) => {
+        setDetail(result.issue);
+        setError(null);
+      },
+      (err: unknown) => setError(errorText(err)),
+    );
+  }, [rpc, repo, number]);
+  useEffect(() => {
+    setDetail(null);
+    load();
+  }, [load]);
+
+  const changeState = useCallback(
+    (next: "open" | "closed") => {
+      setDetail((prev) =>
+        prev === null
+          ? prev
+          : { ...prev, state: next === "closed" ? "CLOSED" : "OPEN" },
+      );
+      setIssueState(repo, number, next).catch((err: unknown) => {
+        toast.error(errorText(err));
+        load();
+      });
+    },
+    [setIssueState, repo, number, load],
+  );
+
+  const toggleAssignee = useCallback(
+    (login: string, assigned: boolean) => {
+      let next: string[] = [];
+      setDetail((prev) => {
+        if (prev === null) return prev;
+        next = assigned
+          ? [...new Set([...prev.assignees, login])]
+          : prev.assignees.filter((entry) => entry !== login);
+        return { ...prev, assignees: next };
+      });
+      setAssignees(repo, number, next).catch((err: unknown) => {
+        toast.error(errorText(err));
+        load();
+      });
+    },
+    [setAssignees, repo, number, load],
+  );
+
+  const toggleLabel = useCallback(
+    (label: string, enabled: boolean) => {
+      let next: string[] = [];
+      setDetail((prev) => {
+        if (prev === null) return prev;
+        next = enabled
+          ? [...new Set([...prev.labels, label])]
+          : prev.labels.filter((entry) => entry !== label);
+        return { ...prev, labels: next };
+      });
+      setLabels(repo, number, next).catch((err: unknown) => {
+        toast.error(errorText(err));
+        load();
+      });
+    },
+    [setLabels, repo, number, load],
+  );
+
+  const postComment = useCallback(() => {
+    if (comment.trim().length === 0) return;
+    setPosting(true);
+    rpc
+      .call("commentIssue", { repo, number, body: comment })
+      .then(() => {
+        setComment("");
+        load();
+      })
+      .catch((err: unknown) => toast.error(errorText(err)))
+      .finally(() => setPosting(false));
+  }, [rpc, repo, number, comment, load]);
+
+  if (error !== null) {
+    return (
+      <DetailError message={error} url={itemUrl("issue", { repo, number })} />
+    );
+  }
+  if (detail === null) {
+    return <DetailSkeleton />;
+  }
+
+  const issueLinks = links[linkKey("issue", { repo, number })];
+  return (
+    <div className="@container/github-detail flex flex-col gap-4">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        {onBack !== undefined ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            onClick={onBack}
+          >
+            ← Issues
+          </Button>
+        ) : null}
+        <span className="min-w-0 truncate">
+          {repo} · #{number}
+        </span>
+        <span className="flex-1" />
+        <UrlLink
+          href={detail.url}
+          className="shrink-0 underline hover:text-foreground"
+        >
+          Open on GitHub ↗
+        </UrlLink>
+      </div>
+
+      <div className="flex items-start gap-3">
+        <h2
+          className={`min-w-0 flex-1 font-semibold text-foreground ${compact ? "text-base" : "text-xl"}`}
+        >
+          {detail.title}{" "}
+          <span className="font-normal text-muted-foreground">
+            #{detail.number}
+          </span>
+        </h2>
+        <Button
+          size="sm"
+          disabled={spawningKey !== null}
+          onClick={() => spawn("startWork", repo, number)}
+        >
+          {spawningKey !== null ? "Starting…" : "Send agent"}
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-6 @min-[56rem]/github-detail:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
+              <Avatar login={detail.author} />
+              <span className="font-medium text-foreground">
+                {detail.author}
+              </span>
+              opened this issue · updated {relativeTime(detail.updatedAt)}
+            </div>
+            <div className="p-4">
+              {detail.body.length > 0 ? (
+                <Markdown content={detail.body} className="text-sm" />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  (no description)
+                </p>
+              )}
+            </div>
+          </div>
+
+          {detail.comments.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-xs font-semibold text-muted-foreground">
+                Activity · {detail.comments.length}
+              </h3>
+              {detail.comments.map((entry, index) => (
+                <div
+                  key={index}
+                  className="rounded-lg border border-border bg-card p-3"
+                >
+                  <p className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                    <Avatar login={entry.author} />
+                    <span className="font-medium text-foreground">
+                      {entry.author}
+                    </span>{" "}
+                    · {relativeTime(entry.createdAt)}
+                  </p>
+                  <Markdown content={entry.body} className="text-sm" />
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-2">
+            <Textarea
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+              placeholder="Leave a comment…"
+              rows={3}
+            />
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                disabled={posting || comment.trim().length === 0}
+                onClick={postComment}
+              >
+                {posting ? "Posting…" : "Comment"}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <aside className="flex w-full shrink-0 flex-col gap-5 @min-[56rem]/github-detail:w-56">
+          <div className="flex flex-col gap-2">
+            <SidebarHeading>Status</SidebarHeading>
+            <Select
+              value={detail.state === "OPEN" ? "open" : "closed"}
+              onValueChange={(value) =>
+                changeState(value === "closed" ? "closed" : "open")
+              }
+            >
+              <SelectTrigger className="h-8 w-full text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">
+                  <span className="flex items-center gap-2">
+                    <StateDot kind="issue" state="OPEN" /> Open
+                  </span>
+                </SelectItem>
+                <SelectItem value="closed">
+                  <span className="flex items-center gap-2">
+                    <StateDot kind="issue" state="CLOSED" /> Closed
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <SidebarHeading>Assignees</SidebarHeading>
+              <AssigneePicker
+                repo={repo}
+                assignees={detail.assignees}
+                onToggle={toggleAssignee}
+              />
+            </div>
+            {detail.assignees.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No one assigned</p>
+            ) : (
+              detail.assignees.map((login) => (
+                <p
+                  key={login}
+                  className="flex items-center gap-2 text-sm text-foreground"
+                >
+                  <Avatar login={login} />
+                  <span className="truncate">{login}</span>
+                </p>
+              ))
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <SidebarHeading>Labels</SidebarHeading>
+              <LabelPicker
+                repo={repo}
+                labels={detail.labels}
+                onToggle={toggleLabel}
+              />
+            </div>
+            {detail.labels.length === 0 ? (
+              <p className="text-sm text-muted-foreground">None yet</p>
+            ) : (
+              <LabelChips labels={detail.labels} className="flex flex-wrap" />
+            )}
+          </div>
+
+          {issueLinks !== undefined && issueLinks.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <SidebarHeading>Agents</SidebarHeading>
+              <ThreadPills links={issueLinks} />
+            </div>
+          ) : null}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function pullStateBadgeParts(state: string): { dot: string; label: string } {
+  if (state === "DRAFT")
+    return { dot: "bg-muted-foreground/60", label: "draft" };
+  if (state === "OPEN") return { dot: "bg-green-500", label: "open" };
+  if (state === "MERGED") return { dot: "bg-purple-500", label: "merged" };
+  return { dot: "bg-red-500", label: "closed" };
+}
+
+function PullStateBadge({ state }: { state: string }) {
+  const { dot, label } = pullStateBadgeParts(state);
+  return (
+    <Badge variant="outline" className="gap-1.5 font-normal">
+      <span className={`size-2 shrink-0 rounded-full ${dot}`} />
+      {label}
+    </Badge>
+  );
+}
+
+const REVIEW_STATE_LABELS: Record<string, string> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "requested changes",
+  COMMENTED: "commented",
+  DISMISSED: "dismissed",
+  PENDING: "review requested",
+>>>>>>>
+};
+
+<<<<<<<
+function IssuePicker({
+=======
+function reviewStateClass(state: string): string {
+  if (state === "APPROVED") return "text-green-600 dark:text-green-400";
+  if (state === "CHANGES_REQUESTED") return "text-red-600 dark:text-red-400";
+  return "text-muted-foreground";
+}
+
+function ReviewDecisionBadge({ decision }: { decision: string }) {
+  if (decision === "APPROVED") {
+    return (
+      <Badge className="bg-green-600 text-white hover:bg-green-600">
+        approved
+      </Badge>
+    );
+  }
+  if (decision === "CHANGES_REQUESTED") {
+    return <Badge variant="destructive">changes requested</Badge>;
+  }
+  if (decision === "REVIEW_REQUIRED") {
+    return <Badge variant="secondary">review required</Badge>;
+  }
+  return null;
+}
+
+function checkDotClass(status: PullCheck["status"]): string {
+  if (status === "success") return "bg-green-500";
+  if (status === "failure") return "bg-red-500";
+  if (status === "pending") return "animate-pulse bg-yellow-500";
+  return "bg-muted-foreground/50";
+}
+
+function ChecksSection({ checks }: { checks: PullCheck[] }) {
+  const [open, setOpen] = useState(() =>
+    checks.some((check) => check.status === "failure"),
+  );
+  if (checks.length === 0) return null;
+  const passing = checks.filter((check) => check.status === "success").length;
+  const failing = checks.filter((check) => check.status === "failure").length;
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <button
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent/50"
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span
+          className={`size-2 shrink-0 rounded-full ${
+            failing > 0
+              ? "bg-red-500"
+              : passing === checks.length
+                ? "bg-green-500"
+                : "animate-pulse bg-yellow-500"
+          }`}
+        />
+        <span className="font-medium text-foreground">Checks</span>
+        <span className="text-xs text-muted-foreground">
+          {passing}/{checks.length} passing
+          {failing > 0 ? ` · ${failing} failing` : ""}
+        </span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open ? (
+        <div className="divide-y divide-border border-t border-border">
+          {checks.map((check, index) => (
+            <div
+              key={`${check.name}-${index}`}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs"
+            >
+              <span
+                className={`size-2 shrink-0 rounded-full ${checkDotClass(check.status)}`}
+              />
+              <span className="min-w-0 flex-1 truncate text-foreground">
+                {check.name}
+              </span>
+              {check.url.length > 0 ? (
+                <UrlLink
+                  href={check.url}
+                  className="shrink-0 text-muted-foreground underline hover:text-foreground"
+                >
+                  details ↗
+                </UrlLink>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FileDiffCard({
+  environmentId,
+  file,
+  url,
+}: {
+  environmentId: string | null;
+  file: PullFile;
+  url: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="relative flex w-full select-none items-center gap-2 px-3 py-2 hover:bg-accent/50">
+        <button
+          type="button"
+          className="shrink-0 text-xs text-muted-foreground after:absolute after:inset-0 after:content-['']"
+          aria-label={`${open ? "Collapse" : "Expand"} ${file.path} diff`}
+          aria-expanded={open}
+          onClick={() => setOpen((prev) => !prev)}
+        >
+          {open ? "▾" : "▸"}
+        </button>
+        {environmentId === null || file.status === "removed" ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+            {file.path}
+          </span>
+        ) : (
+          <FileLink
+            className="relative min-w-0 flex-1 truncate font-mono text-xs text-foreground hover:underline"
+            target={{
+              kind: "workspace",
+              environmentId,
+              path: file.path,
+            }}
+          >
+            {file.path}
+          </FileLink>
+        )}
+        {file.status !== "modified" ? (
+          <Badge
+            variant="secondary"
+            className="shrink-0 font-normal text-muted-foreground"
+          >
+            {file.status}
+          </Badge>
+        ) : null}
+        <span className="shrink-0 text-xs text-green-600 dark:text-green-400">
+          +{file.additions}
+        </span>
+        <span className="shrink-0 text-xs text-red-600 dark:text-red-400">
+          −{file.deletions}
+        </span>
+      </div>
+      {open ? (
+        file.patch !== null ? (
+          <div className="border-t border-border">
+            <Diff patch={file.patch} path={file.path} />
+          </div>
+        ) : (
+          <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+            Diff too large to inline —{" "}
+            <UrlLink href={`${url}/files`} className="underline">
+              view on GitHub ↗
+            </UrlLink>
+          </p>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+function ReviewThreadCard({ thread }: { thread: ReviewThread }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <p className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5 font-mono text-xs text-muted-foreground">
+        <span className="min-w-0 truncate">{thread.path}</span>
+        {thread.line !== null ? (
+          <span className="shrink-0">:{thread.line}</span>
+        ) : null}
+      </p>
+      {thread.diffHunk.length > 0 ? (
+        <div className="border-b border-border">
+          <Diff patch={thread.diffHunk} path={thread.path} />
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-3 p-3">
+        {thread.comments.map((entry, index) => (
+          <div key={index}>
+            <p className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+              <Avatar login={entry.author} size="size-4" />
+              <span className="font-medium text-foreground">
+                {entry.author}
+              </span>{" "}
+              · {relativeTime(entry.createdAt)}
+            </p>
+            <Markdown content={entry.body} className="text-sm" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type PullTimelineEntry =
+  | { type: "comment"; author: string; body: string; createdAt: string }
+  | {
+      type: "review";
+      author: string;
+      state: string;
+      body: string;
+      createdAt: string;
+    };
+
+function PullTimeline({ pull }: { pull: PullDetail }) {
+  const entries = useMemo<PullTimelineEntry[]>(() => {
+    const merged: PullTimelineEntry[] = [
+      ...pull.comments.map((comment) => ({
+        type: "comment" as const,
+        ...comment,
+      })),
+      ...pull.reviews
+        .filter(
+          (review) => review.body.length > 0 || review.state !== "COMMENTED",
+        )
+        .map((review) => ({ type: "review" as const, ...review })),
+    ];
+    return merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [pull]);
+  if (entries.length === 0 && pull.reviewThreads.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-xs font-semibold text-muted-foreground">
+        Activity · {entries.length + pull.reviewThreads.length}
+      </h3>
+      {entries.map((entry, index) => (
+        <div
+          key={index}
+          className="rounded-lg border border-border bg-card p-3"
+        >
+          <p className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+            <Avatar login={entry.author} />
+            <span className="font-medium text-foreground">{entry.author}</span>
+            {entry.type === "review" ? (
+              <span className={`font-medium ${reviewStateClass(entry.state)}`}>
+                {REVIEW_STATE_LABELS[entry.state] ?? entry.state.toLowerCase()}
+              </span>
+            ) : null}
+            · {relativeTime(entry.createdAt)}
+          </p>
+          {entry.body.length > 0 ? (
+            <Markdown content={entry.body} className="text-sm" />
+          ) : null}
+        </div>
+      ))}
+      {pull.reviewThreads.map((thread, index) => (
+        <ReviewThreadCard key={index} thread={thread} />
+      ))}
+    </div>
+  );
+}
+
+function PullReviewersList({ pull }: { pull: PullDetail }) {
+  const rows = useMemo(() => {
+    const latest = new Map<string, { login: string; state: string }>();
+    for (const review of pull.reviews) {
+      if (review.author.length > 0) {
+        latest.set(review.author, {
+          login: review.author,
+          state: review.state,
+        });
+      }
+    }
+    for (const login of pull.reviewRequests) {
+      latest.set(login, { login, state: "PENDING" });
+    }
+    return [...latest.values()];
+  }, [pull]);
+  if (rows.length === 0)
+    return <p className="text-sm text-muted-foreground">No reviewers</p>;
+  return (
+    <>
+      {rows.map((row) => (
+        <p
+          key={row.login}
+          className="flex items-center gap-2 text-sm text-foreground"
+        >
+          <Avatar login={row.login} />
+          <span className="min-w-0 truncate">{row.login}</span>
+          <span
+            className={`ml-auto shrink-0 text-xs ${reviewStateClass(row.state)}`}
+          >
+            {REVIEW_STATE_LABELS[row.state] ?? row.state.toLowerCase()}
+          </span>
+        </p>
+      ))}
+    </>
+  );
+}
+
+function PullCommentBox({
+  repo,
+  number,
+  onPosted,
+}: {
+  repo: string;
+  number: number;
+  onPosted: () => void;
+}) {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const [comment, setComment] = useState("");
+  const [posting, setPosting] = useState(false);
+  const post = useCallback(() => {
+    if (comment.trim().length === 0) return;
+    setPosting(true);
+    rpc
+      .call("commentPull", { repo, number, body: comment })
+      .then(() => {
+        setComment("");
+        onPosted();
+      })
+      .catch((error: unknown) => toast.error(errorText(error)))
+      .finally(() => setPosting(false));
+  }, [rpc, repo, number, comment, onPosted]);
+  return (
+    <div className="flex flex-col gap-2">
+      <Textarea
+        value={comment}
+        onChange={(event) => setComment(event.target.value)}
+        placeholder="Leave a comment…"
+        rows={3}
+      />
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          disabled={posting || comment.trim().length === 0}
+          onClick={post}
+        >
+          {posting ? "Posting…" : "Comment"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PullDetailView({
+  repo,
+  number,
+  onBack,
+  backLabel = "Pull requests",
+  compact = false,
+  workspaceEnvironmentId = null,
+}: {
+  repo: string;
+  number: number;
+  onBack?: () => void;
+  backLabel?: string;
+  compact?: boolean;
+  workspaceEnvironmentId?: string | null;
+}) {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const links = useLinks();
+  const { spawn, spawningKey } = useSpawn();
+  const [pull, setPull] = useState<PullDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    rpc.call("getPull", { repo, number }).then(
+      (result) => {
+        setPull(result.pull);
+        setError(null);
+      },
+      (err: unknown) => setError(errorText(err)),
+    );
+  }, [rpc, repo, number]);
+  useEffect(() => {
+    setPull(null);
+    load();
+  }, [load]);
+
+  if (error !== null) {
+    return (
+      <DetailError message={error} url={itemUrl("pr", { repo, number })} />
+    );
+  }
+  if (pull === null) {
+    return <DetailSkeleton />;
+  }
+
+  const pullLinks = links[linkKey("pr", { repo, number })];
+  const mainColumn = (
+    <div className="flex min-w-0 flex-1 flex-col gap-4">
+      <ChecksSection checks={pull.checks} />
+
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
+          <Avatar login={pull.author} />
+          <span className="font-medium text-foreground">{pull.author}</span>
+          opened this pull request · updated {relativeTime(pull.updatedAt)}
+        </div>
+        <div className="p-4">
+          {pull.body.length > 0 ? (
+            <Markdown content={pull.body} className="text-sm" />
+          ) : (
+            <p className="text-sm text-muted-foreground">(no description)</p>
+          )}
+        </div>
+      </div>
+
+      <PullTimeline pull={pull} />
+
+      {pull.files.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-xs font-semibold text-muted-foreground">
+            Files changed · {pull.files.length}
+            <span className="ml-2 font-normal">
+              <span className="text-green-600 dark:text-green-400">
+                +{pull.additions}
+              </span>{" "}
+              <span className="text-red-600 dark:text-red-400">
+                −{pull.deletions}
+              </span>
+            </span>
+          </h3>
+          {pull.files.map((file) => (
+            <FileDiffCard
+              key={file.path}
+              environmentId={workspaceEnvironmentId}
+              file={file}
+              url={pull.url}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      <PullCommentBox repo={repo} number={number} onPosted={load} />
+    </div>
+  );
+
+  return (
+    <div className="@container/github-detail flex flex-col gap-4">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        {onBack !== undefined ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            onClick={onBack}
+          >
+            ← {backLabel}
+          </Button>
+        ) : null}
+        <span className="min-w-0 truncate">
+          {repo} · #{number}
+        </span>
+        <span className="flex-1" />
+        <UrlLink
+          href={pull.url}
+          className="shrink-0 underline hover:text-foreground"
+        >
+          Open on GitHub ↗
+        </UrlLink>
+      </div>
+
+      <div className="flex items-start gap-3">
+        <h2
+          className={`min-w-0 flex-1 font-semibold text-foreground ${compact ? "text-base" : "text-xl"}`}
+        >
+          {pull.title}{" "}
+          <span className="font-normal text-muted-foreground">
+            #{pull.number}
+          </span>
+        </h2>
+        <Button
+          size="sm"
+          disabled={spawningKey !== null}
+          onClick={() => spawn("startReview", repo, number)}
+        >
+          {spawningKey !== null ? "Starting…" : "Review with agent"}
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <PullStateBadge state={pull.state} />
+        <ReviewDecisionBadge decision={pull.reviewDecision} />
+        <span className="font-mono">
+          {pull.baseRefName} ← {pull.headRefName}
+        </span>
+        <span>
+          <span className="text-green-600 dark:text-green-400">
+            +{pull.additions}
+          </span>{" "}
+          <span className="text-red-600 dark:text-red-400">
+            −{pull.deletions}
+          </span>{" "}
+          · {pull.changedFiles} file{pull.changedFiles === 1 ? "" : "s"}
+        </span>
+        <LabelChips labels={pull.labels} className="flex flex-wrap" />
+        <ThreadPills links={pullLinks} />
+      </div>
+
+      {compact ? (
+        mainColumn
+      ) : (
+        <div className="flex flex-col gap-6 @min-[56rem]/github-detail:flex-row">
+          {mainColumn}
+          <aside className="flex w-full shrink-0 flex-col gap-5 @min-[56rem]/github-detail:w-56">
+            <div className="flex flex-col gap-1">
+              <SidebarHeading>Reviewers</SidebarHeading>
+              <PullReviewersList pull={pull} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <SidebarHeading>Assignees</SidebarHeading>
+              {pull.assignees.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No one assigned</p>
+              ) : (
+                pull.assignees.map((login) => (
+                  <p
+                    key={login}
+                    className="flex items-center gap-2 text-sm text-foreground"
+                  >
+                    <Avatar login={login} />
+                    <span className="truncate">{login}</span>
+                  </p>
+                ))
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <SidebarHeading>Labels</SidebarHeading>
+              {pull.labels.length === 0 ? (
+                <p className="text-sm text-muted-foreground">None yet</p>
+              ) : (
+                <LabelChips labels={pull.labels} className="flex flex-wrap" />
+              )}
+            </div>
+            {pullLinks !== undefined && pullLinks.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <SidebarHeading>Agents</SidebarHeading>
+                <ThreadPills links={pullLinks} />
+              </div>
+            ) : null}
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ItemPickerList({
+  kind,
+>>>>>>>
+  onPick,
+}: {
+  onPick: (repo: string, number: number) => void;
+}) {
+  const { items, error, refetch } = useItems("issue");
+  const issues = useMemo(
+    () =>
+      items === null
+        ? null
+        : items
+            .filter((item) => item.state === "OPEN")
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [items],
+  );
+  if (error !== null && issues === null) {
+    return (
+      <ListMessage
+        icon="CloudOff"
+        title="Can't reach GitHub"
+        detail={error}
+        action={
+          <Button type="button" size="sm" variant="ghost" onClick={refetch}>
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+  if (issues === null) return <PanelSkeleton />;
+  if (issues.length === 0) {
+    return (
+      <ListMessage
+        icon="Circle"
+        title="No open issues"
+        detail="Issues in the tracked repositories show up here."
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-subtle-foreground">
+        Pick an issue to show here.
+      </p>
+      <div className="flex flex-col">
+        {issues.map((item) => (
+          <PickerRow
+            key={`${item.repo}#${item.number}`}
+            glyph={OPEN_ISSUE_GLYPH}
+            title={splitTitle(item.title).text}
+            detail={`${item.repo}#${item.number}`}
+            onPick={() => onPick(item.repo, item.number)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PickerRow({
+  glyph,
+  title,
+  detail,
+  onPick,
+}: {
+  glyph: PullGlyph;
+  title: string;
+  detail: string;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className="-mx-2 flex items-start gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-state-hover focus-visible:ring-1 focus-visible:ring-ring max-md:pointer-coarse:py-2.5"
+    >
+      <span
+        title={glyph.label}
+        className="mt-0.5 flex size-4 shrink-0 items-center justify-center"
+      >
+        <Icon
+          name={glyph.icon}
+          aria-hidden
+          className={`size-4 ${PULL_TONE_CLASS[glyph.tone]}`}
+        />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-sm font-medium text-foreground">
+          {title}
+        </span>
+        <span className="truncate text-xs text-subtle-foreground">
+          {detail}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+interface ThreadPull extends ItemRef {
+  environmentId: string | null;
+}
+
+type ThreadPullLookup =
+  | { status: "loading" }
+  | { status: "failed"; error: string; retry: () => void }
+  | { status: "resolved"; pull: ThreadPull | null };
+
+const ITEM_PANEL_ACTION_IDS: Record<Item["kind"], string> = {
+  pr: "pull",
+  issue: "issue",
+};
+
+function useThreadPull(
+  threadId: string,
+  onResolved?: (pull: ThreadPull | null) => void,
+): ThreadPullLookup {
+  const rpc = useRpc<typeof githubRpcContract>();
+  const onResolvedRef = useRef(onResolved);
+  const [attempt, setAttempt] = useState(0);
+  const [lookup, setLookup] = useState<{
+    key: string;
+    result: { pull: ThreadPull | null } | { error: string };
+  } | null>(null);
+  const key = `${threadId}:${attempt}`;
+
+  useEffect(() => {
+    onResolvedRef.current = onResolved;
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    rpc.call("pullForThread", { threadId }).then(
+      (result) => {
+        if (cancelled) return;
+        setLookup({ key, result: { pull: result.pull } });
+        onResolvedRef.current?.(result.pull);
+      },
+      (failure: unknown) => {
+        if (cancelled) return;
+        setLookup({ key, result: { error: errorText(failure) } });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [key, rpc, threadId]);
+
+  if (lookup === null || lookup.key !== key) return { status: "loading" };
+  if ("error" in lookup.result) {
+    return {
+      status: "failed",
+      error: lookup.result.error,
+      retry: () => setAttempt((current) => current + 1),
+    };
+  }
+  return { status: "resolved", pull: lookup.result.pull };
+}
+
+function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
+  const navigate = useBbNavigate();
+  return useCallback(
+    (item) =>
+      navigate.openThreadPanel({
+        actionId: ITEM_PANEL_ACTION_IDS[kind],
+        ...itemTabOptions(kind, item),
+        experimental_replace: true,
+      }),
+    [kind, navigate],
+  );
+}
+
+function PullPanelTab({ threadId, params }: PluginThreadPanelProps) {
+  const linked = itemRefFromParams(params);
+  if (linked === null) {
+    return <ThreadPullPanel key={threadId} threadId={threadId} />;
+  }
+  return (
+    <LinkedPullPanel
+      key={`${threadId}:${linked.repo}#${linked.number}`}
+      threadId={threadId}
+      pull={linked}
+    />
+  );
+}
+
+function LinkedPullPanel({
+  threadId,
+  pull,
+}: {
+  threadId: string;
+  pull: ItemRef;
+}) {
+  const threadPull = useThreadPull(threadId);
+  return (
+    <PullTabDetail
+      pull={pull}
+      environmentId={
+        threadPull.status === "resolved" &&
+        threadPull.pull !== null &&
+        isSameItem(threadPull.pull, pull)
+          ? threadPull.pull.environmentId
+          : null
+      }
+      onBack={null}
+    />
+  );
+}
+
+function ThreadPullPanel({ threadId }: { threadId: string }) {
+  const showInThisTab = useShowItemInThisTab("pr");
+  const [choice, setChoice] = useState<"picker" | ThreadPull | null>(null);
+  const lookup = useThreadPull(threadId, (pull) => {
+    if (pull !== null && !showInThisTab(pull)) setChoice(pull);
+  });
+
+  if (lookup.status === "loading") return <PanelSkeleton />;
+  if (lookup.status === "failed") {
+    return (
+      <ListMessage
+        icon="CloudOff"
+        title="Can't reach GitHub"
+        detail={lookup.error}
+        action={
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={lookup.retry}
+          >
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+  const view = choice ?? (lookup.pull === null ? "picker" : null);
+  if (view === null) return <PanelSkeleton />;
+  if (view === "picker") {
+    return (
+      <PullPicker
+        intro={
+          lookup.pull === null
+            ? "No pull request is linked to this thread. Pick one to show it here."
+            : "Pick a pull request to show here."
+        }
+        onPick={(repo, number) => {
+          const pull = { repo, number, environmentId: null };
+          if (!showInThisTab(pull)) setChoice(pull);
+        }}
+      />
+    );
+  }
+  return (
+    <PullTabDetail
+      pull={view}
+      environmentId={view.environmentId}
+      onBack={() => setChoice("picker")}
+    />
+  );
+}
+
+function PullTabDetail({
+  pull,
+  environmentId,
+  onBack,
+}: {
+  pull: ItemRef;
+  environmentId: string | null;
+  onBack: (() => void) | null;
+}) {
+  const navigate = useBbNavigate();
+  const viewer = useViewer();
+  const { items } = useItems("pr");
+  const [agentTarget, setAgentTarget] = useState<AgentTarget | null>(null);
+  const item = items?.find((entry) => isSameItem(entry, pull)) ?? null;
+  const row = item === null ? null : (pullRowModels([item], viewer)[0] ?? null);
+  return (
+    <div className="-m-4 flex min-h-0 flex-1 flex-col @container/github">
+      <PullDetailView
+        key={`${pull.repo}#${pull.number}`}
+        repo={pull.repo}
+        number={pull.number}
+        row={row}
+        chain={null}
+        viewer={viewer}
+        layout="panel"
+        environmentId={environmentId}
+        handle={null}
+        pendingRequest={null}
+        onBack={onBack}
+        onClose={null}
+        onOpenPull={(repo, number) => {
+          const opened = navigate.openThreadPanel({
+            actionId: ITEM_PANEL_ACTION_IDS.pr,
+            ...itemTabOptions("pr", { repo, number }),
+          });
+          if (!opened) navigate.openUrl(itemUrl("pr", { repo, number }));
+        }}
+        onStartAgent={setAgentTarget}
+      />
+      <AgentSheet
+        target={agentTarget}
+        onOpenChange={(open) => {
+          if (!open) setAgentTarget(null);
+        }}
+      />
+    </div>
+  );
+}
+
+function IssuePanelTab({ params }: PluginThreadPanelProps) {
+  const linked = itemRefFromParams(params);
+  if (linked === null) return <IssuePickerPanel />;
+  return (
+    <IssueTabDetail
+      key={`${linked.repo}#${linked.number}`}
+      issue={linked}
+      onBack={null}
+    />
+  );
+}
+
+function IssuePickerPanel() {
+  const showInThisTab = useShowItemInThisTab("issue");
+  const [shown, setShown] = useState<ItemRef | null>(null);
+  if (shown === null) {
+    return (
+      <IssuePicker
+        onPick={(repo, number) => {
+          const issue = { repo, number };
+          if (!showInThisTab(issue)) setShown(issue);
+        }}
+      />
+    );
+  }
+  return <IssueTabDetail issue={shown} onBack={() => setShown(null)} />;
+}
+
+function IssueTabDetail({
+  issue,
+  onBack,
+}: {
+  issue: ItemRef;
+  onBack: (() => void) | null;
+}) {
+  return (
+    <div className="-m-4 flex min-h-0 flex-1 flex-col @container/github">
+      <IssueDetailView
+        key={`${issue.repo}#${issue.number}`}
+        repo={issue.repo}
+        number={issue.number}
+        onBack={onBack}
+      />
+    </div>
+  );
+}
+
+export const THREAD_PULL_COMMAND: PluginCommandRegistration = {
+  id: "thread-pull",
+  title: "GitHub: Open this thread's pull request",
+  isAvailable: (context) => context.threadId !== null,
+  run: (context) => {
+    context.openPanel({ actionId: "pull" });
+  },
+};
+
+export default definePluginApp((app) => {
+  app.slots.navPanel({
+    id: "github",
+    title: "GitHub",
+    icon: "Github",
+    path: PANEL_PATH,
+    component: GithubPanel,
+    headerContent: PanelHeader,
+    experimental_useBadge: useInboxBadge,
+  });
+  app.slots.threadPanelAction({
+    id: "pull",
+    title: "GitHub",
+    icon: "Github",
+    component: PullPanelTab,
+    experimental_claimUrl: (url) => claimItemUrl("pr", url),
+  });
+  app.slots.threadPanelAction({
+    id: "issue",
+    title: "GitHub issue",
+    icon: "Github",
+    component: IssuePanelTab,
+    experimental_claimUrl: (url) => claimItemUrl("issue", url),
+  });
+  app.slots.homepageSection({
+    id: "inbox",
+    title: "GitHub",
+    component: GithubHomeSection,
+  });
+  app.commands.register(THREAD_PULL_COMMAND);
+});
