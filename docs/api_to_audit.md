@@ -2317,7 +2317,7 @@ The read hook returns the sidebar's live thread view (`PluginSidebarThread`
 DTOs with a host-resolved `indicator`, plus `sections`) from the host's own
 query and cache. The action hook is `@internal` and scheduled for removal
 (see Scheduled removals). Neither
-doc covers three September 2026 additions:
+doc covers these additions:
 
 - `experimental_lifecycles` (active, archived, or both; active by default).
   With it, `PluginSidebarThreadsState.experimental_archived` exposes archive
@@ -2327,6 +2327,12 @@ doc covers three September 2026 additions:
   query order, including those with no threads. Older hosts may omit it.
 - `openNewThread({ hostId })`, unprefixed by request, preselects a machine for
   a new environment. `environmentId` takes priority.
+- `PluginSidebarThreadsState.experimental_refetch()` (2026-10-22) fetches the
+  sidebar navigation again, plus the loaded archive pages when archived
+  threads were requested. A failed first load returns to `loading` while it
+  runs; the promise settles with the attempt and never rejects. Core has no
+  other retry for this read: the thread list's "Couldn't load threads" row
+  calls it from Retry.
 
 Docs: `frontend-registration.md`.
 
@@ -2397,6 +2403,11 @@ Docs: `frontend-registration.md`.
    loading/errors, combined views, pagination retries, and archived row
    actions. Audit empty machine sections, machine removal, rename updates, and
    loading behavior for `experimental_hosts`.
+10. **Retry.** `experimental_refetch` refetches every source the view reads,
+    even when only one failed, and reports the outcome only through `status`.
+    Confirm a whole-view retry is the right grain, whether the promise should
+    reject on failure, and whether a list should also be able to retry a load
+    that stays `loading`.
 
 ## `app.slots.experimental_threadHeaderAction` (`@get-bb/plugin-sdk/app`)
 

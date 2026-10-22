@@ -71,11 +71,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
 import { ThreadListEmptyState } from "@/components/ui/thread-list-empty-state";
-import {
-  SidebarMenuSkeleton,
-  SidebarStickyGroup,
-  SidebarStickyTier,
-} from "../ui/sidebar.js";
+import { SidebarStickyGroup, SidebarStickyTier } from "../ui/sidebar.js";
+import { SidebarTreeSkeleton } from "./SidebarListStates.js";
 import {
   ProjectActionsContextMenu,
   ProjectActionsMenuItems,
@@ -1643,14 +1640,6 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
   );
 });
 
-function ThreadTreeLoadingSkeleton() {
-  return (
-    <div>
-      <SidebarMenuSkeleton />
-    </div>
-  );
-}
-
 interface SectionThreadTreeItemsProps {
   items: readonly ProjectThreadItem[];
   olderFoldKey?: string;
@@ -1878,7 +1867,7 @@ export const ProjectThreadTree = memo(function ProjectThreadTree({
   );
 
   if (threadListState.status === "loading") {
-    return <ThreadTreeLoadingSkeleton />;
+    return <SidebarTreeSkeleton />;
   }
 
   if (rootItems.length === 0) {
@@ -1999,19 +1988,20 @@ export const ChronologicalSectionThreadSections = memo(
       />
     );
 
-    const looseEmptyState = (
-      <ThreadListEmptyState
-        message={
-          threadListState.status === "unavailable"
-            ? "Threads unavailable"
-            : undefined
-        }
-        className={PROJECT_THREAD_TREE_EMPTY_STATE_CLASS}
-      />
-    );
+    const looseEmptyState =
+      threads.length === 0 ? null : (
+        <ThreadListEmptyState
+          message={
+            threadListState.status === "unavailable"
+              ? "Threads unavailable"
+              : undefined
+          }
+          className={PROJECT_THREAD_TREE_EMPTY_STATE_CLASS}
+        />
+      );
     const threadsListContent =
       threadListState.status === "loading" ? (
-        <ThreadTreeLoadingSkeleton />
+        <SidebarTreeSkeleton />
       ) : looseItems.length > 0 ? (
         <SortableContext
           items={looseItems.map(getSidebarDndItemId)}

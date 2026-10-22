@@ -1536,6 +1536,13 @@ export interface PluginSidebarThreadsState {
     fetchNextPage(): Promise<void>;
   } | null;
   status: "loading" | "ready" | "error";
+  /**
+   * Fetch the selected lifecycles again, the way a Retry control after
+   * `status: "error"` should. A failed first load returns to `loading` while
+   * the attempt runs, then settles as `ready` or `error`; the promise resolves
+   * once it settles and never rejects. Experimental: see docs/api_to_audit.md.
+   */
+  experimental_refetch(): Promise<void>;
   threads: readonly PluginSidebarThread[];
   experimental_hosts?: readonly { id: string; name: string }[];
   projects: readonly PluginSidebarProject[];

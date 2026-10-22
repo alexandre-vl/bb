@@ -515,6 +515,121 @@ export function SidebarV2States() {
   );
 }
 
+type SidebarBootstrapScript = "pending" | "fail-then-load";
+
+function emptyV2Navigation(): SidebarBootstrapResponse {
+  const navigation = v2Navigation();
+  return {
+    ...navigation,
+    projects: navigation.projects.map((project) => ({
+      ...project,
+      threads: [],
+    })),
+  };
+}
+
+function useSidebarBootstrapScript(script: SidebarBootstrapScript | null) {
+  useEffect(() => {
+    if (script === null) return;
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (!url.includes("/sidebar-bootstrap")) {
+        return originalFetch(input, init);
+      }
+      calls += 1;
+      if (script === "fail-then-load" && calls === 1) {
+        return new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Promise<Response>((resolve, reject) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => reject(signal.reason));
+        if (script === "fail-then-load") {
+          window.setTimeout(
+            () =>
+              resolve(
+                new Response(JSON.stringify(v2Navigation()), {
+                  headers: { "content-type": "application/json" },
+                }),
+              ),
+            900,
+          );
+        }
+      });
+    };
+    return () => {
+      globalThis.fetch = originalFetch;
+    };
+  }, [script]);
+}
+
+function V2StateStory({
+  navigation,
+  script,
+  preferences = V2_PREFERENCES,
+}: {
+  navigation: SidebarBootstrapResponse | null;
+  script: SidebarBootstrapScript | null;
+  preferences?: Record<string, unknown>;
+}) {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(systemConfigQueryKey(), makeSystemConfig());
+    client.removeQueries({ queryKey: sidebarNavigationQueryKey() });
+    if (navigation !== null) {
+      client.setQueryData(sidebarNavigationQueryKey(), navigation);
+    }
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(preferences);
+  useSidebarBootstrapScript(script);
+  useThreadListPlugin();
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThreadActionsProvider>
+        <V2Sidebar width={288} height={420} />
+      </ThreadActionsProvider>
+    </QueryClientProvider>
+  );
+}
+
+export function SidebarV2Loading() {
+  return <V2StateStory navigation={null} script="pending" />;
+}
+
+export function SidebarV2NoThreads() {
+  return <V2StateStory navigation={emptyV2Navigation()} script={null} />;
+}
+
+const V2_CHRONOLOGICAL_PREFERENCES = {
+  ...V2_PREFERENCES,
+  organizationMode: "chronological",
+};
+
+export function SidebarV2NoThreadsChronological() {
+  return (
+    <V2StateStory
+      navigation={emptyV2Navigation()}
+      script={null}
+      preferences={V2_CHRONOLOGICAL_PREFERENCES}
+    />
+  );
+}
+
+export function SidebarV2LoadError() {
+  return <V2StateStory navigation={null} script="fail-then-load" />;
+}
+
 type V2ThreadEntry =
   SidebarBootstrapResponse["projects"][number]["threads"][number];
 

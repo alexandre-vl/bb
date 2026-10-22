@@ -50,8 +50,12 @@ import {
   ConfirmDeleteDialogContent,
 } from "@/components/ui/confirm-delete-dialog";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ThreadRowSheetProvider } from "../rows/ThreadRowSheet.js";
+import {
+  SidebarListSkeleton,
+  SidebarLoadErrorRow,
+  SidebarNoThreadsLine,
+} from "./SidebarListStates.js";
 import {
   SidebarContentElementProvider,
   SidebarGroupContent,
@@ -145,10 +149,6 @@ export interface ProjectListProps {
 interface ProjectListShellProps {
   children: ReactNode;
   stability?: SidebarOrderStability;
-}
-
-interface ProjectListNavigationLoadingRowProps {
-  textWidthClassName: string;
 }
 
 type ThreadListStatus = "loading" | "ready" | "unavailable";
@@ -359,37 +359,6 @@ function getSectionMutationErrorMessage(
     return "Section name already exists.";
   }
   return getMutationErrorMessage({ error, fallbackMessage });
-}
-
-export function ProjectListNavigationLoadingState() {
-  return (
-    <div
-      aria-label="Loading sidebar navigation"
-      className="space-y-1.5 px-2 pt-1"
-    >
-      <ProjectListNavigationLoadingRow textWidthClassName="w-2/3" />
-      <ProjectListNavigationLoadingRow textWidthClassName="w-1/2" />
-    </div>
-  );
-}
-
-function ProjectListNavigationLoadingRow({
-  textWidthClassName,
-}: ProjectListNavigationLoadingRowProps) {
-  return (
-    <div
-      data-sidebar="navigation-loading-row"
-      className="flex h-7 items-center gap-2 rounded-md"
-    >
-      <Skeleton className="size-4 shrink-0 rounded-md bg-sidebar-border/60" />
-      <Skeleton
-        className={cn(
-          "h-3 rounded-sm bg-sidebar-border/50",
-          textWidthClassName,
-        )}
-      />
-    </div>
-  );
 }
 
 export function ProjectListShell({
@@ -1364,7 +1333,7 @@ function ProjectListComponent({
   const sdk = useSdk();
   const navigate = useBbNavigate();
   const { providers } = experimental_useProviders();
-  const { status, sections, projects, personalProject, archived } =
+  const { status, sections, projects, personalProject, archived, refetch } =
     useSidebarData();
   const personalProjectId = personalProject?.id ?? null;
   const threads = useMemo<SidebarThread[]>(
@@ -1744,10 +1713,18 @@ function ProjectListComponent({
     </ConfirmDeleteDialog>
   );
 
+  if (threadListStatus === "unavailable") {
+    return (
+      <ProjectListShell>
+        <SidebarLoadErrorRow onRetry={() => void refetch()} />
+      </ProjectListShell>
+    );
+  }
+
   if (threadListStatus === "loading" || !preferencesReady) {
     return (
       <ProjectListShell>
-        <ProjectListNavigationLoadingState />
+        <SidebarListSkeleton />
       </ProjectListShell>
     );
   }
@@ -1763,6 +1740,7 @@ function ProjectListComponent({
         <ProjectListShell stability={orderStability}>
           <SidebarFoldProvider versionOf={orderStability.versionOf}>
             <SidebarDraftPresenceSync />
+            {threads.length === 0 ? <SidebarNoThreadsLine /> : null}
             <ActiveSidebarModeSections
               mode={organizationMode}
               renderMachine={() => (

@@ -32,6 +32,7 @@ export const {
   experimental_useFixedTabTarget,
   useComposer,
   useComposerView,
+  experimental_useSidebarNavigation,
   experimental_useSidebarThreads,
   experimental_useSidebarThreadActions,
   experimental_useThreadActions,
