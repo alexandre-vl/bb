@@ -33,7 +33,8 @@ BB_ALEX_DAEMON_PORT (48887), BB_ALEX_UNIT (bb-alex.service), BB_ALEX_DROPIN,
 BB_ALEX_TIMER, BB_ALEX_BACKUP_DIR (<data dir>/backups), BB_ALEX_KEEP_BACKUPS
 (10), BB_ALEX_MIN_HOURS (0: the hours a release keeps running before the next
 switch), BB_ALEX_START_TIMEOUT (360 seconds), BB_ALEX_RELEASE_BASE (the latest
-release of BB_ALEX_REPO).
+release of BB_ALEX_REPO; when its version.txt redirects to a release, every
+asset comes from that release, so one published mid-download cannot mix in).
 USAGE
 }
 
@@ -167,7 +168,12 @@ if ! $adopted; then
   running_label="its own install"
 fi
 
-want=$(curl -fsSL "$base/version.txt")
+release=$base
+redirect=$(curl -fsS -o /dev/null -w '%{redirect_url}' "$base/version.txt")
+if [[ $redirect == */version.txt ]]; then
+  release=${redirect%/version.txt}
+fi
+want=$(curl -fsSL "$release/version.txt")
 if [[ $want == "$have" ]]; then
   exit 0
 fi
@@ -189,7 +195,7 @@ if [[ ! -e $prefix/bin/bb-app ]]; then
   stage=$(mktemp -d "$root/.stage.XXXXXX")
   trap 'rm -rf "$stage"' EXIT
   for asset in bb-app.tgz version.txt SHA256SUMS; do
-    curl -fsSL -o "$stage/$asset" "$base/$asset"
+    curl -fsSL -o "$stage/$asset" "$release/$asset"
   done
   (cd "$stage" && sha256sum --quiet -c SHA256SUMS)
   if [[ $(cat "$stage/version.txt") != "$want" ]]; then
