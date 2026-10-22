@@ -1,3 +1,4 @@
+fork-migrations
 connect-next-e2e-connection-reset
 bb/daemon-self-update-node-npm-cli
 bb/project-default-source-host
@@ -18,4 +19,5 @@ plugin-track-range
 plugin-updates-outside-range
 plugin-update-rollback
 bb/project-default-environment
+carry/automation-environment-composer
 bb/automation-environment-composer

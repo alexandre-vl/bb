@@ -52,16 +52,68 @@ sync a `main` that has commits upstream lacks. Start every new branch from
 
 1. A branch already contained in `alex` is reported as `already included`.
 2. A branch adding files under `packages/db/drizzle`, or SQL DDL anywhere else
-   (a new `bb.storage.migrate` statement in a plugin), is held back unless its
-   line in `layers.txt` ends with `allow-migrations`. Both kinds are numbered:
-   upstream reuses the number for its own next migration, and bb then refuses
-   to start (`packages/db/src/migrate.ts`) or to load the plugin
-   (`bb.storage.migrate` rejects a reused index). A build carrying unmerged
-   migrations must never touch a data directory an official bb also opens.
-3. Conflicts are first replayed from `fork-rerere`; then conflicts whose two
-   sides differ only in version numbers take the higher one
-   ([`resolve-versions.py`](resolve-versions.py)); anything else is skipped and
-   reported.
+   (a new `bb.storage.migrate` statement in a plugin), merges only after the
+   `fork-migrations` layer, listed first; without it, it is held back unless
+   its line in `layers.txt` ends with `allow-migrations`. See
+   [Migrations](#migrations).
+3. A branch is held back when one of its migrations or `bb.storage.migrate`
+   statements changes or replaces one a fork release already shipped (the
+   databases that ran the shipped version would never run the new one), when
+   a migration drops or renames a table upstream's migrations create (bb runs
+   it after upstream's newer migrations, so it would drop their columns), or
+   when it adds a CREATE, ALTER or DROP string with `${...}` in a plugin, which
+   the rebuild cannot list.
+4. Conflicts are first replayed from `fork-rerere`; then conflicts in drizzle's
+   meta files keep the side already merged, since the rebuild rewrites them
+   anyway; then conflicts whose two sides differ only in version numbers take
+   the higher one ([`resolve-versions.py`](resolve-versions.py)); anything
+   else is skipped and reported.
+
+## Migrations
+
+Migrations are numbered: upstream reuses the number of a layer's migration for
+its own next one, two layers can take the same number, and a layer's pull
+request can merge upstream under another number. Left in drizzle's journal, a
+layer's migration makes drizzle skip upstream's next one, and bb refuses to
+start. The `fork-migrations` layer (branch `fork-migrations`, one commit on
+upstream main) and the rebuild keep the layers' migrations out of drizzle's
+way:
+
+- The rebuild moves the migrations the layers add from drizzle's journal to
+  `packages/db/drizzle/meta/_fork_journal.json`
+  ([`fork-journal.py`](fork-journal.py)) and puts drizzle's meta back to
+  upstream's. The layers' SQL files stay where they are.
+- bb runs upstream's migrations first, then the fork journal's, and records
+  these by tag in `__fork_migrations`. Drizzle's `__drizzle_migrations` only
+  ever holds upstream's migrations, so an official build can open the
+  database again.
+- When upstream ships a migration whose SQL a fork migration already ran (a
+  layer's pull request merged), bb records it without running it. A fork
+  migration upstream already ran, or a renumbered one, is recorded the same
+  way. A fork migration changed after it ran stops bb at start.
+- When an upstream migration rebuilds a table a fork migration added a column
+  or an index to, bb saves the column's values first, in
+  `__fork_saved_column__<table>__<column>`, and puts the column back with
+  them, and the index, before it runs any new fork migration. At each start
+  it also puts back a fork column or index that is missing, unless a fork or
+  upstream migration drops it.
+- For plugin storage, the rebuild lists the SQL statements the layers add to
+  plugin sources ([`storage-statements.py`](storage-statements.py), written to
+  `packages/plugin-sdk/src/internal/fork-storage-statements.ts`).
+  `bb.storage.migrate` records those at ids from 1 000 000 and upstream's at
+  their upstream index, so upstream can append statements of its own, and an
+  official build can open the plugin's database again.
+
+An official build has none of this. Once a layer's migration or storage
+statement has run, an official build that ships the same change, after its
+pull request merged, runs it again and fails: bb does not start, or the plugin
+does not load. Go back to an official build for good only after alex has run
+upstream's version of each such change.
+
+`fork-migrations` changes `packages/db/src/migrate.ts` and
+`packages/plugin-sdk/src/internal/host-policy.ts`; when upstream changes them,
+fix it like any skipped layer. Until it merges again, the layers with
+migrations are held back.
 
 ## Fix a skipped layer
 
@@ -130,10 +182,11 @@ fork/instance/adopt.sh bb-host-daemon-alexvl-getbb-app-host_3ussyf3xqh.service -
   to undo that.
 - Machines enrolled in this bb update their daemon from it, so they run the
   fork's build too.
-- Layers that add migrations stay held back, so the database keeps upstream's
-  schema and an official build can open it again (nightly
+- The layers' migrations run from the fork journal, outside drizzle's ledger,
+  so an official build can open the database again: it ignores
+  `__fork_migrations` and the fork's tables and columns (nightly
   0.46.2-nightly.39620384282.1 reopened a database the fork build had
-  migrated).
+  migrated, before the layers had any).
 - Logs: `journalctl --user -u bb-fork-update -u bb-fork-revert`.
 
 ## A second bb beside it: bb-alex
