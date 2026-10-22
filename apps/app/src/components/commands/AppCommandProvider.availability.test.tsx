@@ -67,6 +67,10 @@ vi.mock("@/hooks/queries/system-queries", () => ({
         defaultBinding("diff.toggle", {
           none: ["modalOpen", "editableFocus", "terminalFocus"],
         }),
+        defaultBinding("thread.toggleRead", {
+          all: ["mainSurface", "sidebarListFocus"],
+          none: ["modalOpen", "editableFocus"],
+        }),
       ],
     },
   }),
@@ -191,6 +195,26 @@ describe("isCommandAvailable", () => {
     );
     expect(availabilityOf("thread.rename")).toBe("yes");
   });
+
+  it.each([
+    [true, "yes"],
+    [false, "no"],
+  ] as const)(
+    "offers a thread-list command only from inside the thread tree (inside: %s)",
+    (inside, answer) => {
+      const tree = document.createElement("div");
+      if (inside) tree.setAttribute("data-sidebar-thread-tree", "");
+      const row = document.createElement("a");
+      tree.append(row);
+      renderProvider(
+        <>
+          <Handler command="thread.toggleRead" />
+          <Availability command="thread.toggleRead" target={row} />
+        </>,
+      );
+      expect(availabilityOf("thread.toggleRead")).toBe(answer);
+    },
+  );
 
   it("is false on the web for a desktop-only command", () => {
     renderProvider(

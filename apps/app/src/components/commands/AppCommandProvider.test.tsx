@@ -15,6 +15,7 @@ import {
   AppCommandProvider,
   useAppCommandContext,
   useAppCommandHandler,
+  useAppCommandRunner,
   useAppCommandShortcut,
   useIsAppCommandModifierHeld,
 } from "./AppCommandProvider";
@@ -195,6 +196,35 @@ const testState = vi.hoisted(() => ({
         none: [],
       },
     },
+    {
+      command: "thread.archive" as const,
+      desktopOnly: false,
+      shortcut: {
+        key: "e",
+        mod: false,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      },
+      when: {
+        all: ["mainSurface" as const, "sidebarListFocus" as const],
+        none: ["modalOpen" as const, "editableFocus" as const],
+      },
+    },
+    {
+      command: "thread.toggleRead" as const,
+      desktopOnly: false,
+      shortcut: {
+        key: "u",
+        mod: false,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      },
+      when: { all: ["mainSurface" as const], none: [] },
+    },
   ],
 }));
 
@@ -262,6 +292,37 @@ function FocusScopedHandler({ name }: { name: string }) {
       <button type="button">{name}</button>
     </div>
   );
+}
+
+function PaletteSearchField() {
+  const runner = useAppCommandRunner();
+  const record = (event: KeyboardEvent) => {
+    testState.calls.push(
+      runner.getShortcutCommand(event, ["thread.archive", "thread.search"]) ??
+        "typed",
+    );
+  };
+  return (
+    <>
+      <input
+        aria-label="Search commands"
+        onKeyDown={(event) => record(event.nativeEvent)}
+      />
+      <button type="button" onKeyDown={(event) => record(event.nativeEvent)}>
+        Result
+      </button>
+    </>
+  );
+}
+
+function pressKey(target: Element, key: string): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    key,
+  });
+  target.dispatchEvent(event);
+  return event;
 }
 
 function ShortcutLabel({ command }: { command: AppCommandId }) {
@@ -666,6 +727,67 @@ describe("AppCommandProvider", () => {
       }
     },
   );
+
+  it("derives sidebar list focus only from events inside the thread tree", () => {
+    renderProvider(
+      <>
+        <Handler command="thread.archive" name="archive" result={true} />
+        <button type="button">Outside</button>
+        <div data-sidebar-thread-tree="">
+          <a href="#row" role="treeitem">
+            Row
+          </a>
+          <input aria-label="Rename thread" />
+        </div>
+      </>,
+    );
+
+    expect(pressKey(screen.getByText("Outside"), "e").defaultPrevented).toBe(
+      false,
+    );
+    expect(
+      pressKey(screen.getByLabelText("Rename thread"), "e").defaultPrevented,
+    ).toBe(false);
+    expect(testState.calls).toEqual([]);
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["archive"]);
+  });
+
+  it("never runs a single-letter binding from an editable target, even when its context allows it", () => {
+    renderProvider(
+      <>
+        <Handler command="thread.toggleRead" name="toggle" result={true} />
+        <button type="button">Row</button>
+        <textarea aria-label="Composer" />
+        <div contentEditable data-testid="editor" />
+      </>,
+    );
+
+    for (const editable of [
+      screen.getByLabelText("Composer"),
+      screen.getByTestId("editor"),
+    ]) {
+      expect(pressKey(editable, "u").defaultPrevented).toBe(false);
+    }
+    expect(testState.calls).toEqual([]);
+    expect(pressKey(screen.getByText("Row"), "u").defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["toggle"]);
+  });
+
+  it("leaves single letters typed into the palette search to the field", () => {
+    renderProvider(<PaletteSearchField />);
+    const search = screen.getByLabelText("Search commands");
+
+    fireEvent.keyDown(search, { key: "e" });
+    fireEvent.keyDown(search, { key: "k", ctrlKey: true });
+    fireEvent.keyDown(screen.getByText("Result"), { key: "e" });
+
+    expect(testState.calls).toEqual([
+      "typed",
+      "thread.search",
+      "thread.archive",
+    ]);
+  });
 
   it("suppresses main-surface commands while a drawer is actually open", () => {
     renderProvider(

@@ -27,6 +27,7 @@ import { getBbDesktopInfo } from "@/lib/bb-desktop";
 import {
   browserPlatform,
   isEditableKeyboardTarget,
+  isTextEntryShortcut,
   matchesAppCommandContext,
   presentAppShortcut,
   type AppShortcutPresentation,
@@ -81,6 +82,7 @@ const EMPTY_CONTEXT: AppCommandContext = {
   editableFocus: false,
   terminalFocus: false,
   browserFocus: false,
+  sidebarListFocus: false,
   modelPickerOpen: false,
   questionOpen: false,
   promptAvailable: false,
@@ -250,6 +252,9 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
       next.browserFocus =
         target instanceof HTMLElement &&
         target.closest("[data-app-browser]") !== null;
+      next.sidebarListFocus =
+        target instanceof HTMLElement &&
+        target.closest("[data-sidebar-thread-tree]") !== null;
       next.webSurface = !isDesktop;
       next.macPlatform = keyboardPlatform(browserPlatform()) === "mac";
       next.windowsPlatform = keyboardPlatform(browserPlatform()) === "windows";
@@ -329,7 +334,11 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
             isDesktop,
             platform: browserPlatform(),
           }) &&
-          matchesAppShortcut(event, candidate.shortcut, isMac)
+          matchesAppShortcut(event, candidate.shortcut, isMac) &&
+          !(
+            isTextEntryShortcut(candidate.shortcut) &&
+            isEditableKeyboardTarget(event.target)
+          )
         ) {
           return candidate.command;
         }
