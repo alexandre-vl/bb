@@ -8,6 +8,11 @@
       "source": "./src/index.ts",
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./thread-list-indicator": {
+      "source": "./src/thread/thread-list-indicator.ts",
+      "types": "./src/thread/thread-list-indicator.ts",
+      "default": "./src/thread/thread-list-indicator.ts"
     }
   },
   "types": "./src/index.ts",

@@ -142,6 +142,7 @@ describe("toPluginSidebarThread", () => {
     );
     expect(unread.isUnread).toBe(true);
     expect(unread.indicator).toBe("unread-success");
+    expect(unread.experimental_attention).toBe("new");
 
     const failed = toPluginSidebarThread(
       makeThread({
@@ -152,7 +153,28 @@ describe("toPluginSidebarThread", () => {
       }),
     );
     expect(failed.indicator).toBe("unread-error");
+    expect(failed.experimental_attention).toBe("failed");
   });
+
+  it.each([
+    [{ hasPendingInteraction: true, status: "error" as const }, "needs-you"],
+    [
+      { status: "error" as const, lastReadAt: 1, latestAttentionAt: 9 },
+      "failed",
+    ],
+    [{ queuedWork: "failed" as const }, "failed"],
+    [{ lastReadAt: 1, latestAttentionAt: 9 }, "new"],
+    [{ runtime: { displayStatus: "active" as const } }, null],
+    [{ queuedWork: "waiting" as const }, null],
+    [{}, null],
+  ] satisfies [Partial<ThreadListEntry>, string | null][])(
+    "derives the attention of %j as %s",
+    (overrides, attention) => {
+      expect(
+        toPluginSidebarThread(makeThread(overrides)).experimental_attention,
+      ).toBe(attention);
+    },
+  );
 
   it("treats a never-read thread as unread", () => {
     expect(

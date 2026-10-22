@@ -16,6 +16,11 @@ import { PluginSourceCode } from "@/components/plugin/PluginSourceCode";
 import { LazyPluginThreadChat } from "@/components/plugin/LazyPluginThreadChat";
 import { PluginThreadTitle } from "@/components/plugin/PluginThreadTitle";
 import { ThreadStatusGlyph } from "@/components/thread/ThreadStatusGlyph";
+import {
+  resolveThreadListIndicator,
+  rollUpThreadListIndicators,
+  threadListIndicatorRung,
+} from "@bb/client-core";
 import { PluginUrlLink } from "@/components/plugin/PluginUrlLink";
 import { ExperimentalFileLink } from "@/components/plugin/ExperimentalFileLink";
 import { MarkdownPreview } from "@/components/ui/markdown-preview";
@@ -146,6 +151,9 @@ export const pluginSdkAppImplementation = {
   useSidebarThreadShortcut,
   ThreadTitle: PluginThreadTitle,
   experimental_ThreadStatusGlyph: ThreadStatusGlyph,
+  experimental_resolveThreadListIndicator: resolveThreadListIndicator,
+  experimental_rollUpThreadIndicators: rollUpThreadListIndicators,
+  experimental_threadIndicatorRung: threadListIndicatorRung,
   useEnvironmentProviders,
   useSdk,
   experimental_useProviders: useProviders,

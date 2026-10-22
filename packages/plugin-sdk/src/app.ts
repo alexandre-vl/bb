@@ -243,6 +243,17 @@ export const ThreadTitle = runtimeComponent("ThreadTitle");
 export const experimental_ThreadStatusGlyph = runtimeComponent(
   "experimental_ThreadStatusGlyph",
 );
+// bb's thread status ladder, the resolver and rollup bb's own lists use
+// (experimental — see docs/api_to_audit.md).
+export const experimental_resolveThreadListIndicator = runtimeFunction(
+  "experimental_resolveThreadListIndicator",
+);
+export const experimental_rollUpThreadIndicators = runtimeFunction(
+  "experimental_rollUpThreadIndicators",
+);
+export const experimental_threadIndicatorRung = runtimeFunction(
+  "experimental_threadIndicatorRung",
+);
 export const useEnvironmentProviders = runtimeFunction(
   "useEnvironmentProviders",
 );

@@ -4,6 +4,9 @@ export type * from "@get-bb/plugin-sdk";
 
 export const {
   experimental_ThreadStatusGlyph,
+  experimental_resolveThreadListIndicator,
+  experimental_rollUpThreadIndicators,
+  experimental_threadIndicatorRung,
   experimental_Icon,
   experimental_ProviderIcon,
   definePluginApp,

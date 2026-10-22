@@ -2505,6 +2505,9 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
     devDependencies:
+      '@bb/client-core':
+        specifier: workspace:*
+        version: link:../client-core
       '@bb/domain':
         specifier: workspace:*
         version: link:../domain

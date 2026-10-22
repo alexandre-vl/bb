@@ -65,6 +65,9 @@ Read the installed SDK declarations for the exact current signatures.
 - `useSidebarThreadShortcut`
 - `ThreadTitle`
 - `experimental_ThreadStatusGlyph`
+- `experimental_resolveThreadListIndicator`
+- `experimental_rollUpThreadIndicators`
+- `experimental_threadIndicatorRung`
 - `useEnvironmentProviders`
 - `useSdk`
 - `experimental_useProviders`
@@ -176,6 +179,9 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginSidebarThreadShortcut`
 - `PluginThreadTitleProps`
 - `PluginThreadStatusGlyphProps`
+- `ExperimentalThreadListIndicatorState`
+- `ExperimentalThreadIndicatorRung`
+- `ExperimentalThreadAttention`
 - `PluginEnvironmentProvider`
 - `PluginEnvironmentProvidersState`
 - `PluginBoundThreadsArea`

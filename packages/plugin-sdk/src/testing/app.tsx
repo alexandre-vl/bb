@@ -1,5 +1,10 @@
 import { experimental_PluginRpcCallError } from "../rpc-contract.js";
 import { invalidateTags, pluginTagScope } from "@bb/query-tags";
+import {
+  resolveThreadListIndicator,
+  rollUpThreadListIndicators,
+  threadListIndicatorRung,
+} from "@bb/client-core/thread-list-indicator";
 import { QueryClient } from "@tanstack/react-query";
 import {
   createRpcQueryHooks,
@@ -1507,6 +1512,9 @@ const testPluginSdkApp = {
   },
   ThreadTitle: TestThreadTitle,
   experimental_ThreadStatusGlyph: TestThreadStatusGlyph,
+  experimental_resolveThreadListIndicator: resolveThreadListIndicator,
+  experimental_rollUpThreadIndicators: rollUpThreadListIndicators,
+  experimental_threadIndicatorRung: threadListIndicatorRung,
   useEnvironmentProviders(): PluginEnvironmentProvidersState {
     return useSlotEnv("useEnvironmentProviders").environmentProviders;
   },
