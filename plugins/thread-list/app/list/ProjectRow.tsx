@@ -901,6 +901,7 @@ function EnvironmentThreadGroupHeader({
         data-sidebar-rename-row=""
         data-sidebar-environment-row={environmentId}
         data-sidebar-tree-row=""
+        data-sidebar-row-key={`env:${environmentId}`}
         data-sidebar-row-tooltip={groupTooltip}
         level={stickyLevel}
         className={className}
@@ -919,6 +920,7 @@ function EnvironmentThreadGroupHeader({
       data-sidebar-rename-row=""
       data-sidebar-environment-row={environmentId}
       data-sidebar-tree-row=""
+      data-sidebar-row-key={`env:${environmentId}`}
       data-sidebar-row-tooltip={groupTooltip}
       className={className}
       style={style}

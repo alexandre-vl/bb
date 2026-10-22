@@ -174,6 +174,7 @@ export function TopLevelSidebarSection({
         ref={dragBindings?.setActivatorNodeRef}
         tier="label"
         data-sidebar-tree-row=""
+        data-sidebar-row-key={dropParentKey ?? sectionId}
         data-sidebar-section-header=""
         data-sidebar-row-tooltip={labelEditor ? undefined : tooltip}
         className={cn(

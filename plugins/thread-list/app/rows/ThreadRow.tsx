@@ -185,6 +185,7 @@ interface ThreadRowContainerArgs {
   style: CSSProperties;
   threadId: string;
   rung: number;
+  isRisky: boolean;
   tooltip: string;
   tooltipIsTitleOnly: boolean;
 }
@@ -238,6 +239,7 @@ function renderThreadRowContainer({
   style,
   threadId,
   rung,
+  isRisky,
   tooltip,
   tooltipIsTitleOnly,
 }: ThreadRowContainerArgs) {
@@ -246,6 +248,7 @@ function renderThreadRowContainer({
     "data-sidebar-tree-row": "",
     "data-sidebar-row-key": threadId,
     "data-sidebar-row-rung": rung,
+    "data-sidebar-row-risky": isRisky ? "true" : undefined,
     "data-sidebar-row-tooltip": tooltip,
     "data-sidebar-row-tooltip-title-only": tooltipIsTitleOnly ? "" : undefined,
     className,
@@ -835,6 +838,13 @@ function ThreadRowComponent({
     style: rowStyle,
     threadId: thread.id,
     rung: displayRung,
+    isRisky:
+      threadListIndicatorRung(ownKind) === 5 ||
+      splitIndicatorIsWorking ||
+      childRollup.counts.needsYou +
+        childRollup.counts.failed +
+        childRollup.counts.working >
+        0,
     tooltip: [labelTitle, ...rowSummary].join(" · "),
     tooltipIsTitleOnly: rowSummary.length === 0,
   });

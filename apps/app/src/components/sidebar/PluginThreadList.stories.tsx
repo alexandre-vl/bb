@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import {
+  QueryClientProvider,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
 import type { SidebarBootstrapResponse } from "@bb/server-contract";
@@ -459,7 +463,13 @@ const V2_PREFERENCES = {
   collapsedThreads: ["thr_v2_staff"],
 };
 
-function V2Sidebar({ width }: { width: number }) {
+function V2Sidebar({
+  width,
+  height = 900,
+}: {
+  width: number;
+  height?: number;
+}) {
   const replacement = useThreadListReplacement();
   const { data } = useSidebarNavigation();
   return (
@@ -467,8 +477,8 @@ function V2Sidebar({ width }: { width: number }) {
       <SidebarProvider defaultOpen className="min-h-0 w-auto">
         <main
           data-sidebar-v2-fixture
-          className="flex h-[900px] flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
-          style={{ width }}
+          className="flex flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
+          style={{ width, height }}
         >
           <SidebarContent>
             <PluginThreadList replacement={replacement} onNavigate={() => {}} />
@@ -493,6 +503,175 @@ export function SidebarV2States() {
     <QueryClientProvider client={queryClient}>
       <ThreadActionsProvider>
         <V2Sidebar width={288} />
+      </ThreadActionsProvider>
+    </QueryClientProvider>
+  );
+}
+
+type V2ThreadEntry = SidebarBootstrapResponse["projects"][number]["threads"][number];
+
+const V2_BACKGROUND_UPDATES: readonly {
+  action: string;
+  label: string;
+  threadId: string;
+  patch: Partial<V2ThreadEntry>;
+}[] = [
+  {
+    action: "fail-deploy",
+    label: "Deploy fails",
+    threadId: "thr_v2_deploy",
+    patch: { ...V2_FAILED, latestAttentionAt: V2_NOW },
+  },
+  {
+    action: "read-slow",
+    label: "Slow endpoint is read",
+    threadId: "thr_v2_slow",
+    patch: { lastReadAt: V2_NOW },
+  },
+  {
+    action: "ask-rebase",
+    label: "Rebase needs input",
+    threadId: "thr_v2_rebase",
+    patch: { hasPendingInteraction: true, queuedWork: "none" },
+  },
+];
+
+function patchV2Thread(
+  client: QueryClient,
+  threadId: string,
+  patch: Partial<V2ThreadEntry>,
+) {
+  client.setQueryData<SidebarBootstrapResponse>(
+    sidebarNavigationQueryKey(),
+    (current) =>
+      current && {
+        ...current,
+        projects: current.projects.map((project) => ({
+          ...project,
+          threads: project.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, ...patch } : thread,
+          ),
+        })),
+      },
+  );
+}
+
+function useArchiveRoutes() {
+  useEffect(() => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      const match = url.match(/\/api\/v1\/threads\/([^/]+)\/(child-summary|archive-all)/);
+      if (!match) return originalFetch(input, init);
+      const [, threadId, route] = match;
+      const body =
+        route === "child-summary"
+          ? { nonDeletedChildCount: 0, unarchivedDescendantCount: 0 }
+          : { ok: true, archivedThreadIds: [threadId] };
+      return new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    return () => {
+      globalThis.fetch = originalFetch;
+    };
+  }, []);
+}
+
+const V2_RANDOM_STATES: readonly Partial<V2ThreadEntry>[] = [
+  V2_FAILED,
+  { hasPendingInteraction: true, status: "idle", lastReadAt: V2_NOW },
+  { ...V2_RUNNING, hasPendingInteraction: false, lastReadAt: V2_NOW },
+  { status: "idle", hasPendingInteraction: false, lastReadAt: 0 },
+  { status: "idle", hasPendingInteraction: false, lastReadAt: V2_NOW },
+];
+
+function nextRandom(seed: number): number {
+  return (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+}
+
+function BackgroundUpdateControls() {
+  const queryClient = useQueryClient();
+  const [seed, setSeed] = useState(7);
+  const randomUpdate = () => {
+    const threadSeed = nextRandom(seed);
+    const stateSeed = nextRandom(threadSeed);
+    const thread = V2_THREADS[threadSeed % V2_THREADS.length];
+    const state = V2_RANDOM_STATES[stateSeed % V2_RANDOM_STATES.length];
+    if (thread && state) {
+      patchV2Thread(queryClient, thread.id, {
+        ...state,
+        latestAttentionAt: V2_NOW + stateSeed,
+        updatedAt: V2_NOW + (stateSeed % 1000),
+      });
+    }
+    setSeed(stateSeed);
+  };
+  return (
+    <section className="grid max-w-xs content-start gap-3 text-sm">
+      <p className="text-muted-foreground">
+        Rest the pointer on a row, then send a background update. The row under
+        the pointer keeps its place: the list scrolls around it, or the new
+        order waits until the pointer leaves or rests for 2 s.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {V2_BACKGROUND_UPDATES.map(({ action, label, threadId, patch }) => (
+          <button
+            key={action}
+            type="button"
+            data-sv2-action={action}
+            className="rounded-md border border-border px-2 py-1"
+            onClick={() => patchV2Thread(queryClient, threadId, patch)}
+          >
+            {label}
+          </button>
+        ))}
+        <button
+          type="button"
+          data-sv2-action="random"
+          className="rounded-md border border-border px-2 py-1"
+          onClick={randomUpdate}
+        >
+          Random update
+        </button>
+        <button
+          type="button"
+          data-sv2-action="reset"
+          className="rounded-md border border-border px-2 py-1"
+          onClick={() =>
+            queryClient.setQueryData(sidebarNavigationQueryKey(), v2Navigation())
+          }
+        >
+          Reset
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export function SidebarV2Stability() {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(systemConfigQueryKey(), makeSystemConfig());
+    client.setQueryData(sidebarNavigationQueryKey(), v2Navigation());
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(V2_PREFERENCES);
+  useArchiveRoutes();
+  useThreadListPlugin();
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThreadActionsProvider>
+        <main className="flex gap-6 p-6">
+          <V2Sidebar width={288} height={420} />
+          <BackgroundUpdateControls />
+        </main>
       </ThreadActionsProvider>
     </QueryClientProvider>
   );

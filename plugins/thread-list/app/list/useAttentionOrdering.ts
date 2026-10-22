@@ -4,8 +4,10 @@ import type { SidebarThread } from "../model/sidebar-thread.js";
 import type { ThreadComparator } from "../model/project-thread-groups.js";
 import {
   buildSubtreeAttentionRungs,
+  compareOrderVersions,
   orderComparatorByAttention,
 } from "../model/attention-ordering.js";
+import type { SidebarThreadVersionOf } from "./stability/SidebarOrderStability.js";
 import {
   threadAttentionRung,
   type ThreadListRung,
@@ -62,10 +64,12 @@ export function useAttentionOrdering({
   threads,
   selectedThreadId,
   comparator,
+  versionOf,
 }: {
   threads: readonly SidebarThread[];
   selectedThreadId: string | undefined;
   comparator: ThreadComparator;
+  versionOf: SidebarThreadVersionOf;
 }) {
   const attentionFirst = useAtomValue(sidebarAttentionFirstAtom);
   const parentsStartCollapsed = useAtomValue(sidebarParentsStartCollapsedAtom);
@@ -82,20 +86,24 @@ export function useAttentionOrdering({
         ? buildSubtreeAttentionRungs(threads, (thread) =>
             heldOpenRung?.threadId === thread.id
               ? heldOpenRung.rung
-              : threadAttentionRung(thread),
+              : threadAttentionRung(versionOf(thread)),
           )
         : null,
-    [attentionFirst, heldOpenRung, threads],
+    [attentionFirst, heldOpenRung, threads, versionOf],
+  );
+  const versionedComparator = useMemo(
+    () => compareOrderVersions(comparator, versionOf),
+    [comparator, versionOf],
   );
   const orderedComparator = useMemo(
     () =>
       subtreeRungs === null
-        ? comparator
+        ? versionedComparator
         : orderComparatorByAttention(
-            comparator,
+            versionedComparator,
             (thread) => subtreeRungs.get(thread.id) ?? 0,
           ),
-    [comparator, subtreeRungs],
+    [versionedComparator, subtreeRungs],
   );
   const collapsedThreadIds = useMemo(
     () =>
@@ -134,14 +142,14 @@ export function useExpandThreadAncestors() {
   const setCollapsedThreadIdList = useSetAtom(collapsedThreadIdsAtom);
   const setExpandedThreadIdList = useSetAtom(expandedThreadIdsAtom);
   return useCallback(
-    (threadIds: ReadonlySet<string>, fromNavigation: boolean) => {
+    (threadIds: ReadonlySet<string>) => {
       if (!parentsStartCollapsed) {
         setCollapsedThreadIdList((current) =>
           current.some((id) => threadIds.has(id))
             ? current.filter((id) => !threadIds.has(id))
             : current,
         );
-      } else if (fromNavigation) {
+      } else {
         setExpandedThreadIdList((current) =>
           [...threadIds].every((id) => current.includes(id))
             ? current

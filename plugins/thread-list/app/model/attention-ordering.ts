@@ -53,6 +53,49 @@ function itemAttentionRung(
   }
 }
 
+function versionItem(
+  item: ProjectThreadItem,
+  versionOf: (thread: SidebarThread) => SidebarThread,
+): ProjectThreadItem {
+  switch (item.kind) {
+    case "thread": {
+      const thread = versionOf(item.node.thread);
+      return thread === item.node.thread
+        ? item
+        : { kind: "thread", node: { ...item.node, thread } };
+    }
+    case "environment": {
+      const [first, second, ...rest] = item.group.nodes;
+      const thread = versionOf(first.thread);
+      return thread === first.thread
+        ? item
+        : {
+            kind: "environment",
+            group: {
+              ...item.group,
+              nodes: [{ ...first, thread }, second, ...rest],
+            },
+          };
+    }
+    case "section":
+      return item;
+  }
+}
+
+export function compareOrderVersions(
+  compareThreads: ThreadComparator,
+  versionOf: (thread: SidebarThread) => SidebarThread,
+): ThreadComparator {
+  const versioned: ThreadComparator = (left, right) =>
+    compareThreads(versionOf(left), versionOf(right));
+  const compareItems = compareThreads.compareItems;
+  if (compareItems) {
+    versioned.compareItems = (left, right) =>
+      compareItems(versionItem(left, versionOf), versionItem(right, versionOf));
+  }
+  return versioned;
+}
+
 export function orderComparatorByAttention(
   compareThreads: ThreadComparator,
   rungOf: ThreadAttentionRungResolver,

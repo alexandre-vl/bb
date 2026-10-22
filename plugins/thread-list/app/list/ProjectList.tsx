@@ -121,6 +121,11 @@ import {
 import { ReorderableSidebarSectionOrderList } from "./ReorderableSidebarSectionOrderList.js";
 import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder.js";
 import { useAttentionOrdering } from "./useAttentionOrdering.js";
+import {
+  SidebarOrderStabilityBoundary,
+  useSidebarOrderStability,
+  type SidebarOrderStability,
+} from "./stability/SidebarOrderStability.js";
 import { SIDEBAR_TREE_GEOMETRY_CLASS } from "../ui/tree-geometry.js";
 import { haveSameOrder } from "../model/stored-order.js";
 import {
@@ -137,6 +142,7 @@ export interface ProjectListProps {
 
 interface ProjectListShellProps {
   children: ReactNode;
+  stability?: SidebarOrderStability;
 }
 
 interface ProjectListNavigationLoadingRowProps {
@@ -384,20 +390,30 @@ function ProjectListNavigationLoadingRow({
   );
 }
 
-export function ProjectListShell({ children }: ProjectListShellProps) {
+export function ProjectListShell({
+  children,
+  stability,
+}: ProjectListShellProps) {
   const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
   return (
     <ThreadRowNavigationProvider>
       <SidebarContentElementProvider>
         <SidebarStickyStack data-sidebar-sticky-density="compact-actions">
           <SidebarGroupContent
+            ref={stability?.controller.attachRef}
             role="tree"
             aria-label="Threads"
             data-sidebar-thread-tree=""
             data-sidebar-provider-icons={showProviderIcons ? "true" : undefined}
             className={SIDEBAR_TREE_GEOMETRY_CLASS}
           >
-            {children}
+            {stability ? (
+              <SidebarOrderStabilityBoundary stability={stability}>
+                {children}
+              </SidebarOrderStabilityBoundary>
+            ) : (
+              children
+            )}
           </SidebarGroupContent>
         </SidebarStickyStack>
       </SidebarContentElementProvider>
@@ -1590,6 +1606,7 @@ function ProjectListComponent({
       ),
     [chronologicalSort, sortDirection, activeRename],
   );
+  const orderStability = useSidebarOrderStability(threads);
   const {
     comparator: sidebarThreadComparator,
     collapsedThreadIds,
@@ -1598,6 +1615,7 @@ function ProjectListComponent({
     threads,
     selectedThreadId,
     comparator: baseThreadComparator,
+    versionOf: orderStability.versionOf,
   });
   const collapsedEnvironmentIds = useMemo(
     () => new Set(collapsedEnvironmentIdList),
@@ -1739,7 +1757,7 @@ function ProjectListComponent({
         isCreatingSection: isCreateThreadSectionPending,
       }}
     >
-      <ProjectListShell>
+      <ProjectListShell stability={orderStability}>
         <SidebarDraftPresenceSync />
         <ActiveSidebarModeSections
           mode={organizationMode}

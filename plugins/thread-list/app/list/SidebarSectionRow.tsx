@@ -277,6 +277,7 @@ function SidebarSectionRowComponent({
         ref={dragBindings?.setActivatorNodeRef}
         data-sidebar-rename-row=""
         data-sidebar-tree-row=""
+        data-sidebar-row-key={sectionId}
         data-sidebar-row-tooltip={tooltip}
         tier="parent"
         level={stickyLevel}
@@ -298,6 +299,7 @@ function SidebarSectionRowComponent({
       ref={dragBindings?.setActivatorNodeRef}
       data-sidebar-rename-row=""
       data-sidebar-tree-row=""
+      data-sidebar-row-key={sectionId}
       data-sidebar-row-tooltip={tooltip}
       className={className}
       style={style}

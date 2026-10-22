@@ -341,6 +341,30 @@
     transition-duration: 0ms;
   }
 
+  [data-sidebar-pointer-gate="true"]
+    .bb-sidebar-hover-actions-row:hover:not(:has(:focus-visible))
+    .bb-sidebar-hover-actions:not([data-sidebar-hover-actions-open="true"]) {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  [data-sidebar-pointer-gate="true"]
+    .bb-sidebar-hover-actions-row:hover:not(:has(:focus-visible))
+    .bb-sidebar-hover-actions-fade:not(
+      [data-sidebar-hover-actions-open="true"]
+    ) {
+    opacity: 1;
+  }
+
+  [data-sidebar-archive-guard="true"]
+    [data-thread-action="bb--core/archive"] {
+    visibility: hidden;
+  }
+
+  [data-sidebar="content"]:has([data-sidebar-thread-tree]) {
+    overflow-anchor: none;
+  }
+
   .bb-sidebar-hover-actions-row:is(:hover, :has(:focus-visible))
     .bb-sidebar-hover-actions-fade,
   .bb-sidebar-hover-actions-fade[data-sidebar-hover-actions-open="true"] {
