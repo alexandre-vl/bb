@@ -29,7 +29,9 @@ function rows(): HTMLElement[] {
 }
 
 function row(key: string): HTMLElement {
-  const element = rows().find((candidate) => candidate.dataset.sidebarRowKey === key);
+  const element = rows().find(
+    (candidate) => candidate.dataset.sidebarRowKey === key,
+  );
   if (!element) throw new Error(`missing row ${key}`);
   return element;
 }
@@ -39,13 +41,16 @@ function rowTop(element: HTMLElement): number {
 }
 
 function renderRows(keys: readonly string[], risky: readonly string[] = []) {
-  const existing = new Map(rows().map((element) => [element.dataset.sidebarRowKey, element]));
+  const existing = new Map(
+    rows().map((element) => [element.dataset.sidebarRowKey, element]),
+  );
   root.replaceChildren(
     ...keys.map((key) => {
       const element = existing.get(key) ?? document.createElement("div");
       element.setAttribute("data-sidebar-tree-row", "");
       element.setAttribute("data-sidebar-row-key", key);
-      if (risky.includes(key)) element.setAttribute("data-sidebar-row-risky", "true");
+      if (risky.includes(key))
+        element.setAttribute("data-sidebar-row-risky", "true");
       else element.removeAttribute("data-sidebar-row-risky");
       if (!element.querySelector("button")) {
         const archive = document.createElement("button");
@@ -66,12 +71,24 @@ function pointAt(key: string): { clientX: number; clientY: number } {
   return { clientX: 20, clientY: rowTop(row(key)) + ROW_HEIGHT / 2 };
 }
 
-function movePointer(target: HTMLElement, point: { clientX: number; clientY: number }) {
-  target.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, ...point }));
+function movePointer(
+  target: HTMLElement,
+  point: { clientX: number; clientY: number },
+) {
+  target.dispatchEvent(
+    new MouseEvent("pointermove", { bubbles: true, ...point }),
+  );
 }
 
-function click(target: HTMLElement, point: { clientX: number; clientY: number }) {
-  const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...point });
+function click(
+  target: HTMLElement,
+  point: { clientX: number; clientY: number },
+) {
+  const event = new MouseEvent("click", {
+    bubbles: true,
+    cancelable: true,
+    ...point,
+  });
   target.dispatchEvent(event);
   return event;
 }
@@ -146,13 +163,37 @@ afterEach(() => {
 
 describe("resolveCompensatedScrollTop", () => {
   it("returns the shifted offset inside the scroll range", () => {
-    expect(resolveCompensatedScrollTop({ scrollTop: 30, delta: 30, maxScrollTop: 60 })).toBe(60);
-    expect(resolveCompensatedScrollTop({ scrollTop: 30, delta: -30, maxScrollTop: 60 })).toBe(0);
+    expect(
+      resolveCompensatedScrollTop({
+        scrollTop: 30,
+        delta: 30,
+        maxScrollTop: 60,
+      }),
+    ).toBe(60);
+    expect(
+      resolveCompensatedScrollTop({
+        scrollTop: 30,
+        delta: -30,
+        maxScrollTop: 60,
+      }),
+    ).toBe(0);
   });
 
   it("refuses an offset the scroller cannot reach", () => {
-    expect(resolveCompensatedScrollTop({ scrollTop: 60, delta: 30, maxScrollTop: 60 })).toBeNull();
-    expect(resolveCompensatedScrollTop({ scrollTop: 0, delta: -30, maxScrollTop: 60 })).toBeNull();
+    expect(
+      resolveCompensatedScrollTop({
+        scrollTop: 60,
+        delta: 30,
+        maxScrollTop: 60,
+      }),
+    ).toBeNull();
+    expect(
+      resolveCompensatedScrollTop({
+        scrollTop: 0,
+        delta: -30,
+        maxScrollTop: 60,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -279,7 +320,10 @@ describe("SidebarStabilityController", () => {
 
     it("shows hover actions again after a move over 3 px", () => {
       const point = releaseUnderRestingPointer();
-      movePointer(row("b"), { clientX: point.clientX + 5, clientY: point.clientY });
+      movePointer(row("b"), {
+        clientX: point.clientX + 5,
+        clientY: point.clientY,
+      });
       expect(root.hasAttribute("data-sidebar-pointer-gate")).toBe(false);
     });
   });
@@ -311,7 +355,8 @@ describe("SidebarStabilityController", () => {
       expect(row("c").hasAttribute("data-sidebar-archive-guard")).toBe(false);
       expect(root.hasAttribute("data-sidebar-pointer-gate")).toBe(false);
       expect(
-        click(row("c"), { clientX: 250, clientY: point.clientY }).defaultPrevented,
+        click(row("c"), { clientX: 250, clientY: point.clientY })
+          .defaultPrevented,
       ).toBe(false);
     });
   });

@@ -221,8 +221,8 @@ function OpenThreadControls() {
       <p className="text-muted-foreground">
         Attention first starts on and parents start collapsed, as for a user
         migrated from By read status. Click a thread to open it, then mark it
-        read the way bb does when you view it. It keeps its place until you
-        open another thread.
+        read the way bb does when you view it. It keeps its place until you open
+        another thread.
       </p>
       <p className="text-xs text-muted-foreground">
         Open thread: {openThread?.title ?? "none"}
@@ -345,7 +345,7 @@ export function ActionAlignment() {
   );
 }
 
-const V2_NOW = 1_000_000_000;
+const V2_NOW = Date.now();
 const V2_DAY = 86_400_000;
 const V2_EMPTY_PROJECT_ID = "proj_berth";
 let v2Clock = 0;
@@ -508,7 +508,8 @@ export function SidebarV2States() {
   );
 }
 
-type V2ThreadEntry = SidebarBootstrapResponse["projects"][number]["threads"][number];
+type V2ThreadEntry =
+  SidebarBootstrapResponse["projects"][number]["threads"][number];
 
 const V2_BACKGROUND_UPDATES: readonly {
   action: string;
@@ -566,7 +567,9 @@ function useArchiveRoutes() {
           : input instanceof URL
             ? input.href
             : input.url;
-      const match = url.match(/\/api\/v1\/threads\/([^/]+)\/(child-summary|archive-all)/);
+      const match = url.match(
+        /\/api\/v1\/threads\/([^/]+)\/(child-summary|archive-all)/,
+      );
       if (!match) return originalFetch(input, init);
       const [, threadId, route] = match;
       const body =
@@ -644,7 +647,10 @@ function BackgroundUpdateControls() {
           data-sv2-action="reset"
           className="rounded-md border border-border px-2 py-1"
           onClick={() =>
-            queryClient.setQueryData(sidebarNavigationQueryKey(), v2Navigation())
+            queryClient.setQueryData(
+              sidebarNavigationQueryKey(),
+              v2Navigation(),
+            )
           }
         >
           Reset

@@ -356,13 +356,8 @@
     opacity: 1;
   }
 
-  [data-sidebar-archive-guard="true"]
-    [data-thread-action="bb--core/archive"] {
+  [data-sidebar-archive-guard="true"] [data-thread-action="bb--core/archive"] {
     visibility: hidden;
-  }
-
-  [data-sidebar="content"]:has([data-sidebar-thread-tree]) {
-    overflow-anchor: none;
   }
 
   .bb-sidebar-hover-actions-row:is(:hover, :has(:focus-visible))

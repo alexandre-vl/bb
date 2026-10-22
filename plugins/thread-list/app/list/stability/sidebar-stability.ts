@@ -53,7 +53,9 @@ export function resolveCompensatedScrollTop({
 
 function rowKeyOf(target: EventTarget | null): string | null {
   if (!(target instanceof Element)) return null;
-  return target.closest<HTMLElement>(ROW_SELECTOR)?.dataset.sidebarRowKey ?? null;
+  return (
+    target.closest<HTMLElement>(ROW_SELECTOR)?.dataset.sidebarRowKey ?? null
+  );
 }
 
 function prefersReducedMotion(root: HTMLElement): boolean {
@@ -126,6 +128,9 @@ export class SidebarStabilityController<Version extends { id: string }> {
   private gateAt = 0;
   private guardedRow: HTMLElement | null = null;
   private readonly animations = new Set<Animation>();
+  private nativeAnchoring: { scroller: HTMLElement; inline: string } | null =
+    null;
+  private nativeAnchoringFrame: number | null = null;
 
   readonly subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -179,6 +184,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
       this.gateKey = null;
       this.clearArchiveGuard();
       this.finishAnimations();
+      this.restoreNativeAnchoring();
       this.committing = null;
       this.pointerInside = false;
       this.hoverKey = null;
@@ -198,6 +204,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
     };
     const rows = this.measureRows();
     const scroller = this.scroller();
+    this.suspendNativeAnchoring(scroller);
     const viewport = scroller?.getBoundingClientRect() ?? null;
     return {
       anchor: this.resolveAnchor(rows),
@@ -216,6 +223,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
     const releasing = this.releasing;
     this.releasing = false;
     this.restoreFocus();
+    this.scheduleNativeAnchoringRestore();
     const revert = this.revert;
     if (revert !== null) {
       this.revert = null;
@@ -258,6 +266,46 @@ export class SidebarStabilityController<Version extends { id: string }> {
       deferred: false,
       kept: this.heldVersions(this.state.kept),
     });
+  }
+
+  private suspendNativeAnchoring(scroller: HTMLElement | null): void {
+    this.cancelNativeAnchoringRestore();
+    if (!scroller || this.nativeAnchoring?.scroller === scroller) return;
+    this.restoreNativeAnchoring();
+    this.nativeAnchoring = { scroller, inline: scroller.style.overflowAnchor };
+    scroller.style.overflowAnchor = "none";
+  }
+
+  private scheduleNativeAnchoringRestore(): void {
+    const view = this.root?.ownerDocument.defaultView;
+    if (this.nativeAnchoring === null) return;
+    if (!view || typeof view.requestAnimationFrame !== "function") {
+      this.restoreNativeAnchoring();
+      return;
+    }
+    this.cancelNativeAnchoringRestore();
+    this.nativeAnchoringFrame = view.requestAnimationFrame(() => {
+      this.nativeAnchoringFrame = view.requestAnimationFrame(() => {
+        this.nativeAnchoringFrame = null;
+        this.restoreNativeAnchoring();
+      });
+    });
+  }
+
+  private cancelNativeAnchoringRestore(): void {
+    if (this.nativeAnchoringFrame === null) return;
+    this.root?.ownerDocument.defaultView?.cancelAnimationFrame(
+      this.nativeAnchoringFrame,
+    );
+    this.nativeAnchoringFrame = null;
+  }
+
+  private restoreNativeAnchoring(): void {
+    this.cancelNativeAnchoringRestore();
+    const suspended = this.nativeAnchoring;
+    if (suspended === null) return;
+    this.nativeAnchoring = null;
+    suspended.scroller.style.overflowAnchor = suspended.inline;
   }
 
   private restoreFocus(): void {
@@ -396,7 +444,9 @@ export class SidebarStabilityController<Version extends { id: string }> {
     const document = root.ownerDocument;
     if (typeof document.elementFromPoint !== "function") return this.hoverKey;
     const element = document.elementFromPoint(this.pointerX, this.pointerY);
-    return element !== null && root.contains(element) ? rowKeyOf(element) : null;
+    return element !== null && root.contains(element)
+      ? rowKeyOf(element)
+      : null;
   }
 
   private anchorDelta(anchor: SidebarRowAnchor): number | null {
@@ -411,7 +461,11 @@ export class SidebarStabilityController<Version extends { id: string }> {
     for (const row of this.measureRows()) {
       if (row.element.hasAttribute("data-sidebar-sticky-tier")) continue;
       const from = before.positions.get(row.key);
-      if (from === undefined || from < viewport.top || from >= viewport.bottom) {
+      if (
+        from === undefined ||
+        from < viewport.top ||
+        from >= viewport.bottom
+      ) {
         continue;
       }
       const delta = Math.round(row.top - from);
@@ -455,7 +509,11 @@ export class SidebarStabilityController<Version extends { id: string }> {
 
   private settle(before: SidebarOrderMeasurement): void {
     const after = this.rowUnderPointer();
-    if (this.pointerInside && after !== null && after !== before.rowUnderPointer) {
+    if (
+      this.pointerInside &&
+      after !== null &&
+      after !== before.rowUnderPointer
+    ) {
       const replaced =
         before.rowUnderPointer !== null &&
         this.findRow(before.rowUnderPointer) === null;

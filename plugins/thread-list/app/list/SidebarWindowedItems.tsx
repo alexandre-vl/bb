@@ -109,7 +109,7 @@ export function SidebarWindowedItems({
     if (!focusItemKey) return;
     const wrapper = wrapperByKeyRef.current.get(focusItemKey);
     const target = wrapper?.querySelector<HTMLElement>(
-      "a[data-sidebar-thread-id], button[aria-expanded]",
+      "[data-sidebar-tree-item]",
     );
     target?.focus();
   }, [focusItemKey]);

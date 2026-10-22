@@ -165,6 +165,8 @@ import {
   type ThreadRowNestDrop,
 } from "../rows/sidebarThreadRowDroppable.js";
 import { getSidebarItemKey } from "../rows/sidebarItemKeys.js";
+import { useFoldedItems } from "./useFoldedItems.js";
+import { SidebarFoldRow } from "./SidebarFoldRow.js";
 import { useNestDropPreview } from "../dnd/useNestDropPreview.js";
 import { useChronologicalSectionThreadDnd } from "../dnd/SectionThreadDndContext.js";
 import {
@@ -1543,9 +1545,15 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
   );
   const rowProjectId = node.thread.projectId;
   const crossProjectId = rowProjectId !== projectId ? rowProjectId : null;
+  const folded = useFoldedItems({
+    kind: "more",
+    foldKey: `more:${node.thread.id}`,
+    items: node.children,
+    selectedThreadId,
+  });
   const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
     useWindowedThreadItems({
-      items: node.children,
+      items: folded.items,
       collapsedThreadIds,
       collapsedEnvironmentIds,
       selectedThreadId,
@@ -1579,11 +1587,12 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
           {showChildren ? (
             <SidebarWindowedItems
               itemKeys={itemKeys}
+              focusItemKey={folded.focusItemKey}
               estimateRows={estimateRows}
               getNavigationEntries={getNavigationEntries}
               alwaysMountedKeys={alwaysMountedKeys}
               renderItem={(index) => {
-                const item = node.children[index];
+                const item = folded.items[index];
                 if (!item) {
                   return null;
                 }
@@ -1616,6 +1625,9 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
               }}
             />
           ) : null}
+          {showChildren && folded.fold ? (
+            <SidebarFoldRow fold={folded.fold} depth={parentRowDepth + 1} />
+          ) : null}
           {nestPreviewThread !== null && nestPreviewBeforeKey === null ? (
             <NestDropPreviewRow
               depth={parentRowDepth + 1}
@@ -1638,6 +1650,7 @@ function ThreadTreeLoadingSkeleton() {
 
 interface SectionThreadTreeItemsProps {
   items: readonly ProjectThreadItem[];
+  olderFoldKey?: string;
   sectionDnd: SectionThreadDndState | null;
   projectId?: string;
   depthOffset?: number;
@@ -1735,7 +1748,8 @@ function useWindowedThreadItems({
 }
 
 function SectionThreadTreeItems({
-  items,
+  items: allItems,
+  olderFoldKey,
   sectionDnd,
   projectId,
   depthOffset = 0,
@@ -1749,6 +1763,14 @@ function SectionThreadTreeItems({
   onCreateThreadInSection,
   onRemoveSection,
 }: SectionThreadTreeItemsProps) {
+  const folded = useFoldedItems({
+    kind: "older",
+    foldKey: `older:${olderFoldKey ?? ""}`,
+    items: allItems,
+    selectedThreadId,
+  });
+  const items = olderFoldKey === undefined ? allItems : folded.items;
+  const fold = olderFoldKey === undefined ? null : folded.fold;
   const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
     useWindowedThreadItems({
       items,
@@ -1756,9 +1778,10 @@ function SectionThreadTreeItems({
       collapsedEnvironmentIds,
       selectedThreadId,
     });
-  const rows = (
+  const windowedRows = (
     <SidebarWindowedItems
       itemKeys={itemKeys}
+      focusItemKey={fold ? folded.focusItemKey : undefined}
       estimateRows={estimateRows}
       getNavigationEntries={getNavigationEntries}
       alwaysMountedKeys={alwaysMountedKeys}
@@ -1788,6 +1811,14 @@ function SectionThreadTreeItems({
         );
       }}
     />
+  );
+  const rows = fold ? (
+    <>
+      {windowedRows}
+      <SidebarFoldRow fold={fold} depth={depthOffset} />
+    </>
+  ) : (
+    windowedRows
   );
 
   return (
@@ -1863,6 +1894,7 @@ export const ProjectThreadTree = memo(function ProjectThreadTree({
   return (
     <SectionThreadTreeItems
       items={rootItems}
+      olderFoldKey={projectId}
       sectionDnd={dndParentKey !== undefined ? sectionDnd : null}
       projectId={projectId}
       sortableParentKey={projectId}

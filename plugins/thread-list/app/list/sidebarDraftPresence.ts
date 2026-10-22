@@ -51,3 +51,19 @@ export function useThreadsHaveDraft(threadIds: readonly string[]): boolean {
     () => false,
   );
 }
+
+function getDraftThreadIds(): ReadonlySet<string> {
+  return publishedDraftThreadIds;
+}
+
+function getNoDraftThreadIds(): ReadonlySet<string> {
+  return NO_DRAFT_THREAD_IDS;
+}
+
+export function useDraftThreadIds(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    subscribeDraftThreadIds,
+    getDraftThreadIds,
+    getNoDraftThreadIds,
+  );
+}

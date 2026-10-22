@@ -166,7 +166,12 @@ describe("SidebarWindowedItems", () => {
           focusItemKey={focusItemKey}
           estimateRows={() => 1}
           renderItem={(index) => (
-            <a href="#thread" data-sidebar-thread-id={`thr_${index}`}>
+            <a
+              href="#thread"
+              role="treeitem"
+              tabIndex={-1}
+              data-sidebar-tree-item=""
+            >
               Thread {index}
             </a>
           )}
@@ -175,14 +180,14 @@ describe("SidebarWindowedItems", () => {
     const { rerender } = render(tree());
     expect(screen.queryByText("Thread 1")).toBeNull();
     rerender(tree("second"));
-    const target = screen.getByRole("link", { name: "Thread 1" });
+    const target = screen.getByRole("treeitem", { name: "Thread 1" });
     expect(document.activeElement).toBe(target);
     target.blur();
     rerender(tree("second"));
     expect(document.activeElement).not.toBe(target);
   });
 
-  it("focuses a collapsed group disclosure when no thread link is rendered", () => {
+  it("focuses the treeitem of a group that renders no thread", () => {
     render(
       withScrollRef(
         { current: scrollElement },
@@ -190,12 +195,26 @@ describe("SidebarWindowedItems", () => {
           itemKeys={["group"]}
           focusItemKey="group"
           estimateRows={() => 1}
-          renderItem={() => <button aria-expanded={false}>Worktree</button>}
+          renderItem={() => (
+            <div>
+              <button type="button" aria-label="Expand">
+                ›
+              </button>
+              <span
+                role="treeitem"
+                tabIndex={-1}
+                aria-expanded={false}
+                data-sidebar-tree-item=""
+              >
+                Worktree
+              </span>
+            </div>
+          )}
         />,
       ),
     );
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Worktree" }),
+      screen.getByRole("treeitem", { name: "Worktree" }),
     );
   });
 
