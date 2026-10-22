@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSectionThreadList,
   buildProjectThreadGroups,
+  collectProjectThreadItemAttention,
   compareByCreatedAtDescending,
   compareStandardThreads,
   createSidebarProjectIdResolver,
@@ -863,6 +864,77 @@ describe("section bucketing", () => {
     expect(summarizeItems(items)).toEqual([
       { section: "chronological::sec_work", name: "Work", items: ["a", "b"] },
     ]);
+  });
+});
+
+describe("collectProjectThreadItemAttention", () => {
+  const worktree = makeSidebarEnvironment({ id: "env_wt", isWorktree: true });
+  const items = buildProjectThreadGroups([
+    createThread({ id: "parent", createdAt: 10, lastReadAt: 2 }),
+    createThread({
+      id: "asks",
+      parentThreadId: "parent",
+      hasPendingInteraction: true,
+      createdAt: 20,
+    }),
+    createThread({
+      id: "broke",
+      parentThreadId: "parent",
+      status: "error",
+      createdAt: 30,
+    }),
+    createThread({
+      id: "wt-broke",
+      environment: worktree,
+      status: "error",
+      createdAt: 40,
+    }),
+    createThread({
+      id: "wt-asks",
+      environment: worktree,
+      hasPendingInteraction: true,
+      createdAt: 50,
+    }),
+  ]);
+  const parent = items.find(
+    (item) => item.kind === "thread" && item.node.thread.id === "parent",
+  );
+  const group = items.find((item) => item.kind === "environment");
+  const context = (collapsed: {
+    threads?: string[];
+    environments?: string[];
+  }) => ({
+    collapsedThreadIds: new Set(collapsed.threads),
+    collapsedEnvironmentIds: new Set(collapsed.environments),
+    collapsedSectionKeys: new Set<string>(),
+  });
+
+  it("counts each visible row of an expanded parent or group", () => {
+    if (!parent || !group) throw new Error("missing fixture items");
+    expect(collectProjectThreadItemAttention(parent, context({}))).toEqual({
+      needsYou: 1,
+      failed: 1,
+    });
+    expect(collectProjectThreadItemAttention(group, context({}))).toEqual({
+      needsYou: 1,
+      failed: 1,
+    });
+  });
+
+  it("counts a collapsed parent or group once, at its highest rung", () => {
+    if (!parent || !group) throw new Error("missing fixture items");
+    expect(
+      collectProjectThreadItemAttention(
+        parent,
+        context({ threads: ["parent"] }),
+      ),
+    ).toEqual({ needsYou: 1, failed: 0 });
+    expect(
+      collectProjectThreadItemAttention(
+        group,
+        context({ environments: ["env_wt"] }),
+      ),
+    ).toEqual({ needsYou: 1, failed: 0 });
   });
 });
 
