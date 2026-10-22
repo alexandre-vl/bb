@@ -455,6 +455,68 @@ describe("SidebarSplitContainer", () => {
     );
   });
 
+  it("puts a replacement in its caller's place, not where a closed tab with its id was", async () => {
+    const pull: SidebarSplitTabDescriptor = {
+      id: "pull-42",
+      label: "PR #42",
+      restoresPlacementAfterRemoval: true,
+    };
+    const picker: SidebarSplitTabDescriptor = {
+      id: "pull-picker",
+      label: "GitHub PR",
+      restoresPlacementAfterRemoval: true,
+    };
+    const phases = {
+      open: { tabs: [pull, ...TABS], activeTabId: pull.id },
+      closed: { tabs: TABS, activeTabId: "tab-a" },
+      picking: { tabs: [...TABS, picker], activeTabId: picker.id },
+      replaced: { tabs: [...TABS, pull], activeTabId: pull.id },
+    };
+
+    function Harness() {
+      const [phase, setPhase] = useState<keyof typeof phases>("open");
+      return (
+        <>
+          {(["closed", "picking", "replaced"] as const).map((next) => (
+            <button key={next} type="button" onClick={() => setPhase(next)}>
+              {next}
+            </button>
+          ))}
+          <SidebarSplitContainer
+            activeTabId={phases[phase].activeTabId}
+            isFullScreen={false}
+            onActivateTab={vi.fn()}
+            onGlobalTabReorder={vi.fn()}
+            onToggleFullScreen={vi.fn()}
+            panelStateId={PANEL_STATE_ID}
+            renderPane={({ group }) => (
+              <div data-testid="tab-order">{group.tabIds.join(",")}</div>
+            )}
+            tabs={phases[phase].tabs}
+          />
+        </>
+      );
+    }
+
+    render(
+      <SidebarProvider>
+        <TooltipProvider>
+          <Harness />
+        </TooltipProvider>
+      </SidebarProvider>,
+    );
+    for (const [phase, order] of [
+      ["closed", "tab-a,tab-b"],
+      ["picking", "tab-a,tab-b,pull-picker"],
+      ["replaced", "tab-a,tab-b,pull-42"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name: phase }));
+      await waitFor(() =>
+        expect(screen.getByTestId("tab-order").textContent).toBe(order),
+      );
+    }
+  });
+
   it("appends a transient launcher instead of restoring its removed position", async () => {
     const launcher: SidebarSplitTabDescriptor = {
       id: "new-tab",

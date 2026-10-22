@@ -217,7 +217,10 @@ export function SidebarSplitContainer({
     const previousAvailableTabIdSet = new Set(previousAvailable);
     for (const tab of tabs) {
       if (previousAvailableTabIdSet.has(tab.id)) continue;
-      if (!tab.restoresPlacementAfterRemoval) {
+      if (
+        !tab.restoresPlacementAfterRemoval ||
+        tab.id === inPlaceReplacement?.nextTabId
+      ) {
         removedTabPlacements.current.delete(tab.id);
         continue;
       }
