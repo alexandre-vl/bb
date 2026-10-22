@@ -1466,16 +1466,15 @@ describe("ThreadRow", () => {
     expect(visibleTitle().textContent).toBe("Thread");
   });
 
-  it("navigates instead of renaming when the title is double-tapped on a compact viewport", async () => {
+  it("renames inline after a fine-pointer double click on a compact viewport", async () => {
     renderThreadRow({ isCompactViewport: true });
     const link = screen.getByRole("treeitem", { name: "Thread" });
-
     expect(fireEvent.click(link)).toBe(true);
-    expect(fireEvent.click(link)).toBe(true);
-    fireEvent.doubleClick(visibleTitle());
-    await act(async () => new Promise(requestAnimationFrame));
-
-    expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
+    expect(fireEvent.click(link)).toBe(false);
+    expect(
+      await screen.findByRole("textbox", { name: "Thread name" }),
+    ).toHaveProperty("value", "Thread");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("does not start a sortable drag while editing the title", async () => {

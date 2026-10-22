@@ -1,5 +1,7 @@
 import { VoiceInputButton } from "./VoiceInputButton";
 import { registerPaneComposerFocus } from "@/lib/pane-composer-focus";
+import { ComposerMaxHeightContext } from "./composer-max-height";
+import { parseThreadLink, type ThreadLinkTarget } from "@/lib/thread-links";
 import type { PendingAttachmentUpload } from "./usePendingAttachmentUploads";
 import { registerThreadMentionDropTarget } from "@/lib/thread-mention-drop";
 import type {
@@ -75,7 +77,6 @@ import {
   useAppCommandKeyDispatch,
   useAppCommandShortcut,
 } from "@/components/commands/AppCommandProvider";
-import { canLoadMoreCommandResults } from "@/components/promptbox/mentions/mention-menu-scroll";
 import {
   voiceUnsupportedMessage,
   type VoiceUnsupportedReason,
@@ -204,6 +205,7 @@ import { appToast } from "@/components/ui/app-toast";
 import { findPastedThreadLinkCandidates } from "./mentions/pasted-thread-link-candidates";
 import {
   blurPromptEditor,
+  COMPOSER_EDITOR_AVAILABLE_HEIGHT_PROPERTY,
   ComposerEditorSlot,
   type ComposerEditorLayout,
 } from "./ComposerEditorSlot";
@@ -219,6 +221,10 @@ const PROMPTBOX_MIN_HEIGHT = 68;
 const PROMPTBOX_SELECTION_REVEAL_MARGIN = 12;
 const COMPACT_PROMPT_ACTION_BUTTON_CLASS =
   "size-8 p-0 transition-all [&_[data-icon-root]]:size-4 max-md:pointer-coarse:size-10";
+function parseLocalThreadLink(url: string): ThreadLinkTarget | null {
+  return parseThreadLink(url, window.location.origin);
+}
+
 const RICH_PASTE_BLOCK_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -516,9 +522,6 @@ export interface TypeaheadCommandConfig {
   suggestions: readonly ProviderCommandSuggestion[];
   isLoading: boolean;
   isError: boolean;
-  hasMore: boolean;
-  isLoadingMore: boolean;
-  loadMore: () => void;
   onQueryChange: (
     query: string | null,
     trigger: PromptMentionCommandTrigger | null,
@@ -536,9 +539,6 @@ export const INERT_TYPEAHEAD_COMMAND_CONFIG: TypeaheadCommandConfig = {
   suggestions: [],
   isLoading: false,
   isError: false,
-  hasMore: false,
-  isLoadingMore: false,
-  loadMore: () => {},
   onQueryChange: () => {},
 };
 
@@ -627,10 +627,13 @@ export interface PromptVoiceConfig {
 export interface PromptBoxHandle {
   focusEnd: () => void;
   captureHeightForLayoutChange: () => void;
-  insertTextAtCursor: (text: string) => void;
-  sendVoiceTranscript: (text: string) => void;
-  getTextBeforeCursor: () => string | undefined;
-  playVoiceCompletionTransition: () => Promise<void>;
+  voice: PromptBoxVoice;
+}
+
+export interface PromptBoxVoice {
+  textBeforeCursor(): string | null;
+  deliverTranscript(text: string, delivery: VoiceDelivery): void;
+  playCompletionTransition(): Promise<void>;
 }
 
 export type { PromptBoxAction } from "./PromptBoxActionsMenu";
@@ -654,7 +657,6 @@ interface PromptBoxInternalProps {
   autoFocus?: boolean;
   textEffects?: readonly ComposerTextEffectSource[];
   onComposerLayoutChange?: (layout: ComposerView["layout"]) => void;
-  header?: ReactNode;
   modeHeader?: ReactNode;
   footerStart?: ReactNode;
   submitAccessory?: ReactNode;
@@ -1029,7 +1031,7 @@ function promptEditorValueFromRichHtml(html: string): ParsedRichClipboardValue {
   visitChildren(document.body, false);
   const threadLinks = findPastedThreadLinkCandidates({
     text,
-    origin: window.location.origin,
+    parseLink: parseLocalThreadLink,
   }).map((link) => ({
     text: link.text,
     literal: literalRanges.some(
@@ -1271,7 +1273,6 @@ export function PromptBoxInternal({
   autoFocus = true,
   textEffects,
   onComposerLayoutChange,
-  header,
   modeHeader,
   footerStart,
   submitAccessory,
@@ -1399,6 +1400,31 @@ export function PromptBoxInternal({
   const threadLinkCacheRef = useRef({ threadTitleResources, queryClient });
   threadLinkCacheRef.current = { threadTitleResources, queryClient };
   const editorScrollContainerRef = useRef<HTMLDivElement>(null);
+  const maxHeight = useContext(ComposerMaxHeightContext);
+  useLayoutEffect(() => {
+    const formElement = formRef.current;
+    const scrollElement = editorScrollContainerRef.current;
+    if (!formElement || !scrollElement) return;
+    if (maxHeight === undefined) {
+      formElement.style.removeProperty(
+        COMPOSER_EDITOR_AVAILABLE_HEIGHT_PROPERTY,
+      );
+      return;
+    }
+    const capEditor = () => {
+      const chromeHeight =
+        formElement.offsetHeight - scrollElement.offsetHeight;
+      formElement.style.setProperty(
+        COMPOSER_EDITOR_AVAILABLE_HEIGHT_PROPERTY,
+        `${maxHeight - chromeHeight}px`,
+      );
+    };
+    capEditor();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(capEditor);
+    observer.observe(formElement);
+    return () => observer.disconnect();
+  }, [maxHeight]);
   const revealSelectionFrameRef = useRef<number | null>(null);
   const promptActionFocusFrameRef = useRef<number | null>(null);
   const pendingFocusEndRef = useRef(false);
@@ -1952,7 +1978,7 @@ export function PromptBoxInternal({
         getDecorationSources: () => decorationSourcesRef.current,
       }),
       createPromptThreadLinkPasteExtension({
-        getOrigin: () => window.location.origin,
+        parseLink: parseLocalThreadLink,
         getCachedThread: (threadId) => {
           const cache = threadLinkCacheRef.current;
           const thread =
@@ -2108,7 +2134,7 @@ export function PromptBoxInternal({
               return { skip: skipThreadLinks };
             const pastedLinks = findPastedThreadLinkCandidates({
               text: pastedValue.text,
-              origin: window.location.origin,
+              parseLink: parseLocalThreadLink,
             });
             if (
               pastedLinks.length !== links.length ||
@@ -2345,9 +2371,12 @@ export function PromptBoxInternal({
   }, [editor, isSubmitting, composerInputLocked]);
 
   useLayoutEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    return registerPaneComposerFocus(editor.view.dom, () => {
-      if (!editor.isDestroyed && editor.isEditable) editor.view.focus();
+    const formElement = formRef.current;
+    if (!formElement || !editor || editor.isDestroyed) return;
+    return registerPaneComposerFocus(formElement, () => {
+      if (editor.isDestroyed || !editor.isEditable) return false;
+      editor.view.focus();
+      return true;
     });
   }, [editor]);
 
@@ -2570,16 +2599,6 @@ export function PromptBoxInternal({
   const hasSubmittableInput = trimmedValue.length > 0 || hasAttachments;
 
   const activeTriggerKind = activeTrigger?.kind ?? null;
-  const commandHasMore = typeahead.command.hasMore;
-  const commandIsLoadingMore = typeahead.command.isLoadingMore;
-  const loadMoreCommands = typeahead.command.loadMore;
-  const canLoadMoreCommands =
-    activeTriggerKind === "command" &&
-    canLoadMoreCommandResults({
-      hasMore: commandHasMore,
-      isError: commandError,
-      isLoadingMore: commandIsLoadingMore,
-    });
   const activeCommandQuery =
     activeTrigger?.kind === "command" ? activeTrigger.query : "";
   const commandGroups = useMemo(
@@ -2723,26 +2742,6 @@ export function PromptBoxInternal({
       setSelectedSuggestionKey(null);
     }
   }, [selectedSuggestionIndex, selectedSuggestionKey]);
-
-  useEffect(() => {
-    if (
-      activeTriggerKind !== "command" ||
-      !canLoadMoreCommands ||
-      activeSuggestions.length === 0
-    ) {
-      return;
-    }
-    const prefetchIndex = Math.max(0, activeSuggestions.length - 3);
-    if (selectedIndex >= prefetchIndex) {
-      loadMoreCommands();
-    }
-  }, [
-    activeSuggestions.length,
-    activeTriggerKind,
-    canLoadMoreCommands,
-    loadMoreCommands,
-    selectedIndex,
-  ]);
 
   const finishApply = useCallback(
     (appliedEditor: Editor) => {
@@ -3106,17 +3105,17 @@ export function PromptBoxInternal({
     [finishApply, focusAfterPromptAction, triggers],
   );
 
-  const getTextBeforeCursor = useCallback((): string | undefined => {
+  const getTextBeforeCursor = useCallback((): string | null => {
     const currentValue = valueRef.current;
     const currentEditor = editorRef.current;
     if (!currentEditor) {
       const trimmed = currentValue.trim();
-      return trimmed.length > 0 ? trimmed : undefined;
+      return trimmed.length > 0 ? trimmed : null;
     }
     const beforeCursor = currentEditor.state.doc
       .textBetween(0, currentEditor.state.selection.from, "\n", "\n")
       .trim();
-    return beforeCursor.length > 0 ? beforeCursor : undefined;
+    return beforeCursor.length > 0 ? beforeCursor : null;
   }, []);
 
   const voiceSubmitBaselineRef = useRef<string | null>(null);
@@ -3133,10 +3132,14 @@ export function PromptBoxInternal({
     () => ({
       captureHeightForLayoutChange: capturePromptBoxHeight,
       focusEnd,
-      insertTextAtCursor,
-      sendVoiceTranscript,
-      getTextBeforeCursor,
-      playVoiceCompletionTransition,
+      voice: {
+        textBeforeCursor: getTextBeforeCursor,
+        deliverTranscript: (text, delivery) => {
+          if (delivery === "send") sendVoiceTranscript(text);
+          else insertTextAtCursor(text);
+        },
+        playCompletionTransition: playVoiceCompletionTransition,
+      },
     }),
     [
       capturePromptBoxHeight,
@@ -3528,17 +3531,6 @@ export function PromptBoxInternal({
           activeSuggestions.length > 0
         ) {
           event.preventDefault();
-          if (
-            activeTriggerKind === "command" &&
-            !commandError &&
-            selectedIndex >= activeSuggestions.length - 1 &&
-            (commandHasMore || commandIsLoadingMore)
-          ) {
-            if (canLoadMoreCommands) {
-              loadMoreCommands();
-            }
-            return true;
-          }
           const nextIndex = (selectedIndex + 1) % activeSuggestions.length;
           const nextSuggestion = activeSuggestions[nextIndex];
           if (nextSuggestion) {
@@ -3684,18 +3676,12 @@ export function PromptBoxInternal({
     [
       activeHistoryIndex,
       activeSuggestions,
-      activeTriggerKind,
       applyHistoryDraft,
       applyTrigger,
-      canLoadMoreCommands,
-      commandError,
-      commandHasMore,
-      commandIsLoadingMore,
       dispatchAppCommandKey,
       handleComposerMenuKeyDown,
       history,
       isPointerCoarse,
-      loadMoreCommands,
       onEscape,
       onModifierSubmit,
       postCompositionKeyDownEvents,
@@ -3788,15 +3774,6 @@ export function PromptBoxInternal({
             showVoiceActionGroup && "pointer-events-none",
           )}
         >
-          {header && !showCompactLayout ? (
-            <div
-              data-promptbox-expanded-only=""
-              inert={showVoiceActionGroup ? true : undefined}
-              className="pl-4 pr-14 pt-3"
-            >
-              {header}
-            </div>
-          ) : null}
           {showCompactLayout ? (
             <AttachmentPreview
               compact
@@ -3906,9 +3883,6 @@ export function PromptBoxInternal({
                   selectedIndex={selectedIndex}
                   onApply={applyTrigger}
                   onDismiss={isPointerCoarse ? dismissComposerMenu : undefined}
-                  onCommandLoadMore={
-                    canLoadMoreCommands ? loadMoreCommands : undefined
-                  }
                 />
               )}
             </ComposerPopupHost>

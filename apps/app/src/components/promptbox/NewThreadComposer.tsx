@@ -204,7 +204,6 @@ interface NewThreadComposerPromptOptions {
   placeholder?: string;
   autoFocus?: boolean;
   banner?: ReactNode;
-  header?: ReactNode;
   blockedReason?: string;
   resolveMentionLink?: PromptMentionLinkResolver;
   pluginComposerHost?: PluginComposerHost;
@@ -1984,9 +1983,6 @@ export function NewThreadComposer({
               suggestions: commandSuggestions.suggestions,
               isLoading: commandSuggestions.isLoading,
               isError: commandSuggestions.isError,
-              hasMore: commandSuggestions.hasMore,
-              isLoadingMore: commandSuggestions.isLoadingMore,
-              loadMore: commandSuggestions.loadMore,
               onQueryChange: (query, trigger) =>
                 setCommandState({ query, trigger }),
               onEditorFocus: handleEditorFocus,
@@ -2079,7 +2075,6 @@ export function NewThreadComposer({
                   }
                 />
               )),
-            header: options.header,
           }}
           project={{
             projects: projectOptions,
