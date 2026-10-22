@@ -197,7 +197,11 @@ export function useSidebarData() {
     experimental_lifecycles: lifecycles,
   });
   return useMemo(
-    () => ({ ...getSidebarData(state), archived: state.experimental_archived }),
+    () => ({
+      ...getSidebarData(state),
+      archived: state.experimental_archived,
+      refetch: state.experimental_refetch,
+    }),
     [state],
   );
 }

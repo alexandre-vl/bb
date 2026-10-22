@@ -20,7 +20,15 @@ export const SIDEBAR_TREE_ROW_ANCHOR_CLASS =
   "absolute inset-x-0 -inset-y-px z-0 rounded-md outline-none";
 
 export const SIDEBAR_TREE_STATUS_BOX_CLASS =
-  "flex h-7 w-7 shrink-0 items-center justify-center max-md:pointer-coarse:h-10 max-md:pointer-coarse:w-12";
+  "flex h-7 w-7 shrink-0 items-center justify-center pointer-coarse:h-10 pointer-coarse:w-12";
+
+export const SIDEBAR_TREE_ROW_HEIGHT_CLASS =
+  "h-(--bb-sidebar-row-height) pointer-coarse:h-(--bb-sidebar-row-height-coarse)";
+
+export const SIDEBAR_TREE_ICON_SIZE_CLASS = "size-4 pointer-coarse:size-5";
+
+export const SIDEBAR_TREE_CONTROL_SIZE_CLASS =
+  "pointer-coarse:h-9 pointer-coarse:w-9";
 
 export function getSidebarTitleToneClass({
   isActive,

@@ -474,9 +474,13 @@
     --bb-sidebar-sticky-parent-base-top: var(--bb-sidebar-sticky-project-top);
   }
 
-  @media (max-width: 767px) and (pointer: coarse) {
+  @media (pointer: coarse) {
     [data-sidebar-sticky-stack] {
       --bb-sidebar-sticky-row-height: var(--bb-sidebar-row-height-coarse);
+      --text-xs: 0.875rem;
+      --text-xs--line-height: 1.25rem;
+      --text-sm: 0.9375rem;
+      --text-sm--line-height: 1.375rem;
     }
   }
 }

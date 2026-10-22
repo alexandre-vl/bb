@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
-import { COARSE_POINTER_ROW_HEIGHT_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import {
   SIDEBAR_TREE_ROW_BASE_CLASS,
+  SIDEBAR_TREE_ROW_HEIGHT_CLASS,
   SIDEBAR_TREE_ROW_HOVER_CLASS,
 } from "../ui/tree-row.js";
 import { getTreeLeafPaddingLeft } from "../ui/tree-geometry.js";
@@ -40,7 +40,7 @@ export function SidebarFoldRow({
         "relative cursor-pointer",
         SIDEBAR_TREE_ROW_BASE_CLASS,
         SIDEBAR_TREE_ROW_HOVER_CLASS,
-        COARSE_POINTER_ROW_HEIGHT_CLASS,
+        SIDEBAR_TREE_ROW_HEIGHT_CLASS,
       )}
       style={{ paddingLeft: getTreeLeafPaddingLeft(depth) }}
       onClick={activate}

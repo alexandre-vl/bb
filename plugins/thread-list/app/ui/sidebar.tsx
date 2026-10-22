@@ -1,6 +1,5 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { Skeleton } from "@/components/ui/skeleton";
 
 export const SIDEBAR_CONTENT_SELECTOR = '[data-sidebar="content"]';
 
@@ -13,8 +12,7 @@ export function useSidebarContentElement(
   const [element, setElement] = React.useState<HTMLElement | null>(null);
   React.useLayoutEffect(() => {
     const next =
-      anchorRef.current?.closest<HTMLElement>(SIDEBAR_CONTENT_SELECTOR) ??
-      null;
+      anchorRef.current?.closest<HTMLElement>(SIDEBAR_CONTENT_SELECTOR) ?? null;
     setElement((current) => (current === next ? current : next));
   }, [anchorRef]);
   return element;
@@ -132,37 +130,3 @@ export const SidebarGroupContent = React.forwardRef<
   />
 ));
 SidebarGroupContent.displayName = "SidebarGroupContent";
-
-type SkeletonWidthStyle = React.CSSProperties & { "--skeleton-width": string };
-
-export const SidebarMenuSkeleton = React.forwardRef<
-  HTMLDivElement,
-  React.ComponentProps<"div">
->(({ className, ...props }, ref) => {
-  const skeletonId = React.useId();
-
-  const width = React.useMemo(() => {
-    let hash = 0;
-    for (let index = 0; index < skeletonId.length; index += 1) {
-      hash = (hash + skeletonId.charCodeAt(index) * (index + 1)) % 40;
-    }
-    return `${hash + 50}%`;
-  }, [skeletonId]);
-  const skeletonStyle: SkeletonWidthStyle = { "--skeleton-width": width };
-
-  return (
-    <div
-      ref={ref}
-      data-sidebar="menu-skeleton"
-      className={cn("rounded-md h-8 flex gap-2 px-2 items-center", className)}
-      {...props}
-    >
-      <Skeleton
-        className="h-4 flex-1 max-w-[--skeleton-width]"
-        data-sidebar="menu-skeleton-text"
-        style={skeletonStyle}
-      />
-    </div>
-  );
-});
-SidebarMenuSkeleton.displayName = "SidebarMenuSkeleton";

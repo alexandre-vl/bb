@@ -138,6 +138,7 @@ describe("buildSidebarData structural sharing", () => {
       projects,
       sections: [],
       experimental_archived: null,
+      experimental_refetch: () => Promise.resolve(),
     };
     const data = getSidebarData(state);
     expect(getSidebarData({ ...state })).toBe(data);

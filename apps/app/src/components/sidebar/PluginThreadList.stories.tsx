@@ -10,7 +10,13 @@ import type { SidebarBootstrapResponse } from "@bb/server-contract";
 import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
 import { AppCommandProvider } from "@/components/commands/AppCommandProvider";
 import { ThreadActionsProvider } from "@/components/thread/ThreadActionsProvider";
-import { SidebarContent, SidebarProvider } from "@/components/ui/sidebar";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarProvider,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import { cn } from "@bb/shared-ui/lib/utils";
 import {
   hostsQueryKey,
   sidebarNavigationQueryKey,
@@ -34,6 +40,7 @@ import { useThreadListReplacement } from "./threadListProvider";
 import { makeSystemConfig } from "@/test/fixtures/system-config";
 import { useSidebarNavigation } from "@/hooks/queries/sidebar-navigation-query";
 import { SidebarThreadEntriesProvider } from "@/lib/sidebar-thread-entries";
+import { NAV_RAIL_WIDTH_CLASS } from "./navRailWidth";
 
 installTestPluginRuntime();
 const threadListApp = await loadPluginAppDefinition(
@@ -512,6 +519,121 @@ export function SidebarV2States() {
   );
 }
 
+type SidebarBootstrapScript = "pending" | "fail-then-load";
+
+function emptyV2Navigation(): SidebarBootstrapResponse {
+  const navigation = v2Navigation();
+  return {
+    ...navigation,
+    projects: navigation.projects.map((project) => ({
+      ...project,
+      threads: [],
+    })),
+  };
+}
+
+function useSidebarBootstrapScript(script: SidebarBootstrapScript | null) {
+  useEffect(() => {
+    if (script === null) return;
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (!url.includes("/sidebar-bootstrap")) {
+        return originalFetch(input, init);
+      }
+      calls += 1;
+      if (script === "fail-then-load" && calls === 1) {
+        return new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Promise<Response>((resolve, reject) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => reject(signal.reason));
+        if (script === "fail-then-load") {
+          window.setTimeout(
+            () =>
+              resolve(
+                new Response(JSON.stringify(v2Navigation()), {
+                  headers: { "content-type": "application/json" },
+                }),
+              ),
+            900,
+          );
+        }
+      });
+    };
+    return () => {
+      globalThis.fetch = originalFetch;
+    };
+  }, [script]);
+}
+
+function V2StateStory({
+  navigation,
+  script,
+  preferences = V2_PREFERENCES,
+}: {
+  navigation: SidebarBootstrapResponse | null;
+  script: SidebarBootstrapScript | null;
+  preferences?: Record<string, unknown>;
+}) {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(systemConfigQueryKey(), makeSystemConfig());
+    client.removeQueries({ queryKey: sidebarNavigationQueryKey() });
+    if (navigation !== null) {
+      client.setQueryData(sidebarNavigationQueryKey(), navigation);
+    }
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(preferences);
+  useSidebarBootstrapScript(script);
+  useThreadListPlugin();
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThreadActionsProvider>
+        <V2Sidebar width={288} height={420} />
+      </ThreadActionsProvider>
+    </QueryClientProvider>
+  );
+}
+
+export function SidebarV2Loading() {
+  return <V2StateStory navigation={null} script="pending" />;
+}
+
+export function SidebarV2NoThreads() {
+  return <V2StateStory navigation={emptyV2Navigation()} script={null} />;
+}
+
+const V2_CHRONOLOGICAL_PREFERENCES = {
+  ...V2_PREFERENCES,
+  organizationMode: "chronological",
+};
+
+export function SidebarV2NoThreadsChronological() {
+  return (
+    <V2StateStory
+      navigation={emptyV2Navigation()}
+      script={null}
+      preferences={V2_CHRONOLOGICAL_PREFERENCES}
+    />
+  );
+}
+
+export function SidebarV2LoadError() {
+  return <V2StateStory navigation={null} script="fail-then-load" />;
+}
+
 type V2ThreadEntry =
   SidebarBootstrapResponse["projects"][number]["threads"][number];
 
@@ -768,6 +890,73 @@ export function SidebarV2EdgeRows() {
           />
         </ThreadActionsProvider>
       </AppCommandProvider>
+    </QueryClientProvider>
+  );
+}
+
+function OpenPhoneDrawer() {
+  const { isCompactViewport, openMobileSidebar } = useSidebar();
+  useEffect(() => {
+    if (isCompactViewport) openMobileSidebar();
+  }, [isCompactViewport, openMobileSidebar]);
+  return (
+    <main className="grid h-dvh place-items-center bg-background p-6">
+      <button
+        type="button"
+        data-sv2-action="open-drawer"
+        className="rounded-md border border-border px-2 py-1 text-sm"
+        onClick={openMobileSidebar}
+      >
+        Open the sidebar
+      </button>
+    </main>
+  );
+}
+
+function V2PhoneDrawer() {
+  const replacement = useThreadListReplacement();
+  const { data } = useSidebarNavigation();
+  return (
+    <SidebarThreadEntriesProvider navigation={data}>
+      <SidebarProvider defaultOpen>
+        <Sidebar>
+          <div
+            data-sidebar-v2-fixture
+            className="grid min-h-0 flex-1 grid-cols-[auto_minmax(0,1fr)]"
+          >
+            <div className={cn("bg-surface-recessed", NAV_RAIL_WIDTH_CLASS)} />
+            <div className="flex min-h-0 min-w-0 flex-col">
+              <SidebarContent>
+                <PluginThreadList
+                  replacement={replacement}
+                  onNavigate={() => {}}
+                />
+              </SidebarContent>
+            </div>
+          </div>
+        </Sidebar>
+        <OpenPhoneDrawer />
+      </SidebarProvider>
+    </SidebarThreadEntriesProvider>
+  );
+}
+
+export function SidebarV2Phone() {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(systemConfigQueryKey(), makeSystemConfig());
+    client.setQueryData(sidebarNavigationQueryKey(), v2Navigation());
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(V2_PREFERENCES);
+  useArchiveRoutes();
+  useThreadListPlugin();
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThreadActionsProvider>
+        <V2PhoneDrawer />
+      </ThreadActionsProvider>
     </QueryClientProvider>
   );
 }

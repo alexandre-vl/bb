@@ -48,6 +48,7 @@ export function SidebarHeaderMenuContents({
   page,
   onPageChange,
   onCustomizeRowActions,
+  onNewThread,
   children,
 }: {
   creation: HeaderCreationActions;
@@ -56,6 +57,7 @@ export function SidebarHeaderMenuContents({
   page: SidebarViewPage | null;
   onPageChange: (page: SidebarViewPage | null) => void;
   onCustomizeRowActions?: () => void;
+  onNewThread?: { label: string; run: () => void };
   children?: ReactNode;
 }) {
   if (compact && page) {
@@ -80,6 +82,12 @@ export function SidebarHeaderMenuContents({
   }
   return (
     <>
+      {onNewThread ? (
+        <DropdownMenuItem onSelect={onNewThread.run}>
+          <Icon name="MessageSquarePlus" />
+          {onNewThread.label}
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem
         disabled={!creation.onNewSection || creation.isCreatingSection}
         onSelect={() => creation.onNewSection?.(anchorSectionId)}
