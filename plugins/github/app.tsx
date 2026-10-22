@@ -20,6 +20,7 @@ import { DelayedLoading } from "@/components/ui/delayed-loading";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   claimItemUrl,
+  isSameItem,
   itemRefFromParams,
   itemTabOptions,
   itemUrl,
@@ -47,6 +48,7 @@ import {
   useItems,
   useStatus,
   useSync,
+  useTrackedRepo,
   useViewer,
   type Status,
 } from "./components/shared.js";
@@ -358,10 +360,6 @@ const ITEM_PANEL_ACTION_IDS: Record<Item["kind"], string> = {
   issue: "issue",
 };
 
-function isSameItem(a: ItemRef, b: ItemRef): boolean {
-  return a.repo === b.repo && a.number === b.number;
-}
-
 function useThreadPull(
   threadId: string,
   onResolved?: (pull: ThreadPull | null) => void,
@@ -523,14 +521,16 @@ function PullTabDetail({
   const navigate = useBbNavigate();
   const viewer = useViewer();
   const { items } = useItems("pr");
+  const repo = useTrackedRepo(pull.repo);
   const [agentTarget, setAgentTarget] = useState<AgentTarget | null>(null);
+  if (repo === null) return <PanelSkeleton />;
   const item = items?.find((entry) => isSameItem(entry, pull)) ?? null;
   const row = item === null ? null : (pullRowModels([item], viewer)[0] ?? null);
   return (
     <div className="-m-4 flex min-h-0 flex-1 flex-col @container/github">
       <PullDetailView
-        key={`${pull.repo}#${pull.number}`}
-        repo={pull.repo}
+        key={`${repo}#${pull.number}`}
+        repo={repo}
         number={pull.number}
         row={row}
         chain={null}
@@ -595,11 +595,13 @@ function IssueTabDetail({
   issue: ItemRef;
   onBack: (() => void) | null;
 }) {
+  const repo = useTrackedRepo(issue.repo);
+  if (repo === null) return <PanelSkeleton />;
   return (
     <div className="-m-4 flex min-h-0 flex-1 flex-col @container/github">
       <IssueDetailView
-        key={`${issue.repo}#${issue.number}`}
-        repo={issue.repo}
+        key={`${repo}#${issue.number}`}
+        repo={repo}
         number={issue.number}
         onBack={onBack}
       />

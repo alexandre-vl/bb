@@ -4,6 +4,7 @@ import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import type { BbNavigate, PluginBrowserBbSdk } from "@get-bb/plugin-sdk";
 import { usePluginId } from "@/components/plugin/plugin-context";
 import {
+  openPluginThreadPanel,
   usePluginPanelTab,
   usePluginThreadPanelOpenHandler,
 } from "@/components/plugin/plugin-thread-panel-navigation";
@@ -137,18 +138,13 @@ export function useBbNavigate(): BbNavigate {
     ],
   );
   const openThreadPanel = useCallback<BbNavigate["openThreadPanel"]>(
-    ({ experimental_replace, ...options }) => {
-      if (openThreadPanelHandler === null) return false;
-      if (experimental_replace !== true) {
-        return openThreadPanelHandler({ ...options, pluginId });
-      }
-      if (panelTab === null || panelTab.pluginId !== pluginId) return false;
-      return openThreadPanelHandler({
-        ...options,
+    (options) =>
+      openPluginThreadPanel({
+        open: openThreadPanelHandler,
+        options,
+        panelTab,
         pluginId,
-        replaceTabId: panelTab.tabId,
-      });
-    },
+      }),
     [openThreadPanelHandler, panelTab, pluginId],
   );
   const openUrl = useCallback<BbNavigate["openUrl"]>(

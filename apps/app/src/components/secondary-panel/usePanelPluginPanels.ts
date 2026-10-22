@@ -42,7 +42,7 @@ export function usePanelPluginPanels({
         openPluginPanel,
         replaceTabId,
       })({ title, params });
-      if (accepted) reveal();
+      if (accepted && replaceTabId === undefined) reveal();
       return accepted;
     },
     [actions, openPluginPanel, reveal, slot],

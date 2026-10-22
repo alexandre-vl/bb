@@ -3966,10 +3966,12 @@ export interface BbNavigate {
        * in, as `toPluginPanel`'s `replace` swaps a history entry: use it when
        * a tab finds out what it shows, such as a picker's pick, so the tab
        * takes that item's params and a later open of the same params focuses
-       * it. When a tab with those params is already open, bb focuses it and
-       * closes the calling tab. Returns false outside one of this plugin's
-       * side-panel tabs, or once that tab has closed. Experimental: see
-       * docs/api_to_audit.md.
+       * it. The new tab keeps the calling tab's place and split pane, is
+       * active only if the calling tab was, and leaves a closed panel closed.
+       * When a tab with those params is already open, bb closes the calling
+       * tab instead, and focuses the open one if the calling tab was active.
+       * Returns false outside one of this plugin's side-panel tabs, or once
+       * that tab has closed. Experimental: see docs/api_to_audit.md.
        */
       experimental_replace?: boolean;
     },

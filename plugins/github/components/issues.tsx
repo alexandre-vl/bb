@@ -44,6 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   issueGroups,
+  linkKey,
   parseQuery,
   splitTitle,
   type Item,
@@ -588,7 +589,7 @@ export function IssuesPane({
                     now={now}
                     touch={touch}
                     compact={compact}
-                    agent={agents.get(`issue:${itemKey(item)}`) ?? null}
+                    agent={agents.get(linkKey("issue", item)) ?? null}
                     onOpen={() => onOpen(item)}
                     onStartAgent={onStartAgent}
                   />
@@ -887,7 +888,7 @@ export function IssueDetailView({
   const navigate = useBbNavigate();
   const viewer = useViewer();
   const settings = useRepoSettings();
-  const agent = useAgents().get(`issue:${repo}#${number}`) ?? null;
+  const agent = useAgents().get(linkKey("issue", { repo, number })) ?? null;
   const actions = useIssueActions();
   const now = useNow(30_000);
   const [detail, setDetail] = useState<IssueDetail | null>(null);

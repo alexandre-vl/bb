@@ -37,6 +37,7 @@ import {
 import {
   adjacentSidebarTab,
   createSidebarSplitState,
+  findReplacedSidebarTab,
   focusSidebarPane,
   getSidebarGroupForPane,
   getSidebarTabPlacement,
@@ -198,8 +199,18 @@ export function SidebarSplitContainer({
       !availableTabIds.includes(previousExternalActiveTabId)
         ? replaceSidebarTab(current, previousExternalActiveTabId, activeTabId)
         : current;
+    const inPlaceReplacement = findReplacedSidebarTab(
+      previousAvailable,
+      availableTabIds,
+    );
     let reconciled = reconcileSidebarSplitState(
-      withActiveTabReplacement,
+      inPlaceReplacement === null
+        ? withActiveTabReplacement
+        : replaceSidebarTab(
+            withActiveTabReplacement,
+            inPlaceReplacement.previousTabId,
+            inPlaceReplacement.nextTabId,
+          ),
       availableTabIds,
       activeTabId,
     );
@@ -375,7 +386,9 @@ export function SidebarSplitContainer({
     next?.scrollIntoView({ block: "nearest" });
     return true;
   };
-  useAppCommandHandler("panel.previousNewTabItem", () => navigateNewTabItem(-1));
+  useAppCommandHandler("panel.previousNewTabItem", () =>
+    navigateNewTabItem(-1),
+  );
   useAppCommandHandler("panel.nextNewTabItem", () => navigateNewTabItem(1));
 
   const focusPane = useCallback(

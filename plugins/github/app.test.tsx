@@ -1671,6 +1671,11 @@ describe("GitHub links opened from a thread", () => {
     },
     {
       action: "pull",
+      href: "https://github.com/Get-BB/BB/pull/42",
+      claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
+    },
+    {
+      action: "pull",
       href: "https://github.com/get-bb/bb/pull/42/files",
       claim: null,
     },
@@ -1715,7 +1720,7 @@ describe("GitHub links opened from a thread", () => {
     expect(claimUrl?.(new URL(href))).toEqual(claim);
   });
 
-  it("shows the linked pull request rather than the thread's own, with no way back", async () => {
+  it("shows the linked pull request rather than the thread's own, outside its workspace and with no way back", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
       { threadId: "thr-1", params: { repo: "get-bb/bb", number: 3 } },
@@ -1725,7 +1730,19 @@ describe("GitHub links opened from a thread", () => {
             pull: { repo: "get-bb/bb", number: 42, environmentId: "env-1" },
           }),
           getPull: () => ({
-            pull: pullDetail({ number: 3, title: "Review me" }),
+            pull: pullDetail({
+              number: 3,
+              title: "Review me",
+              files: [
+                {
+                  path: "modified.ts",
+                  status: "modified",
+                  additions: 1,
+                  deletions: 0,
+                  patch: "@@ -0,0 +1 @@\n+added",
+                },
+              ],
+            }),
           }),
         }),
       },
@@ -1737,6 +1754,91 @@ describe("GitHub links opened from a thread", () => {
       ]),
     );
     expect(slot.queryByRole("button", { name: "Back" })).toBeNull();
+    const filesTab = await slot.findByRole("tab", { name: /^Files/ });
+    await act(async () => fireEvent.mouseDown(filesTab));
+    expect(slot.getByText("modified.ts").closest("a")).toBeNull();
+  });
+
+  it("shows the agent linked to a pull request whatever the case of its repository", async () => {
+    const slot = renderSlot(
+      threadPanelAction("pull"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      {
+        rpc: rpc({
+          status: () => ({
+            ...STATUS,
+            repos: [{ repo: "Get-BB/BB", projectId: "project-1" }],
+          }),
+          pullForThread: () => ({ pull: null }),
+          getPull: () => ({ pull: pullDetail({ number: 7 }) }),
+          listLinks: () => ({
+            links: {
+              "pr:GET-BB/bb#7": [
+                { ...link("pr", "thr-agent", 7), repo: "GET-BB/bb" },
+              ],
+            },
+          }),
+        }),
+        sidebarThreads: {
+          threads: [sidebarThread({ id: "thr-agent", status: "active" })],
+        },
+      },
+    );
+
+    await act(async () =>
+      fireEvent.click(await slot.findByRole("button", { name: "Open thread" })),
+    );
+    expect(slot.navigateCalls).toContainEqual({
+      method: "toThread",
+      threadId: "thr-agent",
+    });
+  });
+
+  it("opens a lowercase tab on the repository as it is tracked", async () => {
+    const slot = renderSlot(
+      threadPanelAction("issue"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+      {
+        rpc: rpc({
+          status: () => ({
+            ...STATUS,
+            repos: [{ repo: "Get-BB/BB", projectId: "project-1" }],
+          }),
+          repoSettings: () => ({
+            repos: {
+              "Get-BB/BB": {
+                viewerCanWrite: true,
+                mergeMethods: ["squash"],
+                defaultMergeMethod: "squash",
+                deleteBranchOnMerge: false,
+              },
+            },
+          }),
+          getIssue: () => ({
+            issue: {
+              repo: "Get-BB/BB",
+              number: 42,
+              title: "Route-backed issue",
+              state: "OPEN",
+              author: "hubot",
+              body: "Steps to reproduce.",
+              labels: [],
+              assignees: [],
+              url: "https://github.com/Get-BB/BB/issues/42",
+              updatedAt: "2026-08-20T00:00:00.000Z",
+              comments: [],
+            },
+          }),
+        }),
+      },
+    );
+
+    expect(
+      await slot.findByRole("button", { name: "Labels: change" }),
+    ).toBeTruthy();
+    expect(calls(slot, "getIssue")).toEqual([
+      { repo: "Get-BB/BB", number: 42 },
+    ]);
   });
 
   it("shows the linked issue with no way back, and puts an issue picked in a tab without one in its place", async () => {
