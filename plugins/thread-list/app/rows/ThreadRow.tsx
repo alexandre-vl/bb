@@ -586,10 +586,10 @@ function ThreadRowComponent({
     }
     rename.onCloseAutoFocus(event);
   };
-  const provider =
-    showProviderIcons && !hasChildren
-      ? providers.find((candidate) => candidate.id === thread.providerId)
-      : undefined;
+  const showsProviderSlot = showProviderIcons && !hasChildren;
+  const provider = showsProviderSlot
+    ? providers.find((candidate) => candidate.id === thread.providerId)
+    : undefined;
   const isAttention = displayRung >= ATTENTION_RUNG;
   const isLive = displayRung >= 1 || threadListIndicatorRung(ownKind) >= 1;
 
@@ -659,16 +659,18 @@ function ThreadRowComponent({
         )}
         style={getTitleBoxStyle(titleEnd, hoverActionsWidth)}
       >
-        {provider ? (
+        {showsProviderSlot ? (
           <span
-            data-sidebar-thread-provider={provider.id}
+            data-sidebar-thread-provider={provider?.id}
             className="relative z-[1] mr-1.5 flex size-4 shrink-0 items-center justify-center text-sidebar-glyph-faint"
           >
-            <ProviderIcon
-              providerKind="agent"
-              provider={provider}
-              className="size-4"
-            />
+            {provider ? (
+              <ProviderIcon
+                providerKind="agent"
+                provider={provider}
+                className="size-4"
+              />
+            ) : null}
           </span>
         ) : null}
         {isEditing ? (

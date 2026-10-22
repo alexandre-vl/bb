@@ -296,7 +296,7 @@ export function TopLevelSidebarSection({
         ) : null}
       </SidebarStickyTier>
       {isCollapsed || isEmpty || children == null ? null : (
-        <div className="mt-0.5">{children}</div>
+        <div>{children}</div>
       )}
     </SidebarStickyGroup>
   );

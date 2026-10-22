@@ -157,10 +157,10 @@
     --bb-sidebar-sticky-stack-padding-top: var(
       --bb-sidebar-sticky-stack-padding
     );
-    --bb-sidebar-sticky-label-height: 1.5rem;
-    --bb-sidebar-sticky-label-gap: 0.25rem;
+    --bb-sidebar-sticky-label-height: var(--bb-sidebar-sticky-row-height);
+    --bb-sidebar-sticky-label-gap: 0.125rem;
     --bb-sidebar-sticky-row-height: var(--bb-sidebar-row-height);
-    --bb-sidebar-sticky-row-gap: 0.25rem;
+    --bb-sidebar-sticky-row-gap: 0.125rem;
     --bb-sidebar-sticky-child-row-gap: 0.125rem;
     --bb-sidebar-sticky-label-top: var(--bb-sidebar-sticky-stack-padding-top);
     --bb-sidebar-sticky-project-top: calc(

@@ -340,3 +340,160 @@ export function ActionAlignment() {
     </QueryClientProvider>
   );
 }
+
+const V2_NOW = 1_000_000_000;
+const V2_DAY = 86_400_000;
+const V2_EMPTY_PROJECT_ID = "proj_berth";
+let v2Clock = 0;
+
+function v2Entry(
+  id: string,
+  title: string,
+  overrides: Parameters<typeof makeThreadListEntry>[0] = {},
+) {
+  v2Clock += 1;
+  const at = V2_NOW - v2Clock * 60_000;
+  return makeThreadListEntry({
+    id,
+    projectId: PROJECT_IDS.bb,
+    title,
+    titleFallback: title,
+    sectionId: null,
+    environmentId: null,
+    latestAttentionAt: at,
+    createdAt: at,
+    updatedAt: at,
+    lastReadAt: at,
+    ...overrides,
+  });
+}
+
+const V2_UNREAD = { lastReadAt: 0 };
+const V2_RUNNING = {
+  status: "active" as const,
+  runtime: { displayStatus: "active" as const },
+};
+const V2_FAILED = { status: "error" as const, lastReadAt: 0 };
+const V2_WORKTREE = {
+  environmentId: "env_fix",
+  environmentBranchName: "fix/session-timeout",
+  environmentProviderId: "git-worktree",
+  environmentIsWorktree: true,
+};
+
+const V2_THREADS = [
+  v2Entry("thr_v2_pinned", "Sidebar V2 spec", { pinnedAt: 1 }),
+  v2Entry("thr_v2_slow", "Investigate slow /listings endpoint", V2_FAILED),
+  v2Entry("thr_v2_greeting", "Greeting, no task yet", V2_RUNNING),
+  v2Entry("thr_v2_r8", "R8: last verification of 0.43.4", V2_UNREAD),
+  v2Entry("thr_v2_approve", "Approve the database migration plan", {
+    hasPendingInteraction: true,
+  }),
+  v2Entry("thr_v2_staff", "Investigate staff report 1562109789117620438", {
+    ...V2_RUNNING,
+  }),
+  ...Array.from({ length: 11 }, (_, index) =>
+    v2Entry(`thr_v2_staff_${index}`, `Check shard ${index + 1} of the report`, {
+      parentThreadId: "thr_v2_staff",
+      ...(index === 3 ? V2_FAILED : index < 2 ? V2_RUNNING : {}),
+    }),
+  ),
+  v2Entry("thr_v2_fix_a", "Session timeout repro", {
+    ...V2_WORKTREE,
+    ...V2_RUNNING,
+  }),
+  v2Entry("thr_v2_fix_b", "Session timeout fix", V2_WORKTREE),
+  v2Entry("thr_v2_fork", "Propose changes via fork", {}),
+  v2Entry("thr_v2_provisioning", "Implement provisioning time (#5918)", {
+    parentThreadId: "thr_v2_fork",
+  }),
+  v2Entry("thr_v2_cold", "Measure cold-start of provisioning", {
+    parentThreadId: "thr_v2_provisioning",
+  }),
+  v2Entry("thr_v2_rebase", "Rebase #6004 and #5910 onto main", {
+    queuedWork: "waiting",
+  }),
+  v2Entry("thr_v2_deploy", "Deploy berth 57a982d to staging", {}),
+  ...Array.from({ length: 6 }, (_, index) =>
+    v2Entry(`thr_v2_old_${index}`, `Old exploration ${index + 1}`, {
+      updatedAt: V2_NOW - (8 + index) * V2_DAY,
+      latestAttentionAt: V2_NOW - (8 + index) * V2_DAY,
+      lastReadAt: V2_NOW,
+    }),
+  ),
+];
+
+function v2Navigation(): SidebarBootstrapResponse {
+  return {
+    sections: [],
+    projects: [
+      {
+        ...makeProject({ name: "kops-discordbot" }),
+        defaultExecutionOptions: null,
+        threads: V2_THREADS,
+      },
+      {
+        ...makeProject({ id: V2_EMPTY_PROJECT_ID, name: "berth" }),
+        defaultExecutionOptions: null,
+        threads: [],
+      },
+    ],
+    personalProject: {
+      ...makeProject({
+        id: PERSONAL_PROJECT_ID,
+        kind: "personal",
+        name: "Personal",
+        sources: [],
+      }),
+      defaultExecutionOptions: null,
+      threads: [],
+    },
+  };
+}
+
+const V2_PREFERENCES = {
+  organizationMode: "project",
+  showProviderIcons: false,
+  attentionFirst: true,
+  parentsStartCollapsed: false,
+  collapsedThreads: ["thr_v2_staff"],
+};
+
+function V2Sidebar({ width }: { width: number }) {
+  const replacement = useThreadListReplacement();
+  const { data } = useSidebarNavigation();
+  return (
+    <SidebarThreadEntriesProvider navigation={data}>
+      <SidebarProvider defaultOpen className="min-h-0 w-auto">
+        <main
+          data-sidebar-v2-fixture
+          className="flex h-[900px] flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
+          style={{ width }}
+        >
+          <SidebarContent>
+            <PluginThreadList replacement={replacement} onNavigate={() => {}} />
+          </SidebarContent>
+        </main>
+      </SidebarProvider>
+    </SidebarThreadEntriesProvider>
+  );
+}
+
+export function SidebarV2States() {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(systemConfigQueryKey(), makeSystemConfig());
+    client.setQueryData(sidebarNavigationQueryKey(), v2Navigation());
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(V2_PREFERENCES);
+  useThreadListPlugin();
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThreadActionsProvider>
+        <V2Sidebar width={288} />
+      </ThreadActionsProvider>
+    </QueryClientProvider>
+  );
+}
