@@ -169,6 +169,10 @@ fork/instance/adopt.sh bb-host-daemon-alexvl-getbb-app-host_3ussyf3xqh.service -
   `~/.bb-fork-app/current` with `--no-in-app-updates`. Once switched, it takes
   a newer release at most every 6 hours (`BB_FORK_MIN_HOURS`): upstream
   merges dozens of pull requests a day, and each switch restarts bb.
+- To switch at once, running threads or not and without the 6-hour wait:
+  `systemd-run --user --collect --unit=bb-fork-now -p EnvironmentFile=$HOME/.bb-fork-app/env ~/.local/bin/bb-fork-update --now`.
+  It runs outside bb's unit, so stopping bb does not kill it. A thread that
+  was running stops; resume it once bb answers.
 - A release that does not answer within 6 minutes is marked failed and never
   retried, and the unit goes back to the build it ran before (its own install
   after a first switch). If that build does not answer either, the backup is

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: bb-alex-update [--revert]
+Usage: bb-alex-update [--revert | --now]
 
 Installs the newest release of alexandre-vl/bb's alex build into a bb, when it
 differs from the one running and no thread is running: download, sha256 check,
@@ -22,6 +22,11 @@ and the first switch installs the systemd drop-in prepared in
 install. --revert moves that drop-in aside, turns BB_ALEX_TIMER off and
 restarts the unit on its own install, at once, running threads or not.
 
+--now switches to the newest release at once, running threads or not, without
+waiting BB_ALEX_MIN_HOURS. A thread that was running stops; resume it once the
+new version answers. Start it outside the bb unit, with systemd-run, or the
+stop kills it along with bb.
+
 Environment: BB_ALEX_DATA_DIR (~/.bb-alex), BB_ALEX_APP_DIR (~/.bb-alex-app),
 BB_ALEX_REPO (alexandre-vl/bb), BB_ALEX_SERVER_PORT (48886),
 BB_ALEX_DAEMON_PORT (48887), BB_ALEX_UNIT (bb-alex.service), BB_ALEX_DROPIN,
@@ -33,8 +38,11 @@ USAGE
 }
 
 revert=false
+now=false
 if [[ $# -eq 1 && $1 == --revert ]]; then
   revert=true
+elif [[ $# -eq 1 && $1 == --now ]]; then
+  now=true
 elif [[ $# -gt 0 ]]; then
   usage
   exit 2
@@ -167,7 +175,7 @@ if [[ -e $root/failed/$want ]]; then
   echo "bb $want failed to start before; waiting for a newer release."
   exit 0
 fi
-if [[ -n $have && $min_hours != 0 ]]; then
+if [[ -n $have && $min_hours != 0 ]] && ! $now; then
   switched=$(stat -c %Y "$root/current")
   if (($(date +%s) - switched < min_hours * 3600)); then
     echo "bb $have has run for less than $min_hours hours; bb $want waits."
@@ -196,7 +204,12 @@ if [[ ! -e $prefix/bin/bb-app ]]; then
   mv "$prefix.partial" "$prefix"
 fi
 
-if curl -fsS "$url/health" >/dev/null 2>&1; then
+if $now; then
+  if [[ -n $dropin ]] && ! curl -fsS "$url/health" >/dev/null 2>&1; then
+    echo "$unit does not answer on $url; not switching a bb that is down." >&2
+    exit 1
+  fi
+elif curl -fsS "$url/health" >/dev/null 2>&1; then
   running=$(BB_SERVER_URL=$url BB_HOST_DAEMON_PORT=$daemon_port "$node" "$prefix/bin/bb" updates app status --json 2>/dev/null | json_field runningThreadCount)
   if [[ -z $running ]]; then
     echo "Could not read the running threads from $url; not updating." >&2
