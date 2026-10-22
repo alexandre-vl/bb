@@ -276,7 +276,9 @@ every thread creation. `validate` may accept or refuse
 using the resolved project, host, checkout, remote and inputs. The optional
 `experimental_existingPath(inputs)` selects a path from parsed inputs: core
 reuses a recorded environment at that path on the selected host instead of
-calling `create`, and null requests normal creation. Create waits for startup
+calling `create`, and null requests normal creation. Unless the optional
+`experimental_usesSuggestedBranchName(inputs)` returns false, core waits for
+the thread's generated title before `create`. Create waits for startup
 registrations to settle, then rejects an unknown provider id; existing threads
 wait if their registered provider disappears. `bb.experimental_environments.recheck()`
 asks core to re-ask this plugin's waiting provisioning now instead of at its

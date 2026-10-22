@@ -2420,6 +2420,9 @@ export interface NormalizedPluginEnvironmentProvider {
   experimental_existingPath: NonNullable<
     PluginEnvironmentProviderDeclaration["experimental_existingPath"]
   > | null;
+  experimental_usesSuggestedBranchName: NonNullable<
+    PluginEnvironmentProviderDeclaration["experimental_usesSuggestedBranchName"]
+  > | null;
   create: PluginEnvironmentProviderDeclaration["create"];
   restore: NonNullable<PluginEnvironmentProviderDeclaration["restore"]> | null;
   remove: PluginEnvironmentProviderDeclaration["remove"];
@@ -2575,6 +2578,12 @@ export function validatePluginEnvironmentProviderDeclaration(
   assertOptionalFunction(
     "environment provider",
     id,
+    declaration.experimental_usesSuggestedBranchName,
+    "experimental_usesSuggestedBranchName",
+  );
+  assertOptionalFunction(
+    "environment provider",
+    id,
     declaration.restore,
     "a restore",
   );
@@ -2589,6 +2598,8 @@ export function validatePluginEnvironmentProviderDeclaration(
     availability: declaration.availability ?? null,
     validate: declaration.validate ?? null,
     experimental_existingPath: declaration.experimental_existingPath ?? null,
+    experimental_usesSuggestedBranchName:
+      declaration.experimental_usesSuggestedBranchName ?? null,
     create: declaration.create,
     restore: declaration.restore ?? null,
     remove: declaration.remove,
