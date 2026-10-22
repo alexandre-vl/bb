@@ -710,6 +710,10 @@ function EnvironmentThreadGroupHeaderActions({
           mobileTitle="Environment actions"
           onCloseAutoFocus={onCloseAutoFocus}
         >
+          <DropdownMenuItem onSelect={onCreateNewThread}>
+            <Icon name="MessageSquarePlus" aria-hidden="true" />
+            New thread in environment
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
               onRenameEnvironment();

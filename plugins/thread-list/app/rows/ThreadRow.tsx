@@ -195,7 +195,7 @@ interface ThreadRowContainerArgs {
   threadId: string;
   rung: number;
   isRisky: boolean;
-  tooltip: string;
+  tooltip: string | undefined;
   tooltipIsTitleOnly: boolean;
 }
 
@@ -476,6 +476,9 @@ function ThreadRowComponent({
       startEditing();
     },
   });
+  const rowCommands = isArchived
+    ? commandActions.filter((entry) => entry.key !== ARCHIVE_ACTION_KEY)
+    : commandActions;
   const treePosition = useSidebarTreePosition();
   const quickActions = isArchived
     ? actionEntries
@@ -617,7 +620,11 @@ function ThreadRowComponent({
   );
 
   const rowLinkRef = useRef<HTMLAnchorElement>(null);
-  useSidebarRowCommands(rowLinkRef, commandActions);
+  const rowCommandsRef = useSidebarRowCommands(rowCommands);
+  const linkRef = useComposedRefs<HTMLAnchorElement>(
+    rowLinkRef,
+    rowCommandsRef,
+  );
   useEffect(() => {
     if (isCustomizingActions) {
       focusFirstRowActionSlot(
@@ -677,7 +684,7 @@ function ThreadRowComponent({
       ) : null}
       {isActive ? <SidebarSelectionMark /> : null}
       <a
-        ref={rowLinkRef}
+        ref={linkRef}
         href={thread.href}
         draggable={false}
         data-sidebar-thread-shortcut-target=""
@@ -941,7 +948,7 @@ function ThreadRowComponent({
         childRollup.counts.failed +
         childRollup.counts.working >
         0,
-    tooltip: [labelTitle, ...rowSummary].join(" · "),
+    tooltip: isEditing ? undefined : [labelTitle, ...rowSummary].join(" · "),
     tooltipIsTitleOnly: rowSummary.length === 0,
   });
 

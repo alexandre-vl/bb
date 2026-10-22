@@ -134,7 +134,13 @@ export function SidebarTreeSkeleton() {
   );
 }
 
-export function SidebarLoadErrorRow({ onRetry }: { onRetry: () => void }) {
+export function SidebarLoadErrorRow({
+  retrying,
+  onRetry,
+}: {
+  retrying: boolean;
+  onRetry: () => void;
+}) {
   return (
     <div
       role="alert"
@@ -148,10 +154,13 @@ export function SidebarLoadErrorRow({ onRetry }: { onRetry: () => void }) {
       <span className="min-w-0 truncate">Couldn't load threads</span>
       <button
         type="button"
-        className="h-full shrink-0 rounded-md px-2 font-medium text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onRetry}
+        aria-disabled={retrying ? "true" : undefined}
+        className="h-full shrink-0 rounded-md px-2 font-medium text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring aria-disabled:text-sidebar-foreground-quiet"
+        onClick={() => {
+          if (!retrying) onRetry();
+        }}
       >
-        Retry
+        {retrying ? "Retrying…" : "Retry"}
       </button>
     </div>
   );

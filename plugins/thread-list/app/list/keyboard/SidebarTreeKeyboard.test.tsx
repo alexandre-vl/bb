@@ -14,6 +14,7 @@ import type {
 } from "@get-bb/plugin-sdk/app";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { makeSidebarThread } from "../../model/fixtures.js";
+import { EMPTY_THREAD_ROLLUP } from "../../model/thread-activity.js";
 
 installTestPluginRuntime();
 const { ThreadRow } = await import("../../rows/ThreadRow.js");
@@ -34,9 +35,11 @@ const QUIET = { lastReadAt: 2 };
 function TreeHarness({
   threads,
   activeThreadId,
+  parentIds = [],
 }: {
   threads: readonly PluginSidebarThread[];
   activeThreadId: string | null;
+  parentIds?: readonly string[];
 }) {
   const { keyboard, rows } = useSidebarTreeKeyboard();
   const attachTree = useCallback(
@@ -75,7 +78,19 @@ function TreeHarness({
                   thread={thread}
                   crossProjectId={null}
                   isActive={thread.id === activeThreadId}
-                  options={{ kind: "default", depth: 0 }}
+                  options={
+                    parentIds.includes(thread.id)
+                      ? {
+                          kind: "parent",
+                          depth: 0,
+                          isCollapsed: true,
+                          childCount: 1,
+                          rollup: EMPTY_THREAD_ROLLUP,
+                          stickyLevel: 0,
+                          onToggleCollapsed: () => {},
+                        }
+                      : { kind: "default", depth: 0 }
+                  }
                 />
               ))}
             </SidebarRowCommandsProvider>
@@ -119,12 +134,15 @@ const THREADS = [
   makeSidebarThread({ id: "thr_other", title: "Other thread", ...QUIET }),
 ];
 
-function renderTree(ran: RanAction[] = []) {
+function renderTree(
+  ran: RanAction[] = [],
+  threads: readonly PluginSidebarThread[] = THREADS,
+) {
   const slot = renderSlot(
     { component: TreeHarness },
-    { threads: THREADS, activeThreadId: "thr_open" },
+    { threads, activeThreadId: "thr_open" },
     {
-      sidebarThreads: { threads: THREADS, projects: [] },
+      sidebarThreads: { threads, projects: [] },
       threadActions: rowActions(ran),
     },
   );
@@ -179,6 +197,58 @@ describe("sidebar list commands", () => {
       ),
     ).toBe(false);
     expect(ran).toEqual([]);
+  });
+
+  it("keeps running a row's commands after the row becomes a parent", async () => {
+    const ran: RanAction[] = [];
+    const { slot, row } = renderTree(ran);
+    const leaf = row("Other thread");
+    await slot.behavior.experimental_runSidebarListCommand(
+      "thread.archive",
+      leaf,
+    );
+
+    slot.lifecycle.rerender(
+      <TreeHarness
+        threads={THREADS}
+        activeThreadId="thr_open"
+        parentIds={["thr_other"]}
+      />,
+    );
+    const parent = row("Other thread");
+    expect(parent).not.toBe(leaf);
+    await slot.behavior.experimental_runSidebarListCommand(
+      "thread.archive",
+      parent,
+    );
+    expect(ran).toEqual([
+      { key: "bb--core/archive", threadId: "thr_other" },
+      { key: "bb--core/archive", threadId: "thr_other" },
+    ]);
+  });
+
+  it("leaves an archived row archived when the archive key reaches it", async () => {
+    const ran: RanAction[] = [];
+    const { slot, row } = renderTree(ran, [
+      ...THREADS,
+      makeSidebarThread({
+        id: "thr_archived",
+        title: "Archived thread",
+        archivedAt: 5,
+        ...QUIET,
+      }),
+    ]);
+    expect(
+      await slot.behavior.experimental_runSidebarListCommand(
+        "thread.archive",
+        row("Archived thread"),
+      ),
+    ).toBe(true);
+    await slot.behavior.experimental_runSidebarListCommand(
+      "thread.toggleRead",
+      row("Archived thread"),
+    );
+    expect(ran).toEqual([{ key: "bb--core/read", threadId: "thr_archived" }]);
   });
 
   it("renames the focused row inline", async () => {
@@ -275,6 +345,47 @@ describe("SidebarAttentionAnnouncer", () => {
     expect(status()).toBe("");
     act(() => vi.advanceTimersByTime(1));
     expect(status()).toBe("2 threads need your input: Alpha; Beta.");
+  });
+
+  it("stays quiet when older or archived threads join the list, and announces a new one", () => {
+    const quiet = [
+      makeSidebarThread({ id: "thr_open", title: "Open", ...QUIET }),
+      makeSidebarThread({ id: "thr_a", title: "Alpha", ...QUIET }),
+    ];
+    const { slot, status } = renderAnnouncer(quiet);
+    const joined = [
+      ...quiet,
+      makeSidebarThread({
+        id: "thr_archived",
+        title: "Archived failure",
+        status: "error",
+        isUnread: true,
+        archivedAt: 5,
+      }),
+      makeSidebarThread({
+        id: "thr_restored",
+        title: "Restored failure",
+        status: "error",
+        isUnread: true,
+      }),
+    ];
+    slot.lifecycle.rerender(announcerFor(joined));
+    act(() => vi.advanceTimersByTime(ATTENTION_ANNOUNCEMENT_BATCH_MS));
+    expect(status()).toBe("");
+
+    slot.lifecycle.rerender(
+      announcerFor([
+        ...joined,
+        makeSidebarThread({
+          id: "thr_new",
+          title: "Fresh",
+          createdAt: Date.now(),
+          hasPendingInteraction: true,
+        }),
+      ]),
+    );
+    act(() => vi.advanceTimersByTime(ATTENTION_ANNOUNCEMENT_BATCH_MS));
+    expect(status()).toBe("1 thread needs your input: Fresh.");
   });
 
   it("follows each thread's notification level and never announces the open thread", () => {

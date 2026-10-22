@@ -1,12 +1,12 @@
 import {
   createContext,
+  useCallback,
   useContext,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
-  type RefObject,
+  type RefCallback,
 } from "react";
 import {
   experimental_useSidebarListCommand,
@@ -54,19 +54,20 @@ const SidebarRowCommandsContext = createContext<SidebarRowCommands | null>(
 );
 
 export function useSidebarRowCommands(
-  itemRef: RefObject<Element | null>,
   entries: readonly PluginThreadActionEntry[],
-): void {
+): RefCallback<Element> {
   const rows = useContext(SidebarRowCommandsContext);
   const entriesRef = useRef(entries);
   useLayoutEffect(() => {
     entriesRef.current = entries;
   });
-  useEffect(() => {
-    const item = itemRef.current;
-    if (!rows || !item) return;
-    return rows.register(item, () => entriesRef.current);
-  }, [itemRef, rows]);
+  return useCallback(
+    (item: Element | null) => {
+      if (!rows || !item) return;
+      return rows.register(item, () => entriesRef.current);
+    },
+    [rows],
+  );
 }
 
 function pickComposer(

@@ -101,9 +101,11 @@ describe("sidebar header controls", () => {
   it("supports keyboard selection when the menu first loads", async () => {
     const { store } = setup("Pinned", false, "chronological");
     await openMenu();
-    const newSection = screen.getByRole("menuitem", { name: "New section" });
-    fireEvent.keyDown(newSection.closest('[role="menu"]')!, { key: "Home" });
-    await waitFor(() => expect(document.activeElement).toBe(newSection));
+    const first = screen.getByRole("menuitem", {
+      name: "New thread in Pinned",
+    });
+    fireEvent.keyDown(first.closest('[role="menu"]')!, { key: "Home" });
+    await waitFor(() => expect(document.activeElement).toBe(first));
     await openSubmenu("Organize");
     const project = await screen.findByRole("menuitemradio", {
       name: "By project",
@@ -175,12 +177,22 @@ describe("sidebar header controls", () => {
     expect(primary.nextElementSibling?.getAttribute("data-state")).toBe("open");
   });
 
+  it("starts a thread from the menu, where keyboard users reach it", async () => {
+    const { newThread } = setup("Pinned", false, "chronological");
+    await openMenu();
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "New thread in Pinned" }),
+    );
+    expect(newThread).toHaveBeenCalledOnce();
+  });
+
   it("preserves creation callbacks and separates section editing/removal", async () => {
     const { newSection } = setup("Review", true);
     await openMenu("Review");
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent),
     ).toEqual([
+      "New thread in Review",
       "New section",
       "Organize",
       "Sort by",

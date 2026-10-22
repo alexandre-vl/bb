@@ -1383,6 +1383,14 @@ function ProjectListComponent({
   const preferencesReady = usePreferencesReady();
   const threadListStatus = toThreadListStatus(status);
   const selectedThreadId = activeThreadId ?? undefined;
+  const [loadRetry, setLoadRetry] = useState<"idle" | "requested" | "loading">(
+    "idle",
+  );
+  if (loadRetry === "requested" && threadListStatus === "loading") {
+    setLoadRetry("loading");
+  } else if (loadRetry === "loading" && threadListStatus !== "loading") {
+    setLoadRetry("idle");
+  }
   const [isPinnedReorderPending, setIsPinnedReorderPending] = useState(false);
   const [isCreateThreadSectionPending, setIsCreateThreadSectionPending] =
     useState(false);
@@ -1753,10 +1761,23 @@ function ProjectListComponent({
     </ConfirmDeleteDialog>
   );
 
-  if (threadListStatus === "unavailable") {
+  if (
+    threadListStatus === "unavailable" ||
+    (loadRetry !== "idle" && threadListStatus === "loading")
+  ) {
     return (
       <ProjectListShell activeThreadId={activeThreadId}>
-        <SidebarLoadErrorRow onRetry={() => void refetch()} />
+        <SidebarLoadErrorRow
+          retrying={loadRetry !== "idle"}
+          onRetry={() => {
+            setLoadRetry("requested");
+            void refetch().finally(() =>
+              setLoadRetry((current) =>
+                current === "requested" ? "idle" : current,
+              ),
+            );
+          }}
+        />
       </ProjectListShell>
     );
   }

@@ -1023,6 +1023,16 @@ describe("ThreadRow", () => {
     ).not.toBeNull();
   });
 
+  it("drops its tooltip while the title is being renamed", async () => {
+    const { container } = renderThreadRow({});
+    const row = () => container.querySelector("[data-sidebar-tree-row]");
+    fireEvent.doubleClick(visibleTitle());
+    const input = await screen.findByRole("textbox", { name: "Thread name" });
+    expect(row()?.hasAttribute("data-sidebar-row-tooltip")).toBe(false);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(row()?.getAttribute("data-sidebar-row-tooltip")).toBe("Thread");
+  });
+
   it("marks a title-only tooltip so it shows only when the title is cut", () => {
     const { container } = renderThreadRow({});
     const row = container.querySelector("[data-sidebar-tree-row]");

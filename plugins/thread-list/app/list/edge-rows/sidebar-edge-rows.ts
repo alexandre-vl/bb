@@ -320,6 +320,7 @@ export class SidebarEdgeRowController {
   }
 
   activate(): void {
+    this.cancelReveal();
     const layout = this.measure();
     if (layout === null) return;
     const edge = resolveEdgeRow(layout);
@@ -349,11 +350,18 @@ export class SidebarEdgeRowController {
   private cancelFrames(): void {
     const view = this.elements?.root.ownerDocument.defaultView;
     if (this.frame !== null) view?.cancelAnimationFrame(this.frame);
-    if (this.revealFrame !== null) view?.cancelAnimationFrame(this.revealFrame);
     if (this.settleTimer !== null) clearTimeout(this.settleTimer);
     this.frame = null;
-    this.revealFrame = null;
     this.settleTimer = null;
+    this.cancelReveal();
+  }
+
+  private cancelReveal(): void {
+    if (this.revealFrame === null) return;
+    this.elements?.root.ownerDocument.defaultView?.cancelAnimationFrame(
+      this.revealFrame,
+    );
+    this.revealFrame = null;
   }
 
   private edgeHeight(): number {

@@ -9,7 +9,6 @@ import type { SidebarSectionId } from "../model/sidebar-section-id.js";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
-import { usePointerCoarse } from "@/components/ui/hooks/use-pointer-coarse";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -60,7 +59,6 @@ export function SidebarHeaderControls({
 }) {
   const creation = useContext(HeaderCreationContext);
   const compact = useIsCompactViewport();
-  const coarse = usePointerCoarse();
   const [page, setPage] = useState<"organize" | "sort" | "filter" | null>(null);
   const startCustomizingRowActions = useCustomizeThreadRowActions();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -145,7 +143,7 @@ export function SidebarHeaderControls({
             onPageChange={setPage}
             onCustomizeRowActions={customizeRowActions}
             onNewThread={
-              coarse && showNewThread && onNewThread
+              showNewThread && onNewThread
                 ? { label: `New thread in ${label}`, run: onNewThread }
                 : undefined
             }

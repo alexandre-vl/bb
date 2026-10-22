@@ -115,6 +115,7 @@ export function SidebarAttentionAnnouncer({
   const kindsRef = useRef<ReadonlyMap<string, AttentionKind | null> | null>(
     null,
   );
+  const startedAtRef = useRef(0);
   const pendingRef = useRef<AttentionEvent[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeThreadIdRef = useRef(activeThreadId);
@@ -132,13 +133,19 @@ export function SidebarAttentionAnnouncer({
       threads.map((thread) => [thread.id, attentionKindOf(thread)]),
     );
     kindsRef.current = next;
-    if (previous === null) return;
+    if (previous === null) {
+      startedAtRef.current = Date.now();
+      return;
+    }
     const arrived = threads.flatMap((thread): AttentionEvent[] => {
       const kind = next.get(thread.id) ?? null;
       if (
         kind === null ||
-        kind === previous.get(thread.id) ||
-        thread.id === activeThreadId
+        thread.id === activeThreadId ||
+        thread.archivedAt !== null ||
+        (previous.has(thread.id)
+          ? kind === previous.get(thread.id)
+          : thread.createdAt < startedAtRef.current)
       ) {
         return [];
       }

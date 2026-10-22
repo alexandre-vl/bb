@@ -1107,7 +1107,7 @@ describe("ProjectRow interactions", () => {
       const rename = await screen.findByRole("menuitem", { name: "Rename" });
       expect(
         screen.getAllByRole("menuitem").map((item) => item.textContent),
-      ).toEqual(["Rename", "Archive"]);
+      ).toEqual(["New thread in environment", "Rename", "Archive"]);
       fireEvent.click(rename);
 
       const input = await screen.findByRole("textbox", {
