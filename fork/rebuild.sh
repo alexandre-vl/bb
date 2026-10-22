@@ -28,7 +28,7 @@ meta files resolve to the side already merged. A layer that changes a
 migration a fork release already shipped is held back. allow-migrations
 merges a layer without the fork-migrations layer before it.
 
-The result is also kept locally as refs/fork/<target>.
+The result is also kept locally as refs/fork-rebuild/<target>.
 
 Environment: FORK_REMOTE (origin), FORK_UPSTREAM_URL
 (https://github.com/get-bb/bb.git), FORK_TARGET (alex), FORK_INFRA_REF
@@ -68,10 +68,10 @@ if [[ ! -f $layers_file ]]; then
   exit 2
 fi
 
-git fetch --quiet --no-tags "$upstream_url" "+refs/heads/main:refs/fork/upstream-main"
+git fetch --quiet --no-tags "$upstream_url" "+refs/heads/main:refs/fork-rebuild/upstream-main"
 git fetch --quiet --no-tags --prune "$remote" "+refs/heads/*:refs/remotes/$remote/*"
 git fetch --quiet --no-tags "$remote" "+refs/tags/fork-v*:refs/tags/fork-v*"
-upstream=$(git rev-parse refs/fork/upstream-main)
+upstream=$(git rev-parse refs/fork-rebuild/upstream-main)
 infra=$(git rev-parse --verify "${FORK_INFRA_REF:-refs/remotes/$remote/fork-infra}^{commit}")
 
 if [[ $push == 1 ]]; then
@@ -319,7 +319,8 @@ if [[ -f $work/$ledger ]]; then
   fi
 fi
 
-git update-ref "refs/fork/$target" "$(git -C "$work" rev-parse HEAD)"
+git update-ref "refs/fork-rebuild/$target" "$(git -C "$work" rev-parse HEAD)"
+git for-each-ref --format='delete %(refname)' "refs/fork/$target" refs/fork/upstream-main | git update-ref --stdin
 new_tree=$(git -C "$work" rev-parse 'HEAD^{tree}')
 old=$(git rev-parse --verify --quiet "refs/remotes/$remote/$target" || true)
 state=unchanged
