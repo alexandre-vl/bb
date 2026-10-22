@@ -123,15 +123,21 @@ describe("theme.css neutral ramp", () => {
     );
   });
 
-  it("backs selected sticky sidebar rows with an opaque sidebar layer", () => {
-    const rule = css.match(
-      /\[data-sidebar-sticky-tier\]\.bb-sidebar-selected-row\s*\{([^}]*)\}/s,
-    )?.[1];
+  it("backs selected sticky sidebar rows with an opaque selected-row fill", () => {
+    const rule = css
+      .match(
+        /\[data-sidebar-sticky-tier\]\.bb-sidebar-selected-row\s*\{([^}]*)\}/s,
+      )?.[1]
+      ?.replace(/\s+/g, " ");
 
     expect(rule).toContain(
-      "linear-gradient(var(--state-active), var(--state-active))",
+      "linear-gradient( var(--sidebar-row-selected), var(--sidebar-row-selected) )",
     );
-    expect(rule).toContain("linear-gradient(var(--sidebar), var(--sidebar))");
+    for (const scheme of ["light", "dark"] as const) {
+      expect(modeBlock(scheme)).toMatch(
+        /--sidebar-row-selected: color-mix\(in oklch, var\(--ink\) [\d.]+%, var\(--canvas\)\);/,
+      );
+    }
   });
 
   it("backs accent-tinted sticky sidebar rows with an opaque sidebar layer", () => {
