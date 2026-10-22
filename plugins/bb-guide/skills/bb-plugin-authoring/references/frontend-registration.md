@@ -380,24 +380,18 @@ await sdk.threads.update({ id: thread.id, sectionId });
 // environment { id, name, branchName, path, isWorktree, providerId,
 // workspaceDisplayKind }, where workspaceDisplayKind is deprecated
 // compatibility data; host { id, name }, createdAt, updatedAt, lastReadAt,
-// latestAttentionAt, `indicator` (bb's resolved status kind) +
-// `indicatorLabel` (its a11y string), and `experimental_attention`
-// ("needs-you" | "failed" | "new" | null, what `indicator` asks of the user).
-// Draw `indicator` with `experimental_ThreadStatusGlyph` or your own glyph.
+// latestAttentionAt, `indicator` (bb's resolved status kind), `indicatorLabel`
+// (its a11y string) and `experimental_attention` (frontend-sidebar-list.md).
 // Treat an unknown indicator, status, or runtimeStatus value as its documented
 // fallback — bb adds kinds over time.
 
 // Three more per-row facts are client-local, so they are hooks rather than
-// fields on the thread: an unsent composer draft (bb paints a pencil only when
-// nothing outranks it), a row status another plugin's app-wide script set (bb
-// draws it while the row's indicator sits on rung 1 or lower: queued, draft,
-// or none), and the jump shortcut bb assigns while the app command modifier is
-// held (bb shows a key pill). Compose them with `indicator` yourself:
+// fields on the thread: an unsent composer draft, a row status another
+// plugin's app-wide script set (frontend-sidebar-list.md says when bb draws
+// each), and the jump shortcut bb assigns while the app command modifier is
+// held (bb shows a key pill). Compose them with `indicator` yourself, folding
+// with the status ladder that file describes:
 const { hasUnsubmittedDraft } = useSidebarThreadDraft(thread.id);
-const rowIndicator = experimental_rollUpThreadIndicators([
-  thread.indicator,
-  hasUnsubmittedDraft ? "draft" : "none",
-]);
 const rowStatus = useSidebarThreadRowStatus(thread.id); // { icon, label, tone? } | null
 const shortcut = useSidebarThreadShortcut(thread.id); // { label, ariaKeyshortcuts } | null
 const draftIds = useSidebarThreadDraftIds(); // ReadonlySet<string>, for group rollups
@@ -468,20 +462,8 @@ group with bb's pane cleanup and Undo toast.
 **bb's status glyph on your row.** Render `experimental_ThreadStatusGlyph`
 with the row's `indicator` (start from the thread's own, then fold in what
 your row knows, such as collapsed children or `useSidebarThreadDraft`) and
-`useSidebarThreadRowStatus(threadId)` as `rowStatus`; bb draws the same glyph,
+`useSidebarThreadRowStatus(threadId)` as `rowStatus`; bb draws the same icon,
 color, and accessible label its own lists use.
-
-**bb's status ladder.** Fold with bb's own functions instead of copying its
-precedence. `experimental_rollUpThreadIndicators(kinds)` returns what a
-collapsed group shows: the kind on the highest rung, bb's precedence breaking
-ties. `experimental_threadIndicatorRung(kind)` places a kind on rungs 5 (needs
-you), 4 (failed), 3 (new), 2 (running), 1 (queued or draft), and 0, which is
-what an attention-first sort orders by. A list that tracks the underlying
-facts itself resolves them with
-`experimental_resolveThreadListIndicator(state)`
-(`ExperimentalThreadListIndicatorState`). Child threads resolve like roots, so
-a failed sub-agent reports "unread-error"; bb never produces
-"working-draft".
 
 **Keyboard support is a DOM contract.** bb's thread shortcuts find rows by
 query selector, not by React state. Put both attributes on each row's anchor or
@@ -491,26 +473,6 @@ silently stop working:
 ```tsx
 <a data-sidebar-thread-shortcut-target="" data-sidebar-thread-id={thread.id}>
 ```
-
-**bb's list keys.** Mark the list's root `data-sidebar-thread-tree`: focus
-inside it turns on the `sidebarListFocus` context that E (archive), F2
-(rename), U (read/unread) and Alt+Up/Down (previous/next row that needs you)
-require. Handle them with `experimental_useSidebarListCommand`; inside the
-list it runs before the open thread's handler, so E archives the focused row
-and not the open thread. Return false to let the next handler run. Run the
-row's action through `experimental_useThreadActions`:
-
-```tsx
-experimental_useSidebarListCommand("thread.archive", ({ target }) => {
-  const archive = archiveEntryForRow(target); // your row lookup
-  if (!archive) return false;
-  void archive.action.run(); // key "bb--core/archive": confirmation and Undo
-  return true;
-});
-```
-
-Test it with `behavior.experimental_runSidebarListCommand(command, target)`
-from `renderSlot(...)`.
 
 ### The provider directory
 

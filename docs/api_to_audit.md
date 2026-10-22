@@ -2638,7 +2638,7 @@ run the focused row's `bb--core/archive`, `bb--core/rename` and
 `bb--core/read` entries from `experimental_useThreadActions`, the registry
 path core's `ThreadArchiveCommandHandler` takes for the open thread.
 
-Docs: `frontend-registration.md`.
+Docs: `frontend-sidebar-list.md`.
 
 **Audit before stabilizing.**
 
@@ -3306,7 +3306,7 @@ palette, the related threads info section, and mobile recents, whose
 collapsed parents roll their descendants up (`projectThreadGroups`).
 `ThreadStatusGlyph` hides a plugin row status by rung.
 
-Docs: `frontend-registration.md`.
+Docs: `frontend-sidebar-list.md`.
 
 **Audit before stabilizing.**
 
@@ -3336,7 +3336,7 @@ counts its tooltips by it without mapping kinds itself.
 `threadListIndicatorAttention` from `@bb/client-core`, the mapping bb's own
 surfaces use.
 
-Docs: `frontend-registration.md`.
+Docs: `frontend-sidebar-list.md`.
 
 **Audit before stabilizing.**
 
