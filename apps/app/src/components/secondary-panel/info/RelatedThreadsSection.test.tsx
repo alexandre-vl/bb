@@ -27,7 +27,6 @@ describe("RelatedThreadsSection", () => {
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter>
           <RelatedThreadsSection
-            sectionId="childThreads"
             label="Child threads"
             idleIcon="ChildThread"
             threads={[
