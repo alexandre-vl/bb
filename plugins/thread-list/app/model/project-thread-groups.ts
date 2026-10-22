@@ -833,7 +833,7 @@ function collectThreadNodeAttention(
     return;
   }
   countAttentionRow(attention, ownKind);
-  for (const child of node.children) {
+  for (const child of context.childrenOf(node).items) {
     collectProjectThreadItemAttentionInto(child, context, attention);
   }
 }

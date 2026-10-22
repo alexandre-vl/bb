@@ -907,6 +907,10 @@ describe("collectProjectThreadItemAttention", () => {
     collapsedThreadIds: new Set(collapsed.threads),
     collapsedEnvironmentIds: new Set(collapsed.environments),
     collapsedSectionKeys: new Set<string>(),
+    childrenOf: (node: ProjectThreadNode) => ({
+      items: node.children,
+      foldRow: false,
+    }),
   });
 
   it("counts each visible row of an expanded parent or group", () => {
