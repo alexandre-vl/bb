@@ -21,6 +21,7 @@ import {
   SIDEBAR_CONTROL_BUTTON_CLASS,
   SIDEBAR_CONTROL_PAIR_SIZE_CLASS,
 } from "@/components/ui/sidebar-row-classes";
+import { ActionMenuItem } from "@/components/ui/action-menu-items";
 import {
   Fragment,
   memo,
@@ -2360,6 +2361,19 @@ function ProjectRowComponent({
         <TopLevelSidebarSection
           wrapHeader={(header) => (
             <ProjectActionsContextMenu
+              leadingActions={
+                onCreateProjectThread
+                  ? (surface) => (
+                      <ActionMenuItem
+                        surface={surface}
+                        icon="MessageSquarePlus"
+                        onSelect={handleCreateThread}
+                      >
+                        {`New thread in ${project.name}`}
+                      </ActionMenuItem>
+                    )
+                  : undefined
+              }
               extraActions={(surface) => (
                 <ThreadListVisibilityMenuItems surface={surface} />
               )}

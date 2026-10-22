@@ -505,6 +505,37 @@ describe("ProjectRow interactions", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("starts a project thread from the header's context menu", async () => {
+    const create = vi.fn();
+    const store = createStore();
+    store.set(sidebarOrganizationModeAtom, "project");
+    renderTree(
+      <ProjectRow
+        project={makeSidebarProject()}
+        threadListState={{ status: "ready", threads: [] }}
+        isActive={false}
+        isCollapsed={false}
+        compareThreads={() => 0}
+        collapsedThreadIds={new Set()}
+        collapsedEnvironmentIds={new Set()}
+        onToggleProjectCollapsed={vi.fn()}
+        onToggleThreadCollapsed={vi.fn()}
+        onToggleEnvironmentCollapsed={vi.fn()}
+        onCreateProjectThread={create}
+      />,
+      { threads: [], store },
+    );
+    fireEvent.contextMenu(
+      screen.getByRole("treeitem", { name: /^Test project/ }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "New thread in Test project",
+      }),
+    );
+    expect(create).toHaveBeenCalledWith("proj_test");
+  });
+
   it("links project settings and confirms removal through the SDK", async () => {
     const remove = vi.fn(sdkResult({ ok: true }));
     const { sdkCalls } = renderProjectRow(
