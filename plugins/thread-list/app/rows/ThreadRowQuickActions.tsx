@@ -53,7 +53,7 @@ function ThreadQuickActionButton({
           size="icon"
           className={cn("rounded-md p-0", className)}
           aria-label={action.label}
-          aria-keyshortcuts={entry.shortcut?.ariaKeyshortcuts}
+          aria-keyshortcuts={entry.experimental_shortcut?.ariaKeyshortcuts}
           data-thread-action={entry.key}
           disabled={action.disabled || isRunning}
           onClick={(event) => {
@@ -71,7 +71,7 @@ function ThreadQuickActionButton({
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {action.label}
-        <ThreadActionShortcutHint shortcut={entry.shortcut} />
+        <ThreadActionShortcutHint shortcut={entry.experimental_shortcut} />
       </TooltipContent>
     </Tooltip>
   );
@@ -108,7 +108,7 @@ function ThreadQuickActionChoices({
                   ? action.label
                   : `${action.label}, ${action.detail}`
               }
-              aria-keyshortcuts={entry.shortcut?.ariaKeyshortcuts}
+              aria-keyshortcuts={entry.experimental_shortcut?.ariaKeyshortcuts}
               data-thread-action={entry.key}
               disabled={action.disabled}
               onClick={(event) => {
@@ -126,7 +126,7 @@ function ThreadQuickActionChoices({
           {action.detail === undefined
             ? action.label
             : `${action.label}: ${action.detail}`}
-          <ThreadActionShortcutHint shortcut={entry.shortcut} />
+          <ThreadActionShortcutHint shortcut={entry.experimental_shortcut} />
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent

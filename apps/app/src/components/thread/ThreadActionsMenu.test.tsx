@@ -889,8 +889,8 @@ describe("thread action shortcuts", () => {
     const entries = useThreadActionEntries(threadListEntryActionTarget(thread));
     return (
       <ol>
-        {entries.map(({ key, shortcut }) => (
-          <li key={key}>{`${key} ${shortcut?.label ?? "-"}`}</li>
+        {entries.map(({ key, experimental_shortcut }) => (
+          <li key={key}>{`${key} ${experimental_shortcut?.label ?? "-"}`}</li>
         ))}
       </ol>
     );

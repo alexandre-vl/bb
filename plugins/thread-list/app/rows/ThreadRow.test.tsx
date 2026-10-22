@@ -336,7 +336,7 @@ function hostThreadActions({
         icon,
         run: () => run().catch(() => undefined),
       },
-      shortcut: null,
+      experimental_shortcut: null,
     });
     const isArchived = thread.archivedAt !== null;
     return [
@@ -514,7 +514,7 @@ describe("ThreadRow", () => {
             },
             run: async () => undefined,
           },
-          shortcut: null,
+          experimental_shortcut: null,
         },
       ],
     });
@@ -532,7 +532,10 @@ describe("ThreadRow", () => {
       threadActions: (thread, options) =>
         actions(thread, options).map((entry) =>
           entry.key === "bb--core/archive"
-            ? { ...entry, shortcut: { label: "E", ariaKeyshortcuts: "E" } }
+            ? {
+                ...entry,
+                experimental_shortcut: { label: "E", ariaKeyshortcuts: "E" },
+              }
             : entry,
         ),
     });

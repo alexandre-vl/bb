@@ -2144,7 +2144,7 @@ export interface PluginThreadActionEntry {
    * Rename and Mark read / unread), or null when the action has none or the
    * person unbound it. Show it beside the action's label in a row's tooltip.
    */
-  shortcut: ExperimentalThreadActionShortcut | null;
+  experimental_shortcut: ExperimentalThreadActionShortcut | null;
 }
 
 /** One row of {@link PluginSdkApp.experimental_useThreadActionRegistrations}. */

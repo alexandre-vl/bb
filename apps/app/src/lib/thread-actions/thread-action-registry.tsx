@@ -417,7 +417,11 @@ function evaluateRecord(
       pluginId: record.pluginId,
       group: record.registration.group,
       action: bindThreadAction(record.key, action, requestRename),
-      shortcut: threadActionShortcut(record.key, thread, shortcuts),
+      experimental_shortcut: threadActionShortcut(
+        record.key,
+        thread,
+        shortcuts,
+      ),
     };
   } catch (error) {
     reportFailure(record.key, "item", error);
