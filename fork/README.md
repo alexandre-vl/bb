@@ -125,6 +125,9 @@ fork/instance/adopt.sh bb-host-daemon-alexvl-getbb-app-host_3ussyf3xqh.service -
   or not: `systemctl --user start bb-fork-revert.service`, which also turns
   the timer off. Then update it from Settings: its install may be older than
   the fork's upstream base.
+- `~/.local/bin/bb` runs the CLI of whichever build the unit runs. adopt.sh
+  keeps the wrapper it replaced as `~/.bb-fork-app/bb-official`; copy it back
+  to undo that.
 - Machines enrolled in this bb update their daemon from it, so they run the
   fork's build too.
 - Layers that add migrations stay held back, so the database keeps upstream's

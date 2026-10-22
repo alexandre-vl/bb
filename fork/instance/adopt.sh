@@ -16,11 +16,16 @@ every BB_FORK_MIN_HOURS hours.
 The unit's own install stays on disk. To go back to it, at once:
   systemctl --user start bb-fork-revert.service
 
+It also replaces the CLI wrapper (~/.local/bin/bb) with one that runs the CLI
+of whichever build the unit runs, and keeps the one it replaced as
+<app dir>/bb-official.
+
 --now runs the first check at once. It downloads and installs the release,
 then switches only if no thread is running.
 
 Environment: BB_FORK_APP_DIR (~/.bb-fork-app), BB_FORK_REPO (alexandre-vl/bb),
-BB_FORK_KEEP_BACKUPS (3), BB_FORK_MIN_HOURS (6).
+BB_FORK_KEEP_BACKUPS (3), BB_FORK_MIN_HOURS (6), BB_FORK_CLI_WRAPPER
+(~/.local/bin/bb).
 USAGE
 }
 
@@ -57,6 +62,7 @@ keep=${BB_FORK_KEEP_BACKUPS:-3}
 min_hours=${BB_FORK_MIN_HOURS:-6}
 units=$HOME/.config/systemd/user
 dropin=$units/$unit.d/zz-alexandre-vl-fork.conf
+wrapper=${BB_FORK_CLI_WRAPPER:-$HOME/.local/bin/bb}
 
 systemctl --user show-environment >/dev/null 2>&1 || fail "systemd --user is not available here."
 fragment=$(systemctl --user show -p FragmentPath --value "$unit")
@@ -131,6 +137,33 @@ BB_ALEX_MIN_HOURS=$min_hours
 EOF
 install -m 755 "$here/update.sh" "$HOME/.local/bin/bb-fork-update"
 
+sq() {
+  printf "'%s'" "${1//\'/\'\\\'\'}"
+}
+cli_note="No $wrapper to point at the build the unit runs."
+if [[ -f $wrapper ]]; then
+  if ! grep -q '^bb_fork_app_dir=' "$wrapper"; then
+    cp -p "$wrapper" "$root/bb-official"
+  fi
+  if [[ -f $root/bb-official ]]; then
+    cat >"$wrapper.partial" <<EOF
+#!/bin/sh
+bb_fork_app_dir=$(sq "$root")
+if [ -f $(sq "$dropin") ] && [ -x "\$bb_fork_app_dir/current/bin/bb" ] && { [ -z "\${BB_DATA_DIR:-}" ] || [ "\$BB_DATA_DIR" = $(sq "$data") ]; }; then
+  PATH=$(sq "$(dirname "$node")"):"\$PATH"
+  BB_DATA_DIR=$(sq "$data")
+  : "\${BB_SERVER_URL:=http://127.0.0.1:$port}" "\${BB_HOST_DAEMON_PORT:=$daemon_port}"
+  export PATH BB_DATA_DIR BB_SERVER_URL BB_HOST_DAEMON_PORT
+  exec $(sq "$node") "\$bb_fork_app_dir/current/bin/bb" "\$@"
+fi
+exec "\$bb_fork_app_dir/bb-official" "\$@"
+EOF
+    chmod 755 "$wrapper.partial"
+    mv "$wrapper.partial" "$wrapper"
+    cli_note="$wrapper runs the CLI of the build the unit runs; the one it replaced is $root/bb-official."
+  fi
+fi
+
 cat >"$units/bb-fork-update.service" <<EOF
 [Unit]
 Description=Switch $unit to the newest alexandre-vl/bb alex release when no thread runs
@@ -167,6 +200,7 @@ systemctl --user enable --now bb-fork-update.timer >/dev/null
 echo "$unit: data $data, server $port, daemon $daemon_port."
 echo "bb-fork-update.timer switches it to the newest alex release the first time no thread runs, then keeps it updated, at most once every $min_hours hours."
 echo "Backups: $root/backups (keeps $keep). Back to its own install: systemctl --user start bb-fork-revert.service"
+echo "$cli_note"
 if $now; then
   systemctl --user start bb-fork-update.service || true
   journalctl --user -u bb-fork-update.service -n 20 --no-pager -o cat | grep -v -e '^Starting ' -e '^Finished ' || true
