@@ -2011,7 +2011,7 @@ Docs: `frontend-core-slots.md`.
 
 ## `PluginThreadPanelActionRegistration.experimental_claimUrl` (`@get-bb/plugin-sdk/app`)
 
-**Added 2026-10-22 (SDK 0.6.70).** One consumer: the GitHub plugin's GitHub
+**Added 2026-10-22 (SDK 0.6.71).** One consumer: the GitHub plugin's GitHub
 PR and GitHub issue tabs.
 
 A `threadPanelAction` claims web links its tab can show. A plain primary click
@@ -2061,7 +2061,7 @@ Docs: `frontend-core-slots.md`.
 
 ## `BbNavigate.openThreadPanel` `experimental_replace` (`@get-bb/plugin-sdk/app`)
 
-**Added 2026-10-22 (SDK 0.6.70).** One consumer: the GitHub plugin's GitHub
+**Added 2026-10-22 (SDK 0.6.71).** One consumer: the GitHub plugin's GitHub
 PR and GitHub issue tabs, when a tab opened without params finds the thread's
 pull request, and when someone picks a pull request or issue in one.
 
