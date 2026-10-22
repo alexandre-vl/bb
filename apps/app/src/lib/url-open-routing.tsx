@@ -21,7 +21,7 @@ interface UrlOpenRoutingProviderProps {
   openInAppBrowser: OpenInAppBrowserUrl | null;
 }
 
-export type UrlAnchorClickHandler = (
+type UrlAnchorClickHandler = (
   event: ReactMouseEvent<HTMLAnchorElement>,
 ) => void;
 
@@ -84,19 +84,6 @@ function useOpenUrlByPreference(): (url: string) => boolean {
   );
 }
 
-export function isPlainPrimaryClick(
-  event: ReactMouseEvent<HTMLAnchorElement>,
-): boolean {
-  return (
-    !event.defaultPrevented &&
-    event.button === 0 &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey &&
-    !event.shiftKey
-  );
-}
-
 export function useUrlAnchorClickHandler(
   url: string | undefined,
 ): UrlAnchorClickHandler {
@@ -104,7 +91,10 @@ export function useUrlAnchorClickHandler(
 
   return useCallback(
     (event) => {
-      if (url === undefined || !isPlainPrimaryClick(event)) {
+      if (event.defaultPrevented || event.button !== 0 || url === undefined) {
+        return;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
         return;
       }
       if (openUrl(url)) {

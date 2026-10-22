@@ -1068,19 +1068,6 @@ describe("collectPluginAppRegistrations", () => {
       /"run" must be a function/,
     ],
     [
-      "thread panel action with a non-boolean experimental_pullRequest",
-      () =>
-        definePluginApp((app) => {
-          app.slots.threadPanelAction({
-            id: "x",
-            title: "X",
-            component: Component,
-            experimental_pullRequest: "yes" as never,
-          });
-        }),
-      /"experimental_pullRequest" must be a boolean/,
-    ],
-    [
       "new thread panel action with a non-function run",
       () =>
         definePluginApp((app) => {
@@ -1268,26 +1255,5 @@ describe("collectPluginAppRegistrations", () => {
     ).toMatchObject({
       experimental_useBadge: useBadge,
     });
-  });
-
-  it("keeps only a true experimental_pullRequest on thread panel actions", () => {
-    const definition = definePluginApp((app) => {
-      app.slots.threadPanelAction({
-        id: "pull",
-        title: "PR",
-        component: Component,
-        experimental_pullRequest: true,
-      });
-      app.slots.threadPanelAction({
-        id: "notes",
-        title: "Notes",
-        component: Component,
-        experimental_pullRequest: false,
-      });
-    });
-    const [pull, notes] =
-      collectPluginAppRegistrations(definition).threadPanelActions;
-    expect(pull).toMatchObject({ id: "pull", experimental_pullRequest: true });
-    expect(notes).not.toHaveProperty("experimental_pullRequest");
   });
 });

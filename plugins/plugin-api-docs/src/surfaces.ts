@@ -393,11 +393,9 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Show plugin content alongside the conversation",
           "Know which thread it was opened from",
           "Open from a [message action](message-actions), the side panel's + button, or plugin code",
-          "Open when someone clicks the thread's pull request link",
         ],
         apiSymbols: [
           "PluginThreadPanelActionRegistration",
-          "PluginThreadPanelActionRegistration.experimental_pullRequest",
           "BbNavigate.openThreadPanel",
           "PluginThreadPanelProps",
           "PluginThreadPanelActionContext",

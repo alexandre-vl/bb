@@ -88,7 +88,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@bb/shared-ui/dropdown-menu";
-import { usePullRequestLinkClickHandler } from "@/components/pull-request/usePullRequestLinkClickHandler";
+import { useUrlAnchorClickHandler } from "@/lib/url-open-routing";
 import {
   ThreadTitle,
   useThreadTitleDisplayText,
@@ -859,9 +859,7 @@ function PullRequestBannerLink({
 }) {
   const nextStep = getPullRequestNextStep(pullRequest);
   const stateDisplay = PULL_REQUEST_STATE_DISPLAY[pullRequest.state];
-  const handlePullRequestClick = usePullRequestLinkClickHandler(
-    pullRequest.url,
-  );
+  const handlePullRequestClick = useUrlAnchorClickHandler(pullRequest.url);
   const showAttentionLabel =
     showLabel && shouldShowPullRequestAttentionLabel(pullRequest);
   return (

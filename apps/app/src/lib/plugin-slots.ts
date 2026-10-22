@@ -481,11 +481,7 @@ export function getPluginSlotSnapshot(): PluginSlotSnapshot {
 }
 
 export function usePluginSlots(): PluginSlotSnapshot {
-  return useSyncExternalStore(
-    subscribePluginSlots,
-    getPluginSlotSnapshot,
-    getPluginSlotSnapshot,
-  );
+  return useSyncExternalStore(subscribePluginSlots, getPluginSlotSnapshot);
 }
 
 let builtinPluginIds: ReadonlySet<string> = new Set();

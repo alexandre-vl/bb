@@ -181,11 +181,10 @@ target? })`. Inside the fixed-tab component,
   `title` with your compact plugin icon. This slot is only offered for an
   existing thread; it never renders on the root New thread screen, and its
   `threadId` stays required. Registration:
-  `{ id, title, icon?, component, layout?, run?, experimental_pullRequest? }`.
-  Activating it calls `run({ threadId, openPanel })` — do anything there
-  (rpc, toast), and/or call `openPanel({ title?, params? })` to open a
-  closable panel tab rendering `component` with
-  `{ threadId: string, params: JsonValue | null }`.
+  `{ id, title, icon?, component, layout?, run? }`. Activating it calls
+  `run({ threadId, openPanel })` — do anything there (rpc, toast), and/or
+  call `openPanel({ title?, params? })` to open a closable panel tab
+  rendering `component` with `{ threadId: string, params: JsonValue | null }`.
   `openPanel` returns `boolean` — true when the host accepted the open, false
   when it declined (non-JSON `params`, unavailable action, or a surface with
   no side panel). A decline is a return value, never a throw, and matches
@@ -212,12 +211,6 @@ target? })`. Inside the fixed-tab component,
   should treat `params` as untrusted input (it round-trips through
   persistence) and re-fetch fresh data by id rather than embedding whole
   payloads in params.
-  `experimental_pullRequest: true` declares that the tab shows the thread's
-  pull request: a plain click on bb's pull request link for the thread (the
-  prompt banner pill and the Info tab row) opens the tab without params
-  instead of the pull request URL, without calling `run`. Modified and middle
-  clicks still open the URL, and the first declaring action in slot order
-  wins. Experimental: see `docs/api_to_audit.md`.
 - `experimental_newThreadPanelAction` → the root New thread counterpart to
   `threadPanelAction`. It appears in that screen's right-panel Actions list
   and never appears beside an existing thread. Registration has the same
