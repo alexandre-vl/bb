@@ -31,7 +31,6 @@ function isSettledThread(thread: SidebarThread, inputs: FoldInputs): boolean {
   return (
     thread.id !== inputs.keepThreadId &&
     !inputs.draftThreadIds.has(thread.id) &&
-    !inputs.heldThreadIds.has(thread.id) &&
     threadListIndicatorRung(threadIndicatorKind(inputs.versionOf(thread))) === 0
   );
 }
@@ -54,18 +53,28 @@ function isIdleItem(item: ProjectThreadItem, inputs: FoldInputs): boolean {
   );
 }
 
+function isHeldItem(item: ProjectThreadItem, inputs: FoldInputs): boolean {
+  return itemThreads(item).some((thread) =>
+    inputs.heldThreadIds.has(thread.id),
+  );
+}
+
 function plan(
   items: readonly ProjectThreadItem[],
+  inputs: FoldInputs,
   folds: (item: ProjectThreadItem, index: number) => boolean,
 ): FoldPlan {
-  const visible: ProjectThreadItem[] = [];
-  const hidden: ProjectThreadItem[] = [];
-  items.forEach((item, index) => {
-    (folds(item, index) ? hidden : visible).push(item);
-  });
-  return hidden.length < FOLD_MIN_HIDDEN_ROWS
+  const folded = items.filter((item, index) => folds(item, index));
+  if (folded.length < FOLD_MIN_HIDDEN_ROWS) {
+    return { visible: items, hidden: [] };
+  }
+  const hidden = new Set(folded.filter((item) => !isHeldItem(item, inputs)));
+  return hidden.size === 0
     ? { visible: items, hidden: [] }
-    : { visible, hidden };
+    : {
+        visible: items.filter((item) => !hidden.has(item)),
+        hidden: [...hidden],
+      };
 }
 
 export function planFold(
@@ -76,12 +85,14 @@ export function planFold(
   if (kind === "more") {
     return plan(
       items,
+      inputs,
       (item, index) =>
         index >= FOLD_VISIBLE_CHILD_ROWS && isSettledItem(item, inputs),
     );
   }
   return plan(
     items,
+    inputs,
     (item) =>
       item.kind === "thread" &&
       isSettledItem(item, inputs) &&

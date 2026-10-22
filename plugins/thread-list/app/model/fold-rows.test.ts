@@ -117,6 +117,17 @@ describe("planFold", () => {
     expect(plan.hidden).toHaveLength(5);
   });
 
+  it("keeps the fold when holding a row leaves fewer than five folded", () => {
+    const plan = planFold(
+      "more",
+      children(10),
+      inputs({ heldThreadIds: new Set(["child_6"]) }),
+    );
+    expect(ids(plan.visible)).toContain("child_6");
+    expect(plan.visible).toHaveLength(6);
+    expect(plan.hidden).toHaveLength(4);
+  });
+
   it("keeps a held row at the version it is shown with", () => {
     const items = children(11);
     const held = items[6];
