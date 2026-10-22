@@ -153,7 +153,8 @@ Each bundled plugin documents its commands and behavior in its own skill.
   `bb provider-retry status|explain|retry|cancel`; see the `provider-retry`
   skill.
 - Thread list (builtin): owns the sidebar's layout preferences, synced to
-  every window. `bb thread-list prefs list|get|set|reset`; see the
+  every window. `bb thread-list prefs list|get|set|reset`,
+  `bb thread-list attention`, and `bb thread-list collapse|expand`; see the
   `thread-list` skill.
 - Push notifications (builtin): notifies mobile, web, and desktop clients
   when a thread needs attention.
