@@ -17,6 +17,11 @@ import {
   SIDEBAR_WINDOWED_NAV_ATTRIBUTE,
   type SidebarWindowedNavigationEntry,
 } from "./sidebarThreadShortcuts.js";
+import {
+  encodeSidebarWindowedAttention,
+  SIDEBAR_WINDOWED_ATTENTION_ATTRIBUTE,
+  type SidebarWindowedAttention,
+} from "./windowedAttention.js";
 
 const WINDOW_VIEWPORT_MARGIN_PX = 240;
 const DEFAULT_ROW_HEIGHT_PX = 30;
@@ -34,6 +39,7 @@ interface SidebarWindowedItemsProps {
   getNavigationEntries?: (
     index: number,
   ) => readonly SidebarWindowedNavigationEntry[];
+  getAttention?: (index: number) => SidebarWindowedAttention;
   renderItem: (index: number) => ReactNode;
 }
 
@@ -82,6 +88,7 @@ export function SidebarWindowedItems({
   estimateRows,
   alwaysMountedKeys = EMPTY_KEY_SET,
   getNavigationEntries,
+  getAttention,
   renderItem,
 }: SidebarWindowedItemsProps) {
   const scrollElementRef = useSidebarContentElementRef();
@@ -303,6 +310,7 @@ export function SidebarWindowedItems({
         rowsByKeyRef.current.set(key, rows);
         let placeholderHeight: number | undefined;
         let navigationValue: string | undefined;
+        let attentionValue: string | undefined;
         if (!isRealized) {
           const measured = measuredHeightsRef.current.get(key);
           placeholderHeight =
@@ -314,6 +322,10 @@ export function SidebarWindowedItems({
             entries && entries.length > 0
               ? encodeSidebarWindowedNavigationEntries(entries)
               : undefined;
+          const attention = getAttention?.(index);
+          attentionValue = attention
+            ? encodeSidebarWindowedAttention(attention)
+            : undefined;
         }
         return (
           <div
@@ -322,6 +334,9 @@ export function SidebarWindowedItems({
             data-sidebar-windowed-item=""
             {...(navigationValue !== undefined
               ? { [SIDEBAR_WINDOWED_NAV_ATTRIBUTE]: navigationValue }
+              : undefined)}
+            {...(attentionValue !== undefined
+              ? { [SIDEBAR_WINDOWED_ATTENTION_ATTRIBUTE]: attentionValue }
               : undefined)}
             style={isRealized ? undefined : { height: placeholderHeight }}
           >

@@ -17,6 +17,7 @@ import {
 } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
+import { useComposedRefs } from "@radix-ui/react-compose-refs";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import {
   experimental_useProviders,
@@ -128,6 +129,8 @@ import {
   type SidebarOrderStability,
 } from "./stability/SidebarOrderStability.js";
 import { SIDEBAR_TREE_GEOMETRY_CLASS } from "../ui/tree-geometry.js";
+import { SidebarEdgeRows } from "./edge-rows/SidebarEdgeRows.js";
+import { SidebarRowTooltip } from "./row-tooltip/SidebarRowTooltip.js";
 import { haveSameOrder } from "../model/stored-order.js";
 import {
   SidebarProjectsContext,
@@ -396,26 +399,36 @@ export function ProjectListShell({
   stability,
 }: ProjectListShellProps) {
   const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
+  const [tree, setTree] = useState<HTMLDivElement | null>(null);
+  const treeRef = useComposedRefs<HTMLDivElement>(
+    stability?.controller.attachRef,
+    setTree,
+  );
   return (
     <ThreadRowNavigationProvider>
       <SidebarContentElementProvider>
         <SidebarStickyStack data-sidebar-sticky-density="compact-actions">
-          <SidebarGroupContent
-            ref={stability?.controller.attachRef}
-            role="tree"
-            aria-label="Threads"
-            data-sidebar-thread-tree=""
-            data-sidebar-provider-icons={showProviderIcons ? "true" : undefined}
-            className={SIDEBAR_TREE_GEOMETRY_CLASS}
-          >
-            {stability ? (
-              <SidebarOrderStabilityBoundary stability={stability}>
-                {children}
-              </SidebarOrderStabilityBoundary>
-            ) : (
-              children
-            )}
-          </SidebarGroupContent>
+          <SidebarEdgeRows tree={tree}>
+            <SidebarGroupContent
+              ref={treeRef}
+              role="tree"
+              aria-label="Threads"
+              data-sidebar-thread-tree=""
+              data-sidebar-provider-icons={
+                showProviderIcons ? "true" : undefined
+              }
+              className={SIDEBAR_TREE_GEOMETRY_CLASS}
+            >
+              {stability ? (
+                <SidebarOrderStabilityBoundary stability={stability}>
+                  {children}
+                </SidebarOrderStabilityBoundary>
+              ) : (
+                children
+              )}
+            </SidebarGroupContent>
+          </SidebarEdgeRows>
+          <SidebarRowTooltip tree={tree} />
         </SidebarStickyStack>
       </SidebarContentElementProvider>
     </ThreadRowNavigationProvider>

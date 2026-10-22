@@ -685,6 +685,7 @@ function ThreadRowComponent({
           </span>
         ) : (
           <span
+            data-sidebar-row-title=""
             className={cn(
               "bb-thread-title min-w-0",
               getSidebarTitleToneClass({ isActive, isAttention, isLive }),
