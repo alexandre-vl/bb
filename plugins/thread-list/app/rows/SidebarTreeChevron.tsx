@@ -24,6 +24,7 @@ export function SidebarTreeChevron({
       type="button"
       disabled={disabled}
       tabIndex={-1}
+      aria-hidden="true"
       data-sidebar-tree-chevron=""
       aria-expanded={!isCollapsed}
       aria-label={isCollapsed ? expandLabel : collapseLabel}

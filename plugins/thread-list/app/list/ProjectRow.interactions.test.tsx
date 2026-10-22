@@ -444,6 +444,7 @@ describe("ProjectRow interactions", () => {
   it("keeps project header controls touch-accessible when their menu opens and closes", async () => {
     renderProjectRow();
     const trigger = screen.getByRole("button", {
+      hidden: true,
       name: /^Test project actions(?:;|$)/,
     });
     const actions = trigger.closest(".bb-sidebar-hover-actions");
@@ -480,7 +481,10 @@ describe("ProjectRow interactions", () => {
       { sdk: { projects: { update } } },
     );
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Test project actions" }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: "Test project actions",
+      }),
       { button: 0 },
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
@@ -512,7 +516,10 @@ describe("ProjectRow interactions", () => {
       { sdk: { projects: { delete: remove } } },
     );
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Test project actions" }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: "Test project actions",
+      }),
       { button: 0 },
     );
     const settings = await screen.findByRole("menuitem", {
@@ -522,7 +529,10 @@ describe("ProjectRow interactions", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(
-      within(dialog).getByRole("button", { name: "Remove project" }),
+      within(dialog).getByRole("button", {
+        hidden: true,
+        name: "Remove project",
+      }),
     );
     await waitFor(() =>
       expect(sdkCalls).toContainEqual({
@@ -594,7 +604,7 @@ describe("ProjectRow interactions", () => {
     });
 
     const group = screen
-      .getByRole("button", { name: "Collapse Nested workspace threads" })
+      .getByLabelText("Collapse Nested workspace threads")
       .closest("[data-sidebar-sticky-group]");
     const header = group?.querySelector<HTMLElement>(
       ".bb-sidebar-hover-actions-row",
@@ -666,9 +676,7 @@ describe("ProjectRow interactions", () => {
     );
 
     expect(
-      screen.getByRole("button", {
-        name: "Expand Feature workspace threads",
-      }),
+      screen.getByLabelText("Expand Feature workspace threads"),
     ).not.toBeNull();
     expect(renderedIndicators()).toEqual(["runtime"]);
   });
@@ -693,9 +701,7 @@ describe("ProjectRow interactions", () => {
       new Set(["env_disclosure"]),
     );
 
-    const toggle = screen.getByRole("button", {
-      name: "Expand Disclosure workspace threads",
-    });
+    const toggle = screen.getByLabelText("Expand Disclosure workspace threads");
     expect(toggle.classList.contains("bb-sidebar-hover-actions")).toBe(false);
     const item = screen.getByRole("treeitem", {
       name: /^Disclosure workspace, worktree, 2 threads/,
@@ -826,7 +832,7 @@ describe("ProjectRow interactions", () => {
 
     expect(visibleTitle("Loose thread")).not.toBeNull();
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Threads actions" }),
+      screen.getByRole("button", { hidden: true, name: "Threads actions" }),
       { button: 0 },
     );
     fireEvent.click(
@@ -840,10 +846,10 @@ describe("ProjectRow interactions", () => {
     expect(store.get(sidebarManualSectionOrderAtom)).toEqual(savedOrder);
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "More sections" }),
+        screen.getByRole("treeitem", { name: "More sections" }),
       ),
     );
-    fireEvent.keyDown(screen.getByRole("button", { name: "More sections" }), {
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "More sections" }), {
       key: "Enter",
     });
     const threadsGroup = await screen.findByRole("menuitem", {
@@ -855,7 +861,7 @@ describe("ProjectRow interactions", () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "More sections" }),
+        screen.queryByRole("treeitem", { name: "More sections" }),
       ).toBeNull(),
     );
     expect(visibleTitle("Loose thread")).not.toBeNull();
@@ -899,9 +905,14 @@ describe("ProjectRow interactions", () => {
 
     expect(screen.getByText("Review parent")).not.toBeNull();
     expect(visibleTitle("Inherited child")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "More sections" })).toBeNull();
+    expect(
+      screen.queryByRole("treeitem", { name: "More sections" }),
+    ).toBeNull();
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Review section actions" }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: "Review section actions",
+      }),
       { button: 0 },
     );
     fireEvent.click(
@@ -918,10 +929,10 @@ describe("ProjectRow interactions", () => {
     expect(store.get(sidebarManualSectionOrderAtom)).toEqual(savedOrder);
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "More sections" }),
+        screen.getByRole("treeitem", { name: "More sections" }),
       ),
     );
-    fireEvent.keyDown(screen.getByRole("button", { name: "More sections" }), {
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "More sections" }), {
       key: "Enter",
     });
     const section = await screen.findByRole("menuitem", { name: "Review" });
@@ -939,7 +950,7 @@ describe("ProjectRow interactions", () => {
     expect(onProjectSelect).toHaveBeenCalledOnce();
     expect(store.get(sidebarHiddenGroupsAtom)).toEqual(["section:sec_review"]);
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "More sections" }), {
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "More sections" }), {
       key: "Enter",
     });
     const reopenedSection = await screen.findByRole("menuitem", {
@@ -951,7 +962,7 @@ describe("ProjectRow interactions", () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "More sections" }),
+        screen.queryByRole("treeitem", { name: "More sections" }),
       ).toBeNull(),
     );
     expect(visibleTitle("Inherited child")).not.toBeNull();
@@ -1058,6 +1069,7 @@ describe("ProjectRow interactions", () => {
       );
 
       const createButton = screen.getByRole("button", {
+        hidden: true,
         name: "New thread in environment",
       });
       const actions = createButton.closest(".bb-sidebar-hover-actions");
@@ -1066,7 +1078,10 @@ describe("ProjectRow interactions", () => {
       );
       expect(
         actions?.contains(
-          screen.getByRole("button", { name: "Environment actions" }),
+          screen.getByRole("button", {
+            hidden: true,
+            name: "Environment actions",
+          }),
         ),
       ).toBe(true);
       fireEvent.click(createButton);
@@ -1083,7 +1098,10 @@ describe("ProjectRow interactions", () => {
       ]);
 
       fireEvent.pointerDown(
-        screen.getByRole("button", { name: "Environment actions" }),
+        screen.getByRole("button", {
+          hidden: true,
+          name: "Environment actions",
+        }),
         { button: 0 },
       );
       const rename = await screen.findByRole("menuitem", { name: "Rename" });
@@ -1138,9 +1156,7 @@ describe("ProjectRow interactions", () => {
       ],
     });
 
-    expect(
-      screen.queryByRole("button", { name: "Collapse main threads" }),
-    ).toBeNull();
+    expect(screen.queryByLabelText("Collapse main threads")).toBeNull();
   });
 
   it("archives and renames an environment group from any provider", async () => {
@@ -1182,14 +1198,14 @@ describe("ProjectRow interactions", () => {
     );
 
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Environment actions" }),
+      screen.getByRole("button", { hidden: true, name: "Environment actions" }),
       { button: 0 },
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
     expect(experimental_environmentArchiveCalls).toEqual(["env_plain"]);
 
     fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Environment actions" }),
+      screen.getByRole("button", { hidden: true, name: "Environment actions" }),
       { button: 0 },
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
@@ -1248,7 +1264,10 @@ describe("environment creation placement", () => {
         { threads },
       );
       fireEvent.click(
-        screen.getByRole("button", { name: "New thread in environment" }),
+        screen.getByRole("button", {
+          hidden: true,
+          name: "New thread in environment",
+        }),
       );
       expect(navigateCalls).toEqual([
         {

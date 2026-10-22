@@ -413,7 +413,7 @@ describe("sidebar organization mode sections", () => {
       selectedThreadId: "thr_machine",
     });
 
-    const more = screen.getByRole("button", { name: "More machines" });
+    const more = screen.getByRole("treeitem", { name: "More machines" });
     expect(more.getAttribute("data-selected")).toBe("true");
     fireEvent.keyDown(more, { key: "Enter" });
     const section = await screen.findByRole("menuitem", { name: /No machine/ });
@@ -431,7 +431,7 @@ describe("sidebar organization mode sections", () => {
 
     expect(
       screen
-        .getByRole("button", { name: "More machines" })
+        .getByRole("treeitem", { name: "More machines" })
         .getAttribute("data-selected"),
     ).toBeNull();
   });
@@ -445,7 +445,7 @@ describe("sidebar organization mode sections", () => {
 
     renderMachineMode(store, [makeThread()]);
 
-    const more = screen.getByRole("button", { name: "More machines" });
+    const more = screen.getByRole("treeitem", { name: "More machines" });
     expect(
       more.querySelector('[data-thread-status-glyph="plan-mode"]'),
     ).not.toBeNull();
@@ -464,7 +464,7 @@ describe("sidebar organization mode sections", () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "More machines" }),
+        screen.queryByRole("treeitem", { name: "More machines" }),
       ).toBeNull(),
     );
     expect(sectionExpanded("No machine")).toBe("false");

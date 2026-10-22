@@ -15,6 +15,12 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
+import {
+  SidebarComposerFocus,
+  SidebarRowCommandsProvider,
+  useSidebarTreeKeyboard,
+} from "./keyboard/SidebarTreeKeyboard.js";
+import { SidebarAttentionAnnouncer } from "./SidebarAttentionAnnouncer.js";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import type { SidebarThread } from "../model/sidebar-thread.js";
@@ -142,7 +148,9 @@ export interface ProjectListProps {
 }
 
 interface ProjectListShellProps {
+  activeThreadId: string | null;
   children: ReactNode;
+  after?: ReactNode;
   stability?: SidebarOrderStability;
 }
 
@@ -392,30 +400,52 @@ function ProjectListNavigationLoadingRow({
 }
 
 export function ProjectListShell({
+  activeThreadId,
   children,
+  after,
   stability,
 }: ProjectListShellProps) {
   const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
+  const { keyboard, rows } = useSidebarTreeKeyboard();
+  const attachStability = stability?.controller.attachRef;
+  const attachTree = useCallback(
+    (node: HTMLDivElement | null) => {
+      const detachKeyboard = keyboard.attachRef(node);
+      const detachStability = attachStability?.(node);
+      return () => {
+        detachStability?.();
+        detachKeyboard?.();
+      };
+    },
+    [attachStability, keyboard],
+  );
   return (
     <ThreadRowNavigationProvider>
       <SidebarContentElementProvider>
+        <SidebarComposerFocus
+          activeThreadId={activeThreadId}
+          keyboard={keyboard}
+        />
         <SidebarStickyStack data-sidebar-sticky-density="compact-actions">
           <SidebarGroupContent
-            ref={stability?.controller.attachRef}
+            ref={attachTree}
             role="tree"
             aria-label="Threads"
             data-sidebar-thread-tree=""
             data-sidebar-provider-icons={showProviderIcons ? "true" : undefined}
             className={SIDEBAR_TREE_GEOMETRY_CLASS}
           >
-            {stability ? (
-              <SidebarOrderStabilityBoundary stability={stability}>
-                {children}
-              </SidebarOrderStabilityBoundary>
-            ) : (
-              children
-            )}
+            <SidebarRowCommandsProvider rows={rows}>
+              {stability ? (
+                <SidebarOrderStabilityBoundary stability={stability}>
+                  {children}
+                </SidebarOrderStabilityBoundary>
+              ) : (
+                children
+              )}
+            </SidebarRowCommandsProvider>
           </SidebarGroupContent>
+          {after}
         </SidebarStickyStack>
       </SidebarContentElementProvider>
     </ThreadRowNavigationProvider>
@@ -1745,7 +1775,7 @@ function ProjectListComponent({
 
   if (threadListStatus === "loading" || !preferencesReady) {
     return (
-      <ProjectListShell>
+      <ProjectListShell activeThreadId={activeThreadId}>
         <ProjectListNavigationLoadingState />
       </ProjectListShell>
     );
@@ -1758,7 +1788,38 @@ function ProjectListComponent({
         isCreatingSection: isCreateThreadSectionPending,
       }}
     >
-      <ProjectListShell stability={orderStability}>
+      <ProjectListShell
+        activeThreadId={activeThreadId}
+        stability={orderStability}
+        after={
+          archived === null ? null : (
+            <>
+              {status === "ready" && archived.status !== "ready" && (
+                <div role="status">
+                  {archived.status === "error"
+                    ? "Archived threads unavailable"
+                    : "Loading archived threads…"}
+                </div>
+              )}
+              {archived.hasNextPage && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={archived.isFetchingNextPage}
+                  onClick={() => void archived.fetchNextPage()}
+                  aria-label="Load more archived threads"
+                >
+                  {archived.isFetchingNextPage
+                    ? "Loading…"
+                    : archived.isFetchNextPageError
+                      ? "Retry loading"
+                      : "Show more"}
+                </Button>
+              )}
+            </>
+          )
+        }
+      >
         <SidebarFoldProvider versionOf={orderStability.versionOf}>
           <SidebarDraftPresenceSync />
           <ActiveSidebarModeSections
@@ -1852,34 +1913,12 @@ function ProjectListComponent({
               />
             )}
           />
-          {archived !== null && (
-            <>
-              {status === "ready" && archived.status !== "ready" && (
-                <div role="status">
-                  {archived.status === "error"
-                    ? "Archived threads unavailable"
-                    : "Loading archived threads…"}
-                </div>
-              )}
-              {archived.hasNextPage && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={archived.isFetchingNextPage}
-                  onClick={() => void archived.fetchNextPage()}
-                  aria-label="Load more archived threads"
-                >
-                  {archived.isFetchingNextPage
-                    ? "Loading…"
-                    : archived.isFetchNextPageError
-                      ? "Retry loading"
-                      : "Show more"}
-                </Button>
-              )}
-            </>
-          )}
         </SidebarFoldProvider>
       </ProjectListShell>
+      <SidebarAttentionAnnouncer
+        threads={threads}
+        activeThreadId={activeThreadId}
+      />
       {sectionCreateDialog}
       {sectionDeleteDialogContent}
     </SidebarHeaderActionsProvider>

@@ -39,6 +39,7 @@ function ThreadQuickActionButton({
           size="icon"
           className={cn("rounded-md p-0", className)}
           aria-label={action.label}
+          tabIndex={-1}
           data-thread-action={entry.key}
           disabled={action.disabled || isRunning}
           onClick={(event) => {
@@ -90,6 +91,7 @@ function ThreadQuickActionChoices({
                   ? action.label
                   : `${action.label}, ${action.detail}`
               }
+              tabIndex={-1}
               data-thread-action={entry.key}
               disabled={action.disabled}
               onClick={(event) => {

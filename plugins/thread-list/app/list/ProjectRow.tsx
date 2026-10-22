@@ -98,8 +98,13 @@ import {
   describeThreadRollup,
   EMPTY_THREAD_ROLLUP,
   rollUpThreads,
+  threadAttentionRung,
   type ThreadRollup,
 } from "../model/thread-activity.js";
+import {
+  getTreePositionProps,
+  useSidebarTreePosition,
+} from "./keyboard/tree-position.js";
 import { cn } from "@/lib/utils";
 import {
   CollapsedThreadStatusGlyph,
@@ -680,6 +685,7 @@ function EnvironmentThreadGroupHeaderActions({
             variant="ghost"
             size="icon"
             aria-label="Environment actions"
+            tabIndex={-1}
             data-sidebar-rename-anchor=""
             className={SIDEBAR_CONTROL_BUTTON_CLASS}
           >
@@ -739,6 +745,7 @@ function EnvironmentThreadGroupHeader({
   onToggleCollapsed,
 }: EnvironmentThreadGroupHeaderProps) {
   const [isActionsOpen, setIsActionsOpen] = useState(false);
+  const treePosition = useSidebarTreePosition();
   const environmentProviders = useEnvironmentProviders();
   const providerLookup = findEnvironmentDisplayProvider(
     environmentProviders.status === "ready"
@@ -833,6 +840,7 @@ function EnvironmentThreadGroupHeader({
         data-sidebar-tree-item=""
         data-sidebar-rename-anchor=""
         aria-level={rowDepth + 2}
+        {...getTreePositionProps(treePosition)}
         aria-expanded={!isCollapsed}
         className="relative z-10 flex min-w-0 flex-1 items-center text-left font-mono text-xs text-sidebar-foreground-quiet outline-none"
         style={{ marginRight: showRollupGlyph ? 32 : 8 }}
@@ -852,6 +860,7 @@ function EnvironmentThreadGroupHeader({
         <span className="sr-only">{`, ${groupSummary}`}</span>
       </span>
       <span
+        aria-hidden="true"
         className={cn(
           "absolute inset-y-0 right-0 z-10 flex items-center",
           rename.isEditing && "hidden",
@@ -987,13 +996,18 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
     () => nodes.map((node) => ({ kind: "thread", node })),
     [nodes],
   );
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items: nodeItems,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    hasAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items: nodeItems,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
 
   return (
     <>
@@ -1027,6 +1041,7 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
               itemKeys={itemKeys}
               estimateRows={estimateRows}
               getNavigationEntries={getNavigationEntries}
+              hasAttention={hasAttention}
               alwaysMountedKeys={alwaysMountedKeys}
               renderItem={(index) => {
                 const node = nodes[index];
@@ -1306,13 +1321,18 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
     () => getProjectThreadItemDescendants(section.items),
     [section.items],
   );
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items: section.items,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    hasAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items: section.items,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
 
   const childrenArea = showChildren ? (
     <div className="relative space-y-0.5">
@@ -1325,6 +1345,7 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
             itemKeys={itemKeys}
             estimateRows={estimateRows}
             getNavigationEntries={getNavigationEntries}
+            hasAttention={hasAttention}
             alwaysMountedKeys={alwaysMountedKeys}
             renderItem={(index) => {
               const item = section.items[index];
@@ -1551,13 +1572,18 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
     items: node.children,
     selectedThreadId,
   });
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items: folded.items,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    hasAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items: folded.items,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
   const row = (
     <ThreadRow
       thread={node.thread}
@@ -1588,8 +1614,10 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
             <SidebarWindowedItems
               itemKeys={itemKeys}
               focusItemKey={folded.focusItemKey}
+              trailingSetItems={folded.fold ? 1 : 0}
               estimateRows={estimateRows}
               getNavigationEntries={getNavigationEntries}
+              hasAttention={hasAttention}
               alwaysMountedKeys={alwaysMountedKeys}
               renderItem={(index) => {
                 const item = folded.items[index];
@@ -1626,7 +1654,11 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
             />
           ) : null}
           {showChildren && folded.fold ? (
-            <SidebarFoldRow fold={folded.fold} depth={parentRowDepth + 1} />
+            <SidebarFoldRow
+              fold={folded.fold}
+              depth={parentRowDepth + 1}
+              setSize={itemKeys.length + 1}
+            />
           ) : null}
           {nestPreviewThread !== null && nestPreviewBeforeKey === null ? (
             <NestDropPreviewRow
@@ -1731,6 +1763,17 @@ function useWindowedThreadItems({
     },
     [items, rowCountContext],
   );
+  const hasAttention = useCallback(
+    (index: number) => {
+      const item = items[index];
+      return item
+        ? getProjectThreadItemDescendants([item]).some(
+            (thread) => threadAttentionRung(thread) > 0,
+          )
+        : false;
+    },
+    [items],
+  );
   const alwaysMountedKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const item of items) {
@@ -1744,7 +1787,13 @@ function useWindowedThreadItems({
     }
     return keys.size > 0 ? keys : undefined;
   }, [items, selectedThreadId, rename]);
-  return { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys };
+  return {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    hasAttention,
+    alwaysMountedKeys,
+  };
 }
 
 function SectionThreadTreeItems({
@@ -1771,19 +1820,26 @@ function SectionThreadTreeItems({
   });
   const items = olderFoldKey === undefined ? allItems : folded.items;
   const fold = olderFoldKey === undefined ? null : folded.fold;
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    hasAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
   const windowedRows = (
     <SidebarWindowedItems
       itemKeys={itemKeys}
       focusItemKey={fold ? folded.focusItemKey : undefined}
       estimateRows={estimateRows}
       getNavigationEntries={getNavigationEntries}
+      hasAttention={hasAttention}
+      trailingSetItems={fold ? 1 : 0}
       alwaysMountedKeys={alwaysMountedKeys}
       renderItem={(index) => {
         const item = items[index];
@@ -1815,7 +1871,11 @@ function SectionThreadTreeItems({
   const rows = fold ? (
     <>
       {windowedRows}
-      <SidebarFoldRow fold={fold} depth={depthOffset} />
+      <SidebarFoldRow
+        fold={fold}
+        depth={depthOffset}
+        setSize={itemKeys.length + 1}
+      />
     </>
   ) : (
     windowedRows

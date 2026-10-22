@@ -23,6 +23,7 @@ export function SidebarRowControls({
   return (
     <span
       data-sidebar-row-controls=""
+      aria-hidden="true"
       className={cn(
         "inline-flex shrink-0 items-center",
         SIDEBAR_CONTROL_PAIR_GAP_CLASS,
@@ -62,6 +63,7 @@ export function SidebarControlButton({
           variant="ghost"
           size="icon"
           aria-label={label}
+          tabIndex={-1}
           disabled={disabled}
           className={SIDEBAR_CONTROL_PRIMARY_BUTTON_CLASS}
           onClick={(event) => {

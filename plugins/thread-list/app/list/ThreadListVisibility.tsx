@@ -328,6 +328,7 @@ export function ThreadListMore() {
         selected={selectedGroupId !== undefined}
         activity={<GroupActivity threads={threads} />}
         testIdPrefix="sidebar-thread-list"
+        treeItem
       >
         {(close) => (
           <SidebarContentElementContext.Provider value={null}>

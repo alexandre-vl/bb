@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { COARSE_POINTER_ROW_HEIGHT_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import {
@@ -11,9 +11,11 @@ import type { SidebarFold } from "./useFoldedItems.js";
 export function SidebarFoldRow({
   fold,
   depth,
+  setSize,
 }: {
   fold: SidebarFold;
   depth: number;
+  setSize: number;
 }) {
   const itemRef = useRef<HTMLSpanElement>(null);
   const focusSelfOnClose = useRef(false);
@@ -25,11 +27,6 @@ export function SidebarFoldRow({
   const activate = () => {
     focusSelfOnClose.current = fold.open;
     fold.toggle();
-  };
-  const handleKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    activate();
   };
   return (
     <div
@@ -51,8 +48,9 @@ export function SidebarFoldRow({
         tabIndex={-1}
         data-sidebar-tree-item=""
         aria-level={depth + 2}
+        aria-posinset={setSize}
+        aria-setsize={setSize}
         className="relative z-10 min-w-0 flex-1 truncate text-left text-xs text-sidebar-foreground-quiet outline-none"
-        onKeyDown={handleKeyDown}
       >
         {fold.label}
       </span>

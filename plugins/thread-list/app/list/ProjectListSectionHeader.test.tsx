@@ -141,7 +141,9 @@ describe("TopLevelSidebarSection", () => {
     fireEvent.click(screen.getByText("Pinned"));
     expect(onToggleCollapsed).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole("button", { name: "Pinned actions" }));
+    fireEvent.click(
+      screen.getByRole("button", { hidden: true, name: "Pinned actions" }),
+    );
     expect(onToggleCollapsed).toHaveBeenCalledOnce();
   });
 
@@ -301,6 +303,7 @@ describe("TopLevelSidebarSection", () => {
 
     expect(
       screen.getByRole("img", {
+        hidden: true,
         name: "Pinned — contains a thread open in split",
       }),
     ).not.toBeNull();

@@ -299,7 +299,7 @@ function statusGlyph(): HTMLElement {
 
 function openActionsMenu() {
   fireEvent.pointerDown(
-    screen.getByRole("button", { name: "Thread actions" }),
+    screen.getByRole("button", { hidden: true, name: "Thread actions" }),
     {
       button: 0,
     },
@@ -465,13 +465,18 @@ describe("ThreadRow", () => {
       onRowEvent: rowEvent,
       threadActions: hostThreadActions({ ran }),
     });
-    const restore = screen.getByRole("button", { name: "Unarchive" });
+    const restore = screen.getByRole("button", {
+      hidden: true,
+      name: "Unarchive",
+    });
     expect(restore.querySelector('[data-icon="ArchiveRestore"]')).toBeTruthy();
     expect(restore.closest("[data-sidebar-hover-actions-open]")).toBeNull();
     expect(
       restore.closest(".\\[\\@media\\(hover\\:none\\)\\]\\:hidden"),
     ).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { hidden: true, name: "Archive" }),
+    ).toBeNull();
     fireEvent.pointerDown(restore, { pointerType: "touch", button: 0 });
     fireEvent.keyDown(restore, { key: "Enter" });
     fireEvent.click(restore);
@@ -489,6 +494,7 @@ describe("ThreadRow", () => {
       threadActions: hostThreadActions({ archiveRun }),
     });
     const restore = screen.getByRole<HTMLButtonElement>("button", {
+      hidden: true,
       name: "Unarchive",
     });
     expect(restore.disabled).toBe(false);
@@ -526,7 +532,10 @@ describe("ThreadRow", () => {
       ],
     });
     expect(
-      screen.getByRole("button", { name: "Notifications, Muted" }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: "Notifications, Muted",
+      }),
     ).not.toBeNull();
   });
 
@@ -545,7 +554,7 @@ describe("ThreadRow", () => {
       ),
     ).toEqual(["Pin", "Copy link", "Archive", "Thread actions"]);
     expect(titleMaskInset()).toBe("110px");
-    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    fireEvent.click(screen.getByRole("button", { hidden: true, name: "Pin" }));
     await waitFor(() =>
       expect(ran).toEqual([{ key: "bb--core/pin", threadId: "thr_test" }]),
     );
@@ -563,15 +572,21 @@ describe("ThreadRow", () => {
     expect(
       screen.queryByRole("button", { name: "Move to section" }),
     ).toBeNull();
-    expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { hidden: true, name: "Archive" }),
+    ).toBeTruthy();
     expect(titleMaskInset()).toBe("50px");
   });
 
   it("shows only the actions menu when every row action is turned off", () => {
     getDefaultStore().set(preferenceValueAtom("rowActions"), []);
     renderThreadRow();
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Thread actions" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { hidden: true, name: "Archive" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { hidden: true, name: "Thread actions" }),
+    ).toBeTruthy();
     expect(titleMaskInset()).toBe("20px");
   });
 
@@ -594,7 +609,9 @@ describe("ThreadRow", () => {
       "bb--core/rename",
     ]);
     renderThreadRow();
-    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.click(
+      screen.getByRole("button", { hidden: true, name: "Rename" }),
+    );
     expect(
       await screen.findByRole("textbox", { name: "Thread name" }),
     ).toHaveProperty("value", "Thread");
@@ -606,12 +623,17 @@ describe("ThreadRow", () => {
       const customize = vi.fn();
       renderThreadRow({ onCustomizeRowActions: customize });
       if (surface === "dropdown") {
-        fireEvent.click(screen.getByRole("button", { name: "Thread actions" }));
+        fireEvent.click(
+          screen.getByRole("button", { hidden: true, name: "Thread actions" }),
+        );
       } else {
         fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Thread" }));
       }
       fireEvent.click(
-        await screen.findByRole("menuitem", { name: "Customize actions" }),
+        await screen.findByRole("menuitem", {
+          hidden: true,
+          name: "Customize actions",
+        }),
       );
       expect(customize).toHaveBeenCalledWith("thr_test");
     },
@@ -619,10 +641,15 @@ describe("ThreadRow", () => {
 
   it("leaves Customize actions out when the list cannot customize", async () => {
     renderThreadRow();
-    fireEvent.click(screen.getByRole("button", { name: "Thread actions" }));
-    await screen.findByRole("menuitem", { name: "Rename" });
+    fireEvent.click(
+      screen.getByRole("button", { hidden: true, name: "Thread actions" }),
+    );
+    await screen.findByRole("menuitem", { hidden: true, name: "Rename" });
     expect(
-      screen.queryByRole("menuitem", { name: "Customize actions" }),
+      screen.queryByRole("menuitem", {
+        hidden: true,
+        name: "Customize actions",
+      }),
     ).toBeNull();
   });
 
@@ -645,11 +672,15 @@ describe("ThreadRow", () => {
     async (surface) => {
       renderThreadRow();
       if (surface === "dropdown") {
-        fireEvent.click(screen.getByRole("button", { name: "Thread actions" }));
+        fireEvent.click(
+          screen.getByRole("button", { hidden: true, name: "Thread actions" }),
+        );
       } else {
         fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Thread" }));
       }
-      fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+      fireEvent.click(
+        await screen.findByRole("menuitem", { hidden: true, name: "Rename" }),
+      );
       const input = await screen.findByRole("textbox", { name: "Thread name" });
       expect(input).toHaveProperty("value", "Thread");
     },
@@ -732,7 +763,10 @@ describe("ThreadRow", () => {
     ({ pluginStatus, thread }) => {
       const { container } = renderSplitThreadRow({ pluginStatus, thread });
 
-      const splitMap = screen.getByRole("img", { name: /open in split/ });
+      const splitMap = screen.getByRole("img", {
+        hidden: true,
+        name: /open in split/,
+      });
       expect(Array.from(splitMap.classList)).toContain("animate-shine-icon");
       expect(
         splitMap.closest("[data-sidebar-thread-trailing-indicator]"),
@@ -750,7 +784,10 @@ describe("ThreadRow", () => {
   ])("keeps the split map static for %s", (_label, thread) => {
     renderSplitThreadRow({ thread });
 
-    const splitMap = screen.getByRole("img", { name: /open in split/ });
+    const splitMap = screen.getByRole("img", {
+      hidden: true,
+      name: /open in split/,
+    });
     expect(Array.from(splitMap.classList)).not.toContain("animate-shine-icon");
   });
 
@@ -762,7 +799,9 @@ describe("ThreadRow", () => {
     unmount();
 
     const other = renderThreadRow({ splitLayout: twoPaneLayout("thr_other") });
-    expect(screen.queryByRole("img", { name: /open in split/ })).toBeNull();
+    expect(
+      screen.queryByRole("img", { hidden: true, name: /open in split/ }),
+    ).toBeNull();
     expect(
       other.container.querySelector(".bb-sidebar-open-in-split-row"),
     ).toBeNull();
@@ -813,7 +852,7 @@ describe("ThreadRow", () => {
 
       expect(
         screen
-          .getByRole("img", { name: /open in split/ })
+          .getByRole("img", { hidden: true, name: /open in split/ })
           .getAttribute("aria-label"),
       ).toBe(`Thread — open in split; ${expectedStatus}`);
     },
@@ -881,7 +920,9 @@ describe("ThreadRow", () => {
     renderSplitThreadRow({ shortcutKey: "3" });
 
     expect(screen.getByText("⌘3")).not.toBeNull();
-    expect(screen.queryByRole("img", { name: /open in split/ })).toBeNull();
+    expect(
+      screen.queryByRole("img", { hidden: true, name: /open in split/ }),
+    ).toBeNull();
   });
 
   it("passes the plugin status tone through to the status glyph", () => {
@@ -1090,9 +1131,9 @@ describe("ThreadRow", () => {
           onToggleCollapsed,
         },
       });
-      const toggle = screen.getByRole("button", {
-        name: /(?:Expand|Collapse) Nested discussion/,
-      });
+      const toggle = screen.getByLabelText(
+        /(?:Expand|Collapse) Nested discussion/,
+      );
       const link = screen.getByRole("treeitem", {
         name: /^Nested discussion with enough text to fill the sidebar width/,
       });
@@ -1163,9 +1204,7 @@ describe("ThreadRow", () => {
       },
     });
 
-    const chevron = screen.getByRole("button", {
-      name: "Collapse Parent thread threads",
-    });
+    const chevron = screen.getByLabelText("Collapse Parent thread threads");
     expect(chevron.classList.contains("bb-sidebar-hover-actions")).toBe(false);
     expect(chevron.tabIndex).toBe(-1);
     expect(chevron.getAttribute("title")).toBe("Collapse");
