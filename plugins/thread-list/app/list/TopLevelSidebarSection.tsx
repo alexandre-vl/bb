@@ -228,6 +228,7 @@ export function TopLevelSidebarSection({
       {hasTrailingControls ? (
         <span
           data-sidebar-trailing-controls=""
+          aria-hidden="true"
           className={cn(
             "relative z-20 flex shrink-0 items-center self-stretch [@media(hover:hover)]:absolute [@media(hover:hover)]:inset-y-0 [@media(hover:hover)]:right-0",
             labelEditor && "hidden",

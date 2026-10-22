@@ -47,6 +47,10 @@ import {
   SIDEBAR_TREE_STATUS_BOX_CLASS,
 } from "../ui/tree-row.js";
 import { getTreeContainerPaddingLeft } from "../ui/tree-geometry.js";
+import {
+  getTreePositionProps,
+  useSidebarTreePosition,
+} from "./keyboard/tree-position.js";
 
 const EMPTY_SPLIT_INDICATOR_THREADS: readonly ThreadSplitIndicatorTarget[] = [];
 
@@ -105,6 +109,7 @@ function SidebarSectionRowComponent({
   stickyLevel,
 }: SidebarSectionRowProps) {
   const [isActionsOpen, setIsActionsOpen] = useState(false);
+  const treePosition = useSidebarTreePosition();
   const collapsedSplitIndicator = useThreadGroupSplitIndicator(
     collapsedThreads,
     isCollapsed,
@@ -171,6 +176,7 @@ function SidebarSectionRowComponent({
         data-sidebar-tree-item=""
         data-sidebar-rename-anchor=""
         aria-level={depth + 2}
+        {...getTreePositionProps(treePosition)}
         aria-expanded={!isCollapsed}
         className={cn(
           "relative z-10 mr-2 flex min-w-0 flex-1 items-center text-left text-xs font-medium text-sidebar-foreground-quiet outline-none",
@@ -201,6 +207,7 @@ function SidebarSectionRowComponent({
       {hasActions || showRollupIndicator ? (
         <span
           data-sidebar-trailing-controls=""
+          aria-hidden="true"
           className={cn(
             "relative z-20 flex shrink-0 items-center self-stretch [@media(hover:hover)]:absolute [@media(hover:hover)]:inset-y-0 [@media(hover:hover)]:right-0",
             labelEditor && "hidden",

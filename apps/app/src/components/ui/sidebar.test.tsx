@@ -1116,6 +1116,40 @@ describe("mobile sidebar persistence", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("skips rows and controls a roving list took out of the Tab order", () => {
+    vi.useFakeTimers();
+    render(
+      <CompactViewportOverrideProvider isCompactViewport>
+        <SidebarProvider>
+          <Sidebar>
+            <a href="#first" tabIndex={-1}>
+              First row
+            </a>
+            <a href="#open" tabIndex={0}>
+              Open row
+            </a>
+            <button type="button" tabIndex={-1}>
+              Row action
+            </button>
+          </Sidebar>
+          <div data-testid="trigger-overlay">
+            <SidebarTrigger />
+          </div>
+        </SidebarProvider>
+      </CompactViewportOverrideProvider>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Toggle Sidebar" });
+    fireEvent.click(trigger);
+    settleMobileToggle();
+
+    act(() => trigger.focus());
+    fireEvent.keyDown(trigger, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByText("Open row"));
+    fireEvent.keyDown(screen.getByText("Open row"), { key: "Tab" });
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("moves focus only when a focus-visible trigger opens the drawer", () => {
     vi.useFakeTimers();
     render(

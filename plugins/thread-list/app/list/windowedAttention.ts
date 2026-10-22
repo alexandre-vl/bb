@@ -1,5 +1,5 @@
 export const SIDEBAR_WINDOWED_ATTENTION_ATTRIBUTE =
-  "data-sidebar-windowed-attention";
+  "data-sidebar-windowed-attention-counts";
 
 export interface SidebarWindowedAttention {
   needsYou: number;

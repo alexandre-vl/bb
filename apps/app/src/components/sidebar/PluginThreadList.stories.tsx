@@ -5,7 +5,12 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { PERSONAL_PROJECT_ID, type AppKeybinding } from "@bb/domain";
+import {
+  PERSONAL_PROJECT_ID,
+  type AppKeybinding,
+  type AppShortcut,
+} from "@bb/domain";
+import type { PluginThreadActionRegistration } from "@get-bb/plugin-sdk";
 import type { SidebarBootstrapResponse } from "@bb/server-contract";
 import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
 import { AppCommandProvider } from "@/components/commands/AppCommandProvider";
@@ -661,6 +666,18 @@ const V2_BACKGROUND_UPDATES: readonly {
     threadId: "thr_v2_rebase",
     patch: { hasPendingInteraction: true, queuedWork: "none" },
   },
+  {
+    action: "ask-fork",
+    label: "Fork needs input",
+    threadId: "thr_v2_fork",
+    patch: { hasPendingInteraction: true },
+  },
+  {
+    action: "finish-cold",
+    label: "Cold-start result",
+    threadId: "thr_v2_cold",
+    patch: { lastReadAt: 0, latestAttentionAt: V2_NOW },
+  },
 ];
 
 function patchV2Thread(
@@ -957,6 +974,164 @@ export function SidebarV2Phone() {
       <ThreadActionsProvider>
         <V2PhoneDrawer />
       </ThreadActionsProvider>
+    </QueryClientProvider>
+  );
+}
+
+function shortcut(
+  key: string,
+  modifiers: Partial<AppShortcut> = {},
+): AppShortcut {
+  return {
+    key,
+    mod: false,
+    meta: false,
+    control: false,
+    alt: false,
+    shift: false,
+    ...modifiers,
+  };
+}
+
+function listBinding(
+  command: AppKeybinding["command"],
+  keys: AppShortcut,
+): AppKeybinding {
+  return {
+    command,
+    desktopOnly: false,
+    shortcut: keys,
+    when: {
+      all: ["mainSurface", "sidebarListFocus"],
+      none: ["modalOpen", "editableFocus"],
+    },
+  };
+}
+
+const V2_KEYBINDINGS: AppKeybinding[] = [
+  {
+    command: "sidebar.focus",
+    desktopOnly: false,
+    shortcut: shortcut("l", { mod: true, shift: true }),
+    when: { all: ["mainSurface"], none: ["modalOpen"] },
+  },
+  listBinding("thread.archive", shortcut("e")),
+  listBinding("thread.rename", shortcut("F2")),
+  listBinding("thread.toggleRead", shortcut("u")),
+  listBinding("thread.previousAttention", shortcut("ArrowUp", { alt: true })),
+  listBinding("thread.nextAttention", shortcut("ArrowDown", { alt: true })),
+];
+
+const V2_NOTIFICATION_LEVELS: Readonly<Record<string, string>> = {
+  thr_v2_deploy: "Muted",
+  thr_v2_cold: "Needs input only",
+};
+
+const V2_NOTIFICATIONS_ACTION: PluginThreadActionRegistration<unknown> = {
+  id: "notifications",
+  title: "Notifications",
+  icon: "BellDot",
+  group: "1_state",
+  order: 50,
+  item: ({ thread }) => ({
+    label: "Notifications",
+    detail: V2_NOTIFICATION_LEVELS[thread.id] ?? "All activity",
+    icon: "BellDot",
+    run: () => {},
+  }),
+};
+
+function useNotificationLevels() {
+  useEffect(() => {
+    setPluginSlotRegistrations(
+      "push-notifications",
+      makePluginRegistrationSet({ threadActions: [V2_NOTIFICATIONS_ACTION] }),
+    );
+    return () => removePluginSlotRegistrations("push-notifications");
+  }, []);
+}
+
+function useKeyboardStoryClient() {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(
+      systemConfigQueryKey(),
+      makeSystemConfig({
+        keybindings: V2_KEYBINDINGS,
+        defaultKeybindings: V2_KEYBINDINGS,
+      }),
+    );
+    client.setQueryData(sidebarNavigationQueryKey(), v2Navigation());
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(V2_PREFERENCES);
+  useArchiveRoutes();
+  useThreadListPlugin();
+  useNotificationLevels();
+  return ready ? queryClient : null;
+}
+
+export function SidebarV2Keyboard() {
+  const queryClient = useKeyboardStoryClient();
+  if (!queryClient) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppCommandProvider>
+        <ThreadActionsProvider>
+          <main className="flex gap-6 p-6">
+            <V2Sidebar width={288} height={420} />
+            <BackgroundUpdateControls />
+          </main>
+        </ThreadActionsProvider>
+      </AppCommandProvider>
+    </QueryClientProvider>
+  );
+}
+
+function OpenDrawerButton() {
+  const { openMobileSidebar } = useSidebar();
+  return (
+    <button
+      type="button"
+      data-sv2-action="open-drawer"
+      className="rounded-md border border-border px-2 py-1"
+      onClick={openMobileSidebar}
+    >
+      Open sidebar
+    </button>
+  );
+}
+
+function V2DrawerSidebar() {
+  const replacement = useThreadListReplacement();
+  const { data } = useSidebarNavigation();
+  return (
+    <SidebarThreadEntriesProvider navigation={data}>
+      <SidebarProvider className="min-h-0 w-auto">
+        <OpenDrawerButton />
+        <Sidebar data-sidebar-v2-fixture="">
+          <SidebarContent>
+            <PluginThreadList replacement={replacement} onNavigate={() => {}} />
+          </SidebarContent>
+        </Sidebar>
+      </SidebarProvider>
+    </SidebarThreadEntriesProvider>
+  );
+}
+
+export function SidebarV2KeyboardDrawer() {
+  const queryClient = useKeyboardStoryClient();
+  if (!queryClient) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppCommandProvider>
+        <ThreadActionsProvider>
+          <main className="grid gap-4 p-4">
+            <V2DrawerSidebar />
+            <BackgroundUpdateControls />
+          </main>
+        </ThreadActionsProvider>
+      </AppCommandProvider>
     </QueryClientProvider>
   );
 }

@@ -99,6 +99,14 @@ import {
   getTreeLeafPaddingLeft,
 } from "../ui/tree-geometry.js";
 import {
+  SIDEBAR_ROW_COMMAND_ACTION_KEYS,
+  useSidebarRowCommands,
+} from "../list/keyboard/SidebarTreeKeyboard.js";
+import {
+  getTreePositionProps,
+  useSidebarTreePosition,
+} from "../list/keyboard/tree-position.js";
+import {
   SIDEBAR_TREE_ICON_SIZE_CLASS,
   SIDEBAR_TREE_ROW_ANCHOR_CLASS,
   SIDEBAR_TREE_ROW_BASE_CLASS,
@@ -322,6 +330,7 @@ function renderThreadActionsTrigger(props: PluginThreadActionsTriggerProps) {
         SIDEBAR_CONTROL_BUTTON_CLASS,
       )}
       aria-label="Thread actions"
+      tabIndex={-1}
       data-thread-actions-trigger=""
       onClick={(event) => {
         props.onClick?.(event);
@@ -461,6 +470,13 @@ function ThreadRowComponent({
       startEditing();
     },
   });
+  const commandActions = experimental_useThreadActions(actionTarget, {
+    keys: SIDEBAR_ROW_COMMAND_ACTION_KEYS,
+    requestRename: () => {
+      startEditing();
+    },
+  });
+  const treePosition = useSidebarTreePosition();
   const quickActions = isArchived
     ? actionEntries
     : actionEntries.filter((entry) => rowActionKeys.includes(entry.key));
@@ -601,6 +617,7 @@ function ThreadRowComponent({
   );
 
   const rowLinkRef = useRef<HTMLAnchorElement>(null);
+  useSidebarRowCommands(rowLinkRef, commandActions);
   useEffect(() => {
     if (isCustomizingActions) {
       focusFirstRowActionSlot(
@@ -670,6 +687,7 @@ function ThreadRowComponent({
         role="treeitem"
         tabIndex={-1}
         aria-level={options.depth + 2}
+        {...getTreePositionProps(treePosition)}
         aria-current={isActive ? "page" : undefined}
         aria-expanded={hasChildren ? !isParentCollapsed : undefined}
         aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
@@ -700,6 +718,7 @@ function ThreadRowComponent({
         <span className="sr-only">
           {labelTitle}
           {rowSummary.length > 0 ? `, ${rowSummary.join(", ")}` : ""}
+          {isOpenInSplit ? ", open in split" : ""}
         </span>
       </a>
       {hasChildren && parentOptions ? (
@@ -765,6 +784,7 @@ function ThreadRowComponent({
       ) : null}
       <span
         data-sidebar-thread-trailing=""
+        aria-hidden="true"
         className={cn(
           "pointer-events-none absolute inset-y-0 right-0 flex items-center",
           !isActionsOpen &&

@@ -61,9 +61,7 @@ describe("SidebarSectionRow", () => {
       ]),
     });
 
-    const disclosure = screen.getByRole("button", {
-      name: "Collapse Nested work section",
-    });
+    const disclosure = screen.getByLabelText("Collapse Nested work section");
     const item = screen.getByRole("treeitem");
     expect(
       disclosure.compareDocumentPosition(item) &
@@ -119,6 +117,7 @@ describe("SidebarSectionRow", () => {
     );
 
     const splitMaps = screen.getAllByRole("img", {
+      hidden: true,
       name: "Work / Build — contains a thread open in split",
     });
     const splitMap = splitMaps[0];

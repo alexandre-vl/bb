@@ -109,6 +109,7 @@ export function SidebarHeaderControls({
             variant="ghost"
             size="icon"
             aria-label={`${label} actions`}
+            tabIndex={-1}
             data-sidebar-rename-anchor=""
             className={cn(
               SIDEBAR_CONTROL_BUTTON_CLASS,

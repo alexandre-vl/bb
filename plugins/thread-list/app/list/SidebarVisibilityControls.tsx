@@ -84,6 +84,7 @@ export function SidebarMore({
   onCustomize,
   selected = false,
   testIdPrefix = "sidebar-navigation",
+  treeItem = false,
 }: {
   activity?: ReactNode;
   ariaLabel: string;
@@ -93,6 +94,7 @@ export function SidebarMore({
   onCustomize: () => void;
   selected?: boolean;
   testIdPrefix?: string;
+  treeItem?: boolean;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [page, setPage] = useState<CompactOverflowPage | null>(null);
@@ -115,6 +117,15 @@ export function SidebarMore({
                   size="sm"
                   variant="ghost"
                   aria-label={ariaLabel}
+                  {...(treeItem
+                    ? {
+                        role: "treeitem",
+                        tabIndex: -1,
+                        "aria-level": 1,
+                        "aria-expanded": undefined,
+                        "data-sidebar-tree-item": "",
+                      }
+                    : {})}
                   className={cn(
                     PROJECT_LIST_ACTION_BUTTON_CLASS,
                     SIDEBAR_DISCLOSURE_ACTION_CLASS,

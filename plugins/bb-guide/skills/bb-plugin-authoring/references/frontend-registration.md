@@ -492,6 +492,26 @@ silently stop working:
 <a data-sidebar-thread-shortcut-target="" data-sidebar-thread-id={thread.id}>
 ```
 
+**bb's list keys.** Mark the list's root `data-sidebar-thread-tree`: focus
+inside it turns on the `sidebarListFocus` context that E (archive), F2
+(rename), U (read/unread) and Alt+Up/Down (previous/next row that needs you)
+require. Handle them with `experimental_useSidebarListCommand`; inside the
+list it runs before the open thread's handler, so E archives the focused row
+and not the open thread. Return false to let the next handler run. Run the
+row's action through `experimental_useThreadActions`:
+
+```tsx
+experimental_useSidebarListCommand("thread.archive", ({ target }) => {
+  const archive = archiveEntryForRow(target); // your row lookup
+  if (!archive) return false;
+  void archive.action.run(); // key "bb--core/archive": confirmation and Undo
+  return true;
+});
+```
+
+Test it with `behavior.experimental_runSidebarListCommand(command, target)`
+from `renderSlot(...)`.
+
 ### The provider directory
 
 `experimental_useProviders()` returns `{ status, providers }` — every

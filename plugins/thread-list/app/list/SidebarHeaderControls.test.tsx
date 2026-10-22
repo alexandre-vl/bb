@@ -81,6 +81,7 @@ function setup(
 async function openMenu(label = "Pinned") {
   fireEvent.keyDown(
     screen.getByRole("button", {
+      hidden: true,
       name: new RegExp(`^${label} actions(?:;|$)`),
     }),
     {
@@ -141,6 +142,7 @@ describe("sidebar header controls", () => {
   it("keeps the primary before overflow and applies the shared control state", async () => {
     const { newThread } = setup("Pinned", false, "chronological");
     const primary = screen.getByRole("button", {
+      hidden: true,
       name: "New thread in Pinned",
     });
     expect(primary.nextElementSibling?.getAttribute("aria-label")).toBe(
@@ -296,7 +298,10 @@ describe("sidebar header controls", () => {
       setup("Pinned", false, "project", compact, customize);
       if (compact) {
         fireEvent.click(
-          screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+          screen.getByRole("button", {
+            hidden: true,
+            name: /^Pinned actions(?:;|$)/,
+          }),
         );
         fireEvent.click(
           await screen.findByRole("menuitem", { name: "Organize" }),
@@ -310,7 +315,7 @@ describe("sidebar header controls", () => {
       );
       await waitFor(() => expect(customize).toHaveBeenCalledTimes(1));
       expect(customize).toHaveBeenCalledWith(
-        screen.getByRole("button", { name: /^Pinned actions/ }),
+        screen.getByRole("button", { hidden: true, name: /^Pinned actions/ }),
       );
     },
   );
@@ -350,7 +355,10 @@ describe("sidebar header controls", () => {
   it("announces compact sort direction and resets the nested page after closing", async () => {
     const { store } = setup("Pinned", false, "project", true);
     fireEvent.click(
-      screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: /^Pinned actions(?:;|$)/,
+      }),
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Sort by" }));
     fireEvent.click(
@@ -376,13 +384,19 @@ describe("sidebar header controls", () => {
         .getAttribute("aria-checked"),
     ).toBe("true");
     fireEvent.click(
-      screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: /^Pinned actions(?:;|$)/,
+      }),
     );
     await waitFor(() =>
       expect(screen.queryByRole("menuitem", { name: "Back" })).toBeNull(),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: /^Pinned actions(?:;|$)/,
+      }),
     );
     expect(
       await screen.findByRole("menuitem", { name: "New section" }),
@@ -397,7 +411,10 @@ it.each([false, true])(
     const { store } = setup("Pinned", false, "project", compact);
     if (compact) {
       fireEvent.click(
-        screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+        screen.getByRole("button", {
+          hidden: true,
+          name: /^Pinned actions(?:;|$)/,
+        }),
       );
       fireEvent.click(await screen.findByRole("menuitem", { name: "Filter" }));
     } else {

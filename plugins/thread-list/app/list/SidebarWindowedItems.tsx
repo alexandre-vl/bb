@@ -22,9 +22,35 @@ import {
   SIDEBAR_WINDOWED_ATTENTION_ATTRIBUTE,
   type SidebarWindowedAttention,
 } from "./windowedAttention.js";
+import {
+  SidebarTreePositionProvider,
+  type SidebarTreePosition,
+} from "./keyboard/tree-position.js";
 
 const WINDOW_VIEWPORT_MARGIN_PX = 240;
 const DEFAULT_ROW_HEIGHT_PX = 30;
+const TAB_STOP_SELECTOR = '[data-sidebar-tree-item][tabindex="0"]';
+
+type RealizeRequest = (onRealized: () => void) => void;
+
+const realizeRequests = new WeakMap<Element, RealizeRequest>();
+
+export function realizeWindowedItem(
+  wrapper: Element,
+  onRealized: () => void,
+): boolean {
+  const request = realizeRequests.get(wrapper);
+  if (!request) return false;
+  request(onRealized);
+  return true;
+}
+
+function holdsKeyboardFocus(wrapper: Element): boolean {
+  return (
+    wrapper.querySelector(TAB_STOP_SELECTOR) !== null ||
+    wrapper.contains(wrapper.ownerDocument.activeElement)
+  );
+}
 
 interface MeasuredItemHeight {
   height: number;
@@ -40,6 +66,8 @@ interface SidebarWindowedItemsProps {
     index: number,
   ) => readonly SidebarWindowedNavigationEntry[];
   getAttention?: (index: number) => SidebarWindowedAttention;
+  hasAttention?: (index: number) => boolean;
+  trailingSetItems?: number;
   renderItem: (index: number) => ReactNode;
 }
 
@@ -89,6 +117,8 @@ export function SidebarWindowedItems({
   alwaysMountedKeys = EMPTY_KEY_SET,
   getNavigationEntries,
   getAttention,
+  hasAttention,
+  trailingSetItems = 0,
   renderItem,
 }: SidebarWindowedItemsProps) {
   const scrollElementRef = useSidebarContentElementRef();
@@ -109,8 +139,21 @@ export function SidebarWindowedItems({
   const estimateRowsRef = useRef(estimateRows);
   estimateRowsRef.current = estimateRows;
   const rowsByKeyRef = useRef(new Map<string, number>());
+  const pendingRealizeRef = useRef(new Map<string, (() => void)[]>());
 
   const keySignature = useMemo(() => itemKeys.join("\u0000"), [itemKeys]);
+  const setSize = itemKeys.length + trailingSetItems;
+  const positions = useMemo(
+    () =>
+      Array.from(
+        { length: itemKeys.length },
+        (_, index): SidebarTreePosition => ({
+          posinset: index + 1,
+          setsize: setSize,
+        }),
+      ),
+    [itemKeys.length, setSize],
+  );
 
   useLayoutEffect(() => {
     if (!focusItemKey) return;
@@ -134,6 +177,18 @@ export function SidebarWindowedItems({
         if (node) {
           wrapperByKeyRef.current.set(key, node);
           keyByWrapperRef.current.set(node, key);
+          realizeRequests.set(node, (onRealized) => {
+            if (!node.hasAttribute("data-sidebar-windowed-placeholder")) {
+              onRealized();
+              return;
+            }
+            const pending = pendingRealizeRef.current.get(key) ?? [];
+            pending.push(onRealized);
+            pendingRealizeRef.current.set(key, pending);
+            setRealizedKeys((previous) =>
+              mergeRealizedKeys(previous, { add: [key] }),
+            );
+          });
           observerRef.current?.observe(node);
         } else {
           wrapperByKeyRef.current.delete(key);
@@ -143,6 +198,20 @@ export function SidebarWindowedItems({
     }
     return callback;
   }, []);
+
+  useLayoutEffect(() => {
+    const pending = pendingRealizeRef.current;
+    if (pending.size === 0) return;
+    for (const [key, callbacks] of pending) {
+      const wrapper = wrapperByKeyRef.current.get(key);
+      if (wrapper?.hasAttribute("data-sidebar-windowed-placeholder") ?? true) {
+        if (!wrapper) pending.delete(key);
+        continue;
+      }
+      pending.delete(key);
+      for (const callback of callbacks) callback();
+    }
+  });
 
   const resolveScrollElement = useCallback((): Element | null => {
     const fromRef = scrollElementRef?.current ?? null;
@@ -253,7 +322,10 @@ export function SidebarWindowedItems({
             }
             if (entry.isIntersecting) {
               intended.set(key, true);
-            } else if (!alwaysMountedKeysRef.current.has(key)) {
+            } else if (
+              !alwaysMountedKeysRef.current.has(key) &&
+              !holdsKeyboardFocus(entry.target)
+            ) {
               intended.set(key, false);
               recordMeasuredHeight(key, entry.boundingClientRect.height);
             }
@@ -311,6 +383,7 @@ export function SidebarWindowedItems({
         let placeholderHeight: number | undefined;
         let navigationValue: string | undefined;
         let attentionValue: string | undefined;
+        let attention = false;
         if (!isRealized) {
           const measured = measuredHeightsRef.current.get(key);
           placeholderHeight =
@@ -322,16 +395,19 @@ export function SidebarWindowedItems({
             entries && entries.length > 0
               ? encodeSidebarWindowedNavigationEntries(entries)
               : undefined;
-          const attention = getAttention?.(index);
-          attentionValue = attention
-            ? encodeSidebarWindowedAttention(attention)
+          const counts = getAttention?.(index);
+          attentionValue = counts
+            ? encodeSidebarWindowedAttention(counts)
             : undefined;
+          attention = hasAttention?.(index) ?? false;
         }
         return (
           <div
             key={key}
             ref={getWrapperRefCallback(key)}
             data-sidebar-windowed-item=""
+            data-sidebar-windowed-placeholder={isRealized ? undefined : ""}
+            data-sidebar-windowed-attention={attention ? "true" : undefined}
             {...(navigationValue !== undefined
               ? { [SIDEBAR_WINDOWED_NAV_ATTRIBUTE]: navigationValue }
               : undefined)}
@@ -340,7 +416,11 @@ export function SidebarWindowedItems({
               : undefined)}
             style={isRealized ? undefined : { height: placeholderHeight }}
           >
-            {isRealized ? renderItem(index) : null}
+            {isRealized ? (
+              <SidebarTreePositionProvider value={positions[index] ?? null}>
+                {renderItem(index)}
+              </SidebarTreePositionProvider>
+            ) : null}
           </div>
         );
       })}

@@ -314,7 +314,7 @@ describe("thread-list plugin", () => {
       "thr_personal",
     ]);
     expect(
-      screen.getByRole("button", { name: "Collapse Parent thread threads" }),
+      screen.getByLabelText("Collapse Parent thread threads"),
     ).not.toBeNull();
   });
 
@@ -395,7 +395,10 @@ describe("thread-list plugin", () => {
     const { inspection } = renderList({ organizationMode: "machine" });
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "New thread in Laptop" }),
+      await screen.findByRole("button", {
+        hidden: true,
+        name: "New thread in Laptop",
+      }),
     );
 
     expect(inspection.navigateCalls).toContainEqual({

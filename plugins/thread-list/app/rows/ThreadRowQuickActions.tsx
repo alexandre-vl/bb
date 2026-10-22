@@ -54,6 +54,7 @@ function ThreadQuickActionButton({
           className={cn("rounded-md p-0", className)}
           aria-label={action.label}
           aria-keyshortcuts={entry.experimental_shortcut?.ariaKeyshortcuts}
+          tabIndex={-1}
           data-thread-action={entry.key}
           disabled={action.disabled || isRunning}
           onClick={(event) => {
@@ -109,6 +110,7 @@ function ThreadQuickActionChoices({
                   : `${action.label}, ${action.detail}`
               }
               aria-keyshortcuts={entry.experimental_shortcut?.ariaKeyshortcuts}
+              tabIndex={-1}
               data-thread-action={entry.key}
               disabled={action.disabled}
               onClick={(event) => {

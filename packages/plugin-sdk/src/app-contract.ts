@@ -2162,6 +2162,25 @@ export interface PluginThreadActionRegistrationInfo {
   icon: BbIconName;
 }
 
+/**
+ * A bb command that {@link PluginSdkApp.experimental_useSidebarListCommand}
+ * can handle for the thread list: archive (E), rename (F2), toggle read (U)
+ * and move to the previous or next row that needs attention (Alt+Up and
+ * Alt+Down), or whatever keys the user bound to them.
+ */
+export type ExperimentalSidebarListCommand =
+  | "thread.archive"
+  | "thread.rename"
+  | "thread.toggleRead"
+  | "thread.previousAttention"
+  | "thread.nextAttention";
+
+/** What a {@link PluginSdkApp.experimental_useSidebarListCommand} handler receives. */
+export interface ExperimentalSidebarListCommandInvocation {
+  /** The focused element inside the thread list when the command ran. */
+  target: Element;
+}
+
 /** Options for {@link PluginSdkApp.experimental_useThreadActions}. */
 export interface PluginThreadActionsOptions {
   /** Return only these keys, in this order. Omit for every action in menu order. */
@@ -4465,6 +4484,20 @@ export interface PluginSdkApp {
   experimental_useArchiveEnvironmentThreads(): (
     environmentId: string,
   ) => Promise<void>;
+  /**
+   * Handle a bb command while keyboard focus is inside the thread list: the
+   * element marked `data-sidebar-thread-tree`, which turns on the
+   * `sidebarListFocus` context its default keys need. Inside the list the
+   * handler runs before the open thread's, so E archives the focused row
+   * rather than the open thread. Return true once handled; false lets the
+   * next handler run. Reach the row's action through
+   * `experimental_useThreadActions`, the path bb's own commands take.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_useSidebarListCommand(
+    command: ExperimentalSidebarListCommand,
+    handler: (invocation: ExperimentalSidebarListCommandInvocation) => boolean,
+  ): void;
   /**
    * Every thread action for one thread, in menu order (see
    * {@link PluginThreadAction} for grouping): bb's own registrations first,
