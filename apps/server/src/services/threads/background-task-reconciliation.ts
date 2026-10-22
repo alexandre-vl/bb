@@ -8,8 +8,7 @@ import {
   type OpenBackgroundTaskItemRow,
 } from "@bb/db";
 import {
-  backgroundTaskItemStatus,
-  isSettledBackgroundTaskStatus,
+  stoppedBackgroundTaskItem,
   threadEventBackgroundTaskItemSchema,
   threadScope,
 } from "@bb/domain";
@@ -19,6 +18,11 @@ import { appendThreadEventsInTransaction } from "./thread-events.js";
 
 interface SettleDanglingBackgroundTasksArgs {
   hostId: string;
+  reason:
+    | "host-connection-lost"
+    | "host-daemon-restarted"
+    | "host-removed"
+    | "machine-suspended";
 }
 
 type SettleDanglingBackgroundTasksDeps = Pick<AppDeps, "db" | "hub" | "logger">;
@@ -69,6 +73,14 @@ export function settleDanglingBackgroundTasks(
     { behavior: "immediate" },
   );
 
+  deps.logger.info(
+    {
+      hostId: args.hostId,
+      reason: args.reason,
+      threadIds: [...settledThreadIds],
+    },
+    "Settled background tasks left open on the host",
+  );
   for (const threadId of settledThreadIds) {
     deps.hub.notifyThread(threadId, ["events-appended"], {
       timelineSequence: getLatestThreadSequence(deps.db, {
@@ -110,9 +122,6 @@ function appendDanglingBackgroundTaskCompletions(
       continue;
     }
     const providerThreadId = row.providerThreadId ?? "";
-    const taskStatus = isSettledBackgroundTaskStatus(item.taskStatus)
-      ? item.taskStatus
-      : "stopped";
     appendThreadEventsInTransaction(deps.db, [
       {
         threadId: row.threadId,
@@ -122,11 +131,7 @@ function appendDanglingBackgroundTaskCompletions(
         scope: threadScope(),
         data: {
           providerThreadId,
-          item: {
-            ...item,
-            status: backgroundTaskItemStatus(taskStatus),
-            taskStatus,
-          },
+          item: stoppedBackgroundTaskItem(item),
         },
       },
     ]);
