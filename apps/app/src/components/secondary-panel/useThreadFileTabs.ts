@@ -644,36 +644,38 @@ export function useThreadFileTabs({
       });
       let opened = false;
       updateFixedPanelTabsState((state) => {
-        if (
-          replaceTabId !== undefined &&
-          findSecondaryPanelTab(state.secondary.tabs, replaceTabId) === null
-        ) {
-          return state;
+        if (replaceTabId !== undefined) {
+          const replaced = findSecondaryPanelTab(
+            state.secondary.tabs,
+            replaceTabId,
+          );
+          if (
+            replaced === null ||
+            replaced.kind !== "plugin-panel" ||
+            replaced.pluginId !== pluginId
+          ) {
+            return state;
+          }
         }
         opened = true;
-        const replace = (nextState: typeof state, nextTab: typeof tab) =>
-          replaceTabId === undefined
-            ? replaceNewTabWithSecondaryPanelTabInState({
-                state: nextState,
-                tab: nextTab,
-              })
-            : replaceSecondaryPanelTabInState({
-                replacedTabId: replaceTabId,
-                state: nextState,
-                tab: nextTab,
-              });
         const existing = findSecondaryPanelTab(state.secondary.tabs, tab.id);
-        if (existing !== null && existing.kind === "plugin-panel") {
-          const withTitle =
-            existing.title === title
-              ? state
-              : updateSecondaryPanelTabInState({
-                  state,
-                  tab: { ...existing, title },
-                });
-          return replace(withTitle, existing);
-        }
-        return replace(state, tab);
+        const withTitle =
+          existing !== null &&
+          existing.kind === "plugin-panel" &&
+          existing.title !== title
+            ? updateSecondaryPanelTabInState({
+                state,
+                tab: { ...existing, title },
+              })
+            : state;
+        return replaceTabId === undefined
+          ? replaceNewTabWithSecondaryPanelTabInState({ state: withTitle, tab })
+          : replaceSecondaryPanelTabInState({
+              replacedTabId: replaceTabId,
+              reveal: false,
+              state: withTitle,
+              tab,
+            });
       });
       if (opened && recentlyClosedPanelContextKey !== null) {
         forgetClosedPanelTab(recentlyClosedPanelContextKey, tab.id);

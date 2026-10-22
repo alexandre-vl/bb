@@ -209,6 +209,11 @@ describe("GitHub links opened from a thread", () => {
     },
     {
       action: "pull",
+      href: "https://github.com/Get-BB/BB/pull/42",
+      claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
+    },
+    {
+      action: "pull",
       href: "https://github.com/get-bb/bb/pull/42/files",
       claim: null,
     },
@@ -253,7 +258,7 @@ describe("GitHub links opened from a thread", () => {
     expect(claimUrl?.(new URL(href))).toEqual(claim);
   });
 
-  it("shows the linked pull request rather than the thread's own", async () => {
+  it("shows the linked pull request rather than the thread's own, outside its workspace", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
       { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
@@ -268,6 +273,15 @@ describe("GitHub links opened from a thread", () => {
               pull: pullDetail({
                 number,
                 title: number === 7 ? "Linked PR" : "Thread PR",
+                files: [
+                  {
+                    path: "modified.ts",
+                    status: "modified",
+                    additions: 1,
+                    deletions: 0,
+                    patch: "@@ -0,0 +1 @@\n+added",
+                  },
+                ],
               }),
             };
           },
@@ -279,6 +293,37 @@ describe("GitHub links opened from a thread", () => {
     expect(await slot.findByText("Linked PR")).toBeTruthy();
     expect(slot.queryByText("Thread PR")).toBeNull();
     expect(slot.queryByText(/All PRs/)).toBeNull();
+    await act(async () => {});
+    expect(slot.getByText("modified.ts").closest("a")).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("shows the agent linked to a pull request whatever the case of its repository", async () => {
+    const slot = renderSlot(
+      threadPanelAction("pull"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      {
+        rpc: {
+          pullForThread: () => ({ pull: null }),
+          getPull: () => ({ pull: pullDetail({ number: 7 }) }),
+          listLinks: () => ({
+            links: {
+              "pr:Get-BB/BB#7": [
+                {
+                  kind: "pr",
+                  repo: "Get-BB/BB",
+                  number: 7,
+                  threadId: "thr-agent",
+                  createdAt: "2026-08-20T00:00:00.000Z",
+                },
+              ],
+            },
+          }),
+        },
+      },
+    );
+
+    expect(await slot.findByTitle("Open BB thread thr-agent")).toBeTruthy();
     slot.lifecycle.unmount();
   });
 

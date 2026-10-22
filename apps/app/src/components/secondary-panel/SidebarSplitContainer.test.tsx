@@ -385,6 +385,76 @@ describe("SidebarSplitContainer", () => {
     expect(document.querySelectorAll("[data-split-pane-id]")).toHaveLength(2);
   });
 
+  it("keeps a tab replaced in an unfocused pane in that pane", async () => {
+    const initial = createSidebarSplitState(
+      TABS.map((tab) => tab.id),
+      "tab-a",
+    );
+    const topPaneId = initial.layout.focusedPaneId;
+    persistState(
+      focusSidebarPane(
+        moveSidebarTab(
+          initial,
+          topPaneId,
+          "tab-b",
+          { paneId: topPaneId, zone: "bottom" },
+          { groupId: "group-b" },
+        ),
+        topPaneId,
+      ),
+    );
+
+    function Harness() {
+      const [replaced, setReplaced] = useState(false);
+      const tabs = replaced
+        ? [
+            TABS[0] as SidebarSplitTabDescriptor,
+            {
+              id: "pull-42",
+              label: "PR #42",
+              restoresPlacementAfterRemoval: true,
+            },
+          ]
+        : TABS;
+      return (
+        <>
+          <button type="button" onClick={() => setReplaced(true)}>
+            Replace B
+          </button>
+          <SidebarSplitContainer
+            activeTabId="tab-a"
+            isFullScreen={false}
+            onActivateTab={vi.fn()}
+            onGlobalTabReorder={vi.fn()}
+            onToggleFullScreen={vi.fn()}
+            panelStateId={PANEL_STATE_ID}
+            renderPane={({ group, paneId }) => (
+              <div data-testid={`pane-tabs-${paneId}`}>
+                {group.tabIds.join(",")}
+              </div>
+            )}
+            tabs={tabs}
+          />
+        </>
+      );
+    }
+
+    render(
+      <SidebarProvider>
+        <TooltipProvider>
+          <Harness />
+        </TooltipProvider>
+      </SidebarProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Replace B" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId(/pane-tabs-/).map((pane) => pane.textContent),
+      ).toEqual(["tab-a", "pull-42"]),
+    );
+  });
+
   it("appends a transient launcher instead of restoring its removed position", async () => {
     const launcher: SidebarSplitTabDescriptor = {
       id: "new-tab",

@@ -93,7 +93,7 @@ describe.each(SURFACES)("panel plugin tabs on the $name", (surface) => {
     expect(reveal).not.toHaveBeenCalled();
   });
 
-  it("replaces the calling tab when asked, and reports a tab state decline", () => {
+  it("replaces the calling tab in place without revealing the panel, and reports a tab state decline", () => {
     const accepted = renderSurface(surface);
     expect(
       accepted.openThreadPanel({
@@ -110,6 +110,7 @@ describe.each(SURFACES)("panel plugin tabs on the $name", (surface) => {
       paramsJson: JSON.stringify({ id: 7 }),
       replaceTabId: "plugin-panel:demo:board:",
     });
+    expect(accepted.reveal).not.toHaveBeenCalled();
 
     const declined = renderSurface(surface, true, false);
     expect(

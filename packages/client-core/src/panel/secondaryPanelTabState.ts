@@ -32,6 +32,7 @@ interface ReplaceNewTabWithSecondaryPanelTabInStateArgs {
 
 interface ReplaceSecondaryPanelTabInStateArgs {
   replacedTabId: string | undefined;
+  reveal: boolean;
   state: FixedPanelTabsState;
   tab: FixedPanelTab;
 }
@@ -302,6 +303,7 @@ export function openSecondaryPanelTabInState({
 
 export function replaceSecondaryPanelTabInState({
   replacedTabId,
+  reveal,
   state,
   tab,
 }: ReplaceSecondaryPanelTabInStateArgs): FixedPanelTabsState {
@@ -316,28 +318,22 @@ export function replaceSecondaryPanelTabInState({
   const existingTab = tabsWithoutReplacedTab.find(
     (currentTab) => currentTab.id === tab.id,
   );
-
-  if (existingTab) {
-    return setSecondaryPanelTabsInState({
-      replacedTabId: replacedTab?.id,
-      activeTabId: existingTab.id,
-      isOpen: true,
-      state,
-      tabs: tabsWithoutReplacedTab,
-    });
-  }
-
   const tabs =
-    replacedTab === null
-      ? upsertSecondaryPanelTab(tabsWithoutReplacedTab, tab, false)
-      : state.secondary.tabs.map((currentTab) =>
-          currentTab.id === replacedTab.id ? tab : currentTab,
-        );
+    existingTab !== undefined
+      ? tabsWithoutReplacedTab
+      : replacedTab === null
+        ? upsertSecondaryPanelTab(tabsWithoutReplacedTab, tab, false)
+        : state.secondary.tabs.map((currentTab) =>
+            currentTab.id === replacedTab.id ? tab : currentTab,
+          );
+  const takesFocus =
+    reveal ||
+    (replacedTab !== null && state.secondary.activeTabId === replacedTab.id);
 
   return setSecondaryPanelTabsInState({
     replacedTabId: replacedTab?.id,
-    activeTabId: tab.id,
-    isOpen: true,
+    activeTabId: takesFocus ? tab.id : state.secondary.activeTabId,
+    isOpen: reveal || state.secondary.isOpen,
     state,
     tabs,
   });
@@ -349,6 +345,7 @@ export function replaceNewTabWithSecondaryPanelTabInState({
 }: ReplaceNewTabWithSecondaryPanelTabInStateArgs): FixedPanelTabsState {
   return replaceSecondaryPanelTabInState({
     replacedTabId: state.secondary.tabs.find(isNewTab)?.id,
+    reveal: true,
     state,
     tab,
   });

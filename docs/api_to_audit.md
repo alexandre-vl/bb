@@ -2069,20 +2069,32 @@ pull request, and when someone picks a pull request or issue in one.
 experimental_replace: true })` opens the tab in place of the side-panel tab
 the calling component renders in, so a tab that finds out what it shows takes
 that item's params, and a later open or claimed link with the same params
-focuses it. When a tab with those params is already open, bb focuses it and
-closes the calling tab. It returns false when the caller is not inside one of
-its own plugin's side-panel tabs (another plugin's content nested in the tab
-included), or once that tab has closed.
+focuses it. The new tab keeps the calling tab's place and split pane, is
+active only if the calling tab was, and leaves a closed panel closed, since a
+lookup can finish after the person moved on. When a tab with those params is
+already open, bb closes the calling tab instead, and focuses the open one if
+the calling tab was active. It returns false when the caller is not inside one
+of its own plugin's side-panel tabs (another plugin's content nested in the
+tab included), or once that tab has closed.
 
-**Core callers.** `PluginPanelTabContent` renders each plugin tab inside
-`PluginPanelTabContext`, which `useBbNavigate` reads to turn the flag into
-the tab's id, in the thread view and on the New thread screen. The opener
-passes it through `usePanelPluginPanels` and `createPanelActionOpenPanel` to
-`useThreadFileTabs().openPluginPanel`, whose `replaceSecondaryPanelTabInState`
-is the transition core uses when an item picked in the new-tab launcher
-replaces the launcher. `useThreadFileTabs.test.ts` covers the tab state,
-`usePanelPluginPanels.test.tsx` the opener on both surfaces, and
-`plugin-thread-panel-navigation.test.tsx` who may replace a tab.
+**Core callers.** Every plugin-facing panel opener goes through
+`openPluginThreadPanel` (`plugin-thread-panel-navigation.tsx`):
+`useBbNavigate`, a thread action's `navigate`, and the `openPanel` of
+command palette and message actions. It forwards only the plugin's id,
+`actionId`, `title`, and `params`, and turns the flag into the calling tab's
+id only inside that plugin's own tab, which `PluginPanelTabContent` provides
+through `PluginPanelTabContext` in the thread view and on the New thread
+screen. `usePanelPluginPanels` hands the id to
+`useThreadFileTabs().openPluginPanel`, which refuses a tab that is not that
+plugin's, and does not reveal the panel for a replacement.
+`replaceSecondaryPanelTabInState` is the transition core uses when an item
+picked in the new-tab launcher replaces the launcher; that path still focuses
+the result and opens the panel. `SidebarSplitContainer` keeps any tab
+replaced in place in its pane (`findReplacedSidebarTab`). Tests:
+`plugin-thread-panel-navigation.test.tsx` runs one table against every opener
+surface, `useThreadFileTabs.test.ts` covers the tab state, including a closed
+panel and an inactive caller, `usePanelPluginPanels.test.tsx` the opener, and
+`SidebarSplitContainer.test.tsx` the split panes.
 
 Docs: `frontend-hooks-and-ui.md`, `frontend-core-slots.md`.
 
@@ -2093,10 +2105,6 @@ Docs: `frontend-hooks-and-ui.md`, `frontend-core-slots.md`.
    tab rather than where they were looking.
 2. **History.** A replaced tab is not offered by Reopen closed tab. Decide
    whether back navigation inside a tab should restore the params it replaced.
-3. **Split panes.** The replacement becomes the active tab, as an item
-   picked in the new-tab launcher does, so a tab replaced while another pane
-   is focused lands in the focused pane. Confirm that is acceptable or carry
-   the pane over.
 
 ## `app.slots.experimental_newThreadPanelAction` (`@get-bb/plugin-sdk/app`)
 

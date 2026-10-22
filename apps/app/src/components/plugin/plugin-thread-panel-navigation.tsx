@@ -48,6 +48,31 @@ export function usePluginPanelTab(): PluginPanelTabIdentity | null {
   return useContext(PluginPanelTabContext);
 }
 
+export function openPluginThreadPanel({
+  open,
+  options,
+  panelTab,
+  pluginId,
+}: {
+  open: PluginThreadPanelOpenHandler | null;
+  options: PluginTargetedPanelActionOpenOptions & {
+    experimental_replace?: boolean;
+  };
+  panelTab: PluginPanelTabIdentity | null;
+  pluginId: string;
+}): boolean {
+  if (open === null) return false;
+  const request = {
+    pluginId,
+    actionId: options.actionId,
+    ...(options.title === undefined ? {} : { title: options.title }),
+    ...(options.params === undefined ? {} : { params: options.params }),
+  };
+  if (options.experimental_replace !== true) return open(request);
+  if (panelTab === null || panelTab.pluginId !== pluginId) return false;
+  return open({ ...request, replaceTabId: panelTab.tabId });
+}
+
 const focusedOpeners = new Map<symbol, PluginThreadPanelOpenHandler>();
 
 export function usePublishThreadPanelOpener(

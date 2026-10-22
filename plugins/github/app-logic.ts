@@ -22,6 +22,25 @@ const ITEM_URL_SECTIONS = new Map<string, Item["kind"]>([
   ["pull", "pr"],
 ]);
 
+export function isSameItem(a: ItemRef, b: ItemRef): boolean {
+  return a.number === b.number && a.repo.toLowerCase() === b.repo.toLowerCase();
+}
+
+export function linkKey(kind: Item["kind"], item: ItemRef): string {
+  return `${kind}:${item.repo.toLowerCase()}#${item.number}`;
+}
+
+export function byLinkKey<T>(
+  entriesByKey: Record<string, T[]>,
+): Record<string, T[]> {
+  const keyed: Record<string, T[]> = {};
+  for (const [key, entries] of Object.entries(entriesByKey)) {
+    const normalized = key.toLowerCase();
+    keyed[normalized] = [...(keyed[normalized] ?? []), ...entries];
+  }
+  return keyed;
+}
+
 export function itemUrl(kind: Item["kind"], item: ItemRef): string {
   const section = kind === "pr" ? "pull" : "issues";
   return `https://github.com/${item.repo}/${section}/${item.number}`;
@@ -53,7 +72,7 @@ export function itemTabOptions(
 ): PluginPanelActionOpenOptions {
   return {
     title: `${kind === "pr" ? "PR" : "Issue"} #${item.number}`,
-    params: { repo: item.repo, number: item.number },
+    params: { repo: item.repo.toLowerCase(), number: item.number },
   };
 }
 

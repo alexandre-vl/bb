@@ -14,10 +14,13 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import {
   buildSuggestions,
+  byLinkKey,
   claimItemUrl,
+  isSameItem,
   itemRefFromParams,
   itemTabOptions,
   itemUrl,
+  linkKey,
   matchesQuery,
   parseQuery,
   parseSubPath,
@@ -129,7 +132,7 @@ function useLinks(): LinksMap {
   const [links, setLinks] = useState<LinksMap>({});
   const refetch = useCallback(() => {
     rpc.call("listLinks").then(
-      (result) => setLinks(result.links),
+      (result) => setLinks(byLinkKey(result.links)),
       () => {},
     );
   }, [rpc]);
@@ -800,7 +803,7 @@ function ItemsTable({
           <ItemRow
             key={`${item.repo}#${item.number}`}
             item={item}
-            links={links[`${kind}:${item.repo}#${item.number}`]}
+            links={links[linkKey(kind, item)]}
             onOpen={() => onOpenItem(item.repo, item.number)}
           />
         ))}
@@ -1088,7 +1091,7 @@ function IssueDetailView({
     return <DetailSkeleton />;
   }
 
-  const issueLinks = links[`issue:${repo}#${number}`];
+  const issueLinks = links[linkKey("issue", { repo, number })];
   return (
     <div className="@container/github-detail flex flex-col gap-4">
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1678,7 +1681,7 @@ function PullDetailView({
     return <DetailSkeleton />;
   }
 
-  const pullLinks = links[`pr:${repo}#${number}`];
+  const pullLinks = links[linkKey("pr", { repo, number })];
   const mainColumn = (
     <div className="flex min-w-0 flex-1 flex-col gap-4">
       <ChecksSection checks={pull.checks} />
@@ -1899,10 +1902,6 @@ const ITEM_PANEL_ACTION_IDS: Record<Item["kind"], string> = {
   pr: "pull",
   issue: "issue",
 };
-
-function isSameItem(a: ItemRef, b: ItemRef): boolean {
-  return a.repo === b.repo && a.number === b.number;
-}
 
 function useThreadPull(
   threadId: string,
