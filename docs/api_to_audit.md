@@ -2009,6 +2009,53 @@ Docs: `frontend-core-slots.md`.
    standard slot-owned CSS retention are the right failure semantics for UI
    that may have no in-layout representation.
 
+## `PluginThreadPanelActionRegistration.experimental_claimUrl` (`@get-bb/plugin-sdk/app`)
+
+**Added 2026-10-22 (SDK 0.6.69).** One consumer: the GitHub plugin's GitHub
+PR and GitHub issue tabs.
+
+A `threadPanelAction` claims web links its tab can show. A plain primary click
+on an http(s) link in Markdown inside a thread view (the timeline, and
+Markdown in its side panel, inline or hosted by a split pane) asks each
+action's claim in slot order, with a fresh `URL` each, before bb opens the
+link. The first claim that returns `{ title?, params? }` opens that action's
+tab with those options, as `openPanel` would, and `run` is not called. Null,
+or undefined, passes the link on to the next claim, then to the browser.
+Cmd-, Ctrl-, Shift-, and Alt-clicks skip claims, a claim the side panel
+declines falls back to the browser, and a claim that throws or returns
+anything but options or null is logged and skipped.
+
+**Core callers.** `MarkdownAnchor` offers plain web-link clicks to
+`MarkdownWebLinkClaimContext`, which `ThreadDetailView` provides around its
+timeline and its split-hosted side panel. `useOpenClaimedUrl` resolves the
+claim and opens the tab through `usePanelPluginPanels`, the opener that
+`useBbNavigate().openThreadPanel`, message actions, and timeline title actions
+use. `plugin-url-claims.test.tsx` covers resolution and
+`markdown-preview.test.tsx` the click contract.
+
+Docs: `frontend-core-slots.md`.
+
+**Audit before stabilizing.**
+
+1. **Link surfaces.** Only Markdown links in a thread view consult claims.
+   Decide whether terminal links, `UrlLink`, `useBbNavigate().openUrl`,
+   Markdown on the New thread screen, and bb's own pull request links in the
+   prompt banner and Info tab should route through the same claims.
+2. **Conflicts.** The first claim in slot order wins: plugin id order, then
+   registration order. Decide whether people need a preference per kind of
+   link, like file openers' Open with, or a switch that turns claims off.
+3. **Escape hatch.** Once a plugin claims a link, only a modified click or
+   the tab's own link reaches the browser. Confirm that is discoverable, or
+   add "Open in browser" to the link's context menu.
+4. **Synchronous decision.** A claim decides at click time, so it cannot
+   consult server state: the GitHub plugin claims links while `gh` is signed
+   out, and its tab then shows the error with an Open on GitHub link. Decide
+   whether an asynchronous claim, or a fallback when the tab cannot load the
+   resource, is needed.
+5. **Slot placement.** Decide whether `experimental_newThreadPanelAction` and
+   nav panels should claim links too, or a dedicated URL-claim slot should
+   replace the per-action function.
+
 ## `app.slots.experimental_newThreadPanelAction` (`@get-bb/plugin-sdk/app`)
 
 **Kept experimental (2026-08-22).** There are no consumers, and item 5 is

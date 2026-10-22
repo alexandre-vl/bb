@@ -1064,6 +1064,21 @@ export interface PluginThreadPanelActionRegistration {
    */
   layout?: "padded" | "flush";
   /**
+   * Claim web links this action's tab can show. A plain click on an http(s)
+   * link in Markdown inside a thread view (its messages, and Markdown in its
+   * side panel) calls this with the link's URL before bb opens it. Return
+   * the options `openPanel` takes to open this action's tab instead, or null
+   * (undefined counts as null) to leave the link to the browser. It runs on
+   * every such click, so keep it synchronous and cheap; `run` is not called.
+   * Clicks with Cmd, Ctrl, Shift, or Alt still open the URL, and so does a
+   * claim the side panel declines. When several actions claim a link, the
+   * first in slot order wins; a claim that throws or returns anything but
+   * options or null is logged and skipped.
+   *
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_claimUrl?(url: URL): PluginPanelActionOpenOptions | null;
+  /**
    * Runs when the user activates the action: call your RPC methods, show a
    * toast, and/or open panel tabs via `context.openPanel`. Omitted =
    * immediately open a panel tab with defaults. Errors (sync or async) are

@@ -681,12 +681,22 @@ export function collectPluginAppRegistrations(
         });
       },
       threadPanelAction(registration) {
+        const kind = "slots.threadPanelAction";
+        const action = collectPanelAction(
+          kind,
+          seenIds.threadPanelAction,
+          registration,
+        );
+        const claimUrl = registration.experimental_claimUrl;
+        if (claimUrl !== undefined && typeof claimUrl !== "function") {
+          throw new Error(
+            `${kind}: "experimental_claimUrl" must be a function when set`,
+          );
+        }
         collected.threadPanelActions.push(
-          collectPanelAction(
-            "slots.threadPanelAction",
-            seenIds.threadPanelAction,
-            registration,
-          ),
+          claimUrl === undefined
+            ? action
+            : { ...action, experimental_claimUrl: claimUrl },
         );
       },
       experimental_newThreadPanelAction(registration) {

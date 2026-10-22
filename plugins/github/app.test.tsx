@@ -1,10 +1,82 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 
 const app = await loadPluginApp(() => import("./app"));
+
+function threadPanelAction(id: string) {
+  const action = app.threadPanelActions.find((entry) => entry.id === id);
+  if (action === undefined) throw new Error(`no "${id}" thread panel action`);
+  return action;
+}
+
+function pullDetail(
+  overrides: { number?: number; title?: string; files?: unknown[] } = {},
+) {
+  const number = overrides.number ?? 42;
+  return {
+    repo: "get-bb/bb",
+    number,
+    title: overrides.title ?? "Navigation fix",
+    state: "OPEN",
+    author: "octocat",
+    body: "",
+    url: `https://github.com/get-bb/bb/pull/${number}`,
+    createdAt: "2026-08-20T00:00:00.000Z",
+    updatedAt: "2026-08-20T00:00:00.000Z",
+    baseRefName: "main",
+    headRefName: "fix-navigation",
+    additions: 1,
+    deletions: 1,
+    changedFiles: 2,
+    labels: [],
+    assignees: [],
+    reviewDecision: "",
+    mergeStateStatus: "CLEAN",
+    reviewRequests: [],
+    checks: [],
+    comments: [],
+    reviews: [],
+    reviewThreads: [],
+    files: overrides.files ?? [],
+  };
+}
+
+function requestedNumber(input: unknown): number {
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    "number" in input &&
+    typeof input.number === "number"
+  ) {
+    return input.number;
+  }
+  throw new Error("expected an item request");
+}
+
+function requestedKind(input: unknown): unknown {
+  return typeof input === "object" && input !== null && "kind" in input
+    ? input.kind
+    : undefined;
+}
+
+function issueDetail(number: number, title: string) {
+  return {
+    repo: "get-bb/bb",
+    number,
+    title,
+    state: "OPEN",
+    author: "octocat",
+    body: "",
+    labels: [],
+    assignees: [],
+    url: `https://github.com/get-bb/bb/issues/${number}`,
+    updatedAt: "2026-08-20T00:00:00.000Z",
+    comments: [],
+  };
+}
 
 describe("GitHub app navigation", () => {
   it("opens issue details in the URL-backed page instead of a fixed tab", async () => {
@@ -57,7 +129,7 @@ describe("GitHub app navigation", () => {
 
   it("keeps removed pull-request files out of live workspace navigation", async () => {
     const slot = renderSlot(
-      app.threadPanelActions[0]!,
+      threadPanelAction("pull"),
       { threadId: "thr-1", params: null },
       {
         rpc: {
@@ -69,30 +141,7 @@ describe("GitHub app navigation", () => {
             },
           }),
           getPull: () => ({
-            pull: {
-              repo: "get-bb/bb",
-              number: 42,
-              title: "Navigation fix",
-              state: "OPEN",
-              author: "octocat",
-              body: "",
-              url: "https://github.com/get-bb/bb/pull/42",
-              createdAt: "2026-08-20T00:00:00.000Z",
-              updatedAt: "2026-08-20T00:00:00.000Z",
-              baseRefName: "main",
-              headRefName: "fix-navigation",
-              additions: 1,
-              deletions: 1,
-              changedFiles: 2,
-              labels: [],
-              assignees: [],
-              reviewDecision: "",
-              mergeStateStatus: "CLEAN",
-              reviewRequests: [],
-              checks: [],
-              comments: [],
-              reviews: [],
-              reviewThreads: [],
+            pull: pullDetail({
               files: [
                 {
                   path: "removed.ts",
@@ -109,7 +158,7 @@ describe("GitHub app navigation", () => {
                   patch: "@@ -0,0 +1 @@\n+added",
                 },
               ],
-            },
+            }),
           }),
           listLinks: () => ({ links: {} }),
         },
@@ -138,5 +187,154 @@ describe("GitHub app navigation", () => {
       "Collapse removed.ts diff",
     );
     slot.lifecycle.unmount();
+  });
+});
+
+describe("GitHub links opened from a thread", () => {
+  it.each([
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/pull/42",
+      claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
+    },
+    {
+      action: "pull",
+      href: "https://www.github.com/get-bb/bb/pull/42/?notification_referrer_id=1",
+      claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
+    },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/issues/7",
+      claim: { title: "Issue #7", params: { repo: "get-bb/bb", number: 7 } },
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/pull/42/files",
+      claim: null,
+    },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/issues/7#issuecomment-1",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/issues/7",
+      claim: null,
+    },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/pull/42",
+      claim: null,
+    },
+    { action: "pull", href: "https://github.com/get-bb/bb/pulls", claim: null },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/issues/new",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/pull/0",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/blob/main/pull/42",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.example.com/get-bb/bb/pull/42",
+      claim: null,
+    },
+  ])("$action claims $href as $claim", ({ action, href, claim }) => {
+    const claimUrl = threadPanelAction(action).experimental_claimUrl;
+    expect(claimUrl?.(new URL(href))).toEqual(claim);
+  });
+
+  it("shows the linked pull request rather than the thread's own", async () => {
+    const slot = renderSlot(
+      threadPanelAction("pull"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      {
+        rpc: {
+          pullForThread: () => ({
+            pull: { repo: "get-bb/bb", number: 42, environmentId: "env-1" },
+          }),
+          getPull: (input) => {
+            const number = requestedNumber(input);
+            return {
+              pull: pullDetail({
+                number,
+                title: number === 7 ? "Linked PR" : "Thread PR",
+              }),
+            };
+          },
+          listLinks: () => ({ links: {} }),
+        },
+      },
+    );
+
+    expect(await slot.findByText("Linked PR")).toBeTruthy();
+    expect(slot.queryByText("Thread PR")).toBeNull();
+    expect(slot.queryByText(/All PRs/)).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("shows the linked issue, and offers open issues when opened without one", async () => {
+    const getIssue = vi.fn((input: unknown) => {
+      const number = requestedNumber(input);
+      return { issue: issueDetail(number, `Issue ${number}`) };
+    });
+    const rpc = {
+      getIssue,
+      listItems: (input: unknown) => {
+        const isIssue = requestedKind(input) === "issue";
+        return {
+          items: [
+            {
+              repo: "get-bb/bb",
+              number: isIssue ? 9 : 42,
+              kind: isIssue ? "issue" : "pr",
+              title: isIssue ? "Open issue" : "Open PR",
+              state: "OPEN",
+              author: "octocat",
+              labels: [],
+              assignees: [],
+              url: "https://github.com/get-bb/bb/issues/9",
+              body: "",
+              updatedAt: "2026-08-20T00:00:00.000Z",
+            },
+          ],
+        };
+      },
+      listLinks: () => ({ links: {} }),
+    };
+
+    const linked = renderSlot(
+      threadPanelAction("issue"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      { rpc },
+    );
+    expect(await linked.findByText("Issue 7")).toBeTruthy();
+    linked.lifecycle.unmount();
+
+    const picker = renderSlot(
+      threadPanelAction("issue"),
+      { threadId: "thr-1", params: null },
+      { rpc },
+    );
+    const openIssue = await picker.findByText("Open issue");
+    await act(async () => openIssue.click());
+    expect(await picker.findByText("Issue 9")).toBeTruthy();
+    const back = picker.getByText("← Issues");
+    await act(async () => back.click());
+    expect(await picker.findByText("Open issue")).toBeTruthy();
+    expect(getIssue.mock.calls).toEqual([
+      [{ repo: "get-bb/bb", number: 7 }],
+      [{ repo: "get-bb/bb", number: 9 }],
+    ]);
+    picker.lifecycle.unmount();
   });
 });

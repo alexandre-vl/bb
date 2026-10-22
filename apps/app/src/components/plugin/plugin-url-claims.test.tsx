@@ -1,0 +1,145 @@
+// @vitest-environment jsdom
+
+import { renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PluginThreadPanelActionRegistration } from "@get-bb/plugin-sdk";
+import {
+  resetPluginSlotStoreForTest,
+  setPluginSlotRegistrations,
+} from "@/lib/plugin-slots";
+import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
+import { useOpenClaimedUrl } from "./plugin-url-claims";
+
+type ClaimUrl = NonNullable<
+  PluginThreadPanelActionRegistration["experimental_claimUrl"]
+>;
+
+function PanelComponent() {
+  return null;
+}
+
+function registerClaims(
+  pluginId: string,
+  claims: Record<string, (url: URL) => unknown>,
+) {
+  setPluginSlotRegistrations(
+    pluginId,
+    makePluginRegistrationSet({
+      threadPanelActions: Object.entries(claims).map(([id, claim]) => ({
+        id,
+        title: id,
+        component: PanelComponent,
+        experimental_claimUrl: claim as ClaimUrl,
+      })),
+    }),
+  );
+}
+
+function renderOpener(accepts = true) {
+  const openThreadPanel = vi.fn(() => accepts);
+  const { result } = renderHook(() => useOpenClaimedUrl(openThreadPanel));
+  return { openClaimedUrl: result.current, openThreadPanel };
+}
+
+const PULL_URL = "https://github.com/acme/app/pull/7";
+
+afterEach(() => {
+  resetPluginSlotStoreForTest();
+  vi.restoreAllMocks();
+});
+
+describe("useOpenClaimedUrl", () => {
+  it("opens the first claim in slot order with its title and params", () => {
+    const later = vi.fn(() => ({ title: "Later" }));
+    registerClaims("github", { pull: later });
+    registerClaims("acme", {
+      notes: () => null,
+      review: (url) => ({ title: "Review", params: { path: url.pathname } }),
+    });
+    const { openClaimedUrl, openThreadPanel } = renderOpener();
+
+    expect(openClaimedUrl(PULL_URL)).toBe(true);
+    expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
+      pluginId: "acme",
+      actionId: "review",
+      title: "Review",
+      params: { path: "/acme/app/pull/7" },
+    });
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it("leaves links to the browser when the side panel declines", () => {
+    registerClaims("github", { pull: () => ({}) });
+    const { openClaimedUrl, openThreadPanel } = renderOpener(false);
+
+    expect(openClaimedUrl(PULL_URL)).toBe(false);
+    expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
+      pluginId: "github",
+      actionId: "pull",
+    });
+  });
+
+  it.each(["mailto:octocat@github.com", "/threads/thr_1", "not a url"])(
+    "never offers %s to plugins",
+    (href) => {
+      const claim = vi.fn(() => ({}));
+      registerClaims("github", { pull: claim });
+      const { openClaimedUrl, openThreadPanel } = renderOpener();
+
+      expect(openClaimedUrl(href)).toBe(false);
+      expect(claim).not.toHaveBeenCalled();
+      expect(openThreadPanel).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "throws",
+      () => {
+        throw new Error("boom");
+      },
+      "boom",
+    ],
+    ["returns a promise", () => Promise.resolve({}), "must return"],
+    ["returns a string", () => "pull", "must return"],
+    ["returns a numeric title", () => ({ title: 7 }), "title"],
+    [
+      "returns non-JSON params",
+      () => ({ params: { at: new Date() } }),
+      "params",
+    ],
+  ])("skips a claim that %s and asks the next one", (_name, broken, logged) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    registerClaims("acme", { broken });
+    registerClaims("github", { pull: () => ({ title: "PR #7" }) });
+    const { openClaimedUrl, openThreadPanel } = renderOpener();
+
+    expect(openClaimedUrl(PULL_URL)).toBe(true);
+    expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
+      pluginId: "github",
+      actionId: "pull",
+      title: "PR #7",
+    });
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining(
+        '[plugin:acme] threadPanelAction "broken" experimental_claimUrl failed',
+      ),
+    );
+    expect(warn.mock.calls[0]?.[0]).toContain(logged);
+  });
+
+  it("hands each claim its own copy of the URL", () => {
+    registerClaims("acme", {
+      mutate: (url) => {
+        url.hostname = "example.com";
+        return null;
+      },
+    });
+    const seen = vi.fn<(href: string) => null>(() => null);
+    registerClaims("github", { pull: (url) => seen(url.href) });
+    const { openClaimedUrl } = renderOpener();
+
+    openClaimedUrl(PULL_URL);
+    expect(seen).toHaveBeenCalledExactlyOnceWith(PULL_URL);
+  });
+});

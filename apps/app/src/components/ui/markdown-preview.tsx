@@ -76,6 +76,7 @@ import {
 import {
   MarkdownLocalFileContextMenuContext,
   MarkdownLocalFileOpenTargetsContext,
+  MarkdownWebLinkClaimContext,
   type MarkdownLinkRouting,
   type MarkdownLocalFileContextMenuItem,
   type MarkdownLocalFileLinkRouting,
@@ -123,6 +124,7 @@ import {
   useRewriteLocalhostLinksPreference,
 } from "@/lib/localhost-link-rewrite-preference";
 import { resolveRouteHref } from "@/lib/route-paths";
+import { isPlainPrimaryClick } from "@/lib/url-open-routing";
 import { cn } from "@bb/shared-ui/lib/utils";
 import remarkDirective from "remark-directive";
 import { PromptMentionPill } from "@/components/thread/timeline/ConversationMessageMentions.js";
@@ -683,6 +685,7 @@ function MarkdownAnchor({
   const anchorHref = buildLocalFileAnchorHref(localFileLink, rewrittenHref);
   const getContextMenuItems = useContext(MarkdownLocalFileContextMenuContext);
   const openTargets = useContext(MarkdownLocalFileOpenTargetsContext);
+  const claimWebLink = useContext(MarkdownWebLinkClaimContext);
   if (!anchorHref) {
     return <span>{children}</span>;
   }
@@ -703,6 +706,16 @@ function MarkdownAnchor({
     }
 
     if (isAppRouteHref) {
+      return;
+    }
+
+    if (
+      claimWebLink !== null &&
+      rewrittenHref &&
+      isPlainPrimaryClick(event) &&
+      claimWebLink(rewrittenHref)
+    ) {
+      event.preventDefault();
       return;
     }
 

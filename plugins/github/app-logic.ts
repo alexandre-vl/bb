@@ -1,9 +1,73 @@
-import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
+import type {
+  JsonValue,
+  PluginPanelActionOpenOptions,
+  PluginRpcResult,
+} from "@get-bb/plugin-sdk/app";
 import type { githubRpcContract } from "./server.js";
 
 export type Item = PluginRpcResult<
   (typeof githubRpcContract)["listItems"]
 >["items"][number];
+
+export interface ItemRef {
+  repo: string;
+  number: number;
+}
+
+const REPO_NAME_PATTERN = /^[\w.-]+\/[\w.-]+$/;
+const ITEM_NUMBER_PATTERN = /^[1-9]\d*$/;
+const GITHUB_HOSTNAMES = new Set(["github.com", "www.github.com"]);
+const ITEM_URL_SECTIONS = new Map<string, Item["kind"]>([
+  ["issues", "issue"],
+  ["pull", "pr"],
+]);
+
+export function itemUrl(kind: Item["kind"], item: ItemRef): string {
+  const section = kind === "pr" ? "pull" : "issues";
+  return `https://github.com/${item.repo}/${section}/${item.number}`;
+}
+
+function githubItemFromUrl(
+  url: URL,
+): (ItemRef & { kind: Item["kind"] }) | null {
+  if (!GITHUB_HOSTNAMES.has(url.hostname) || url.hash !== "") return null;
+  const parts = url.pathname.split("/").filter((part) => part.length > 0);
+  if (parts.length !== 4) return null;
+  const [owner, name, section, number] = parts;
+  const kind = ITEM_URL_SECTIONS.get(section);
+  const repo = `${owner}/${name}`;
+  if (
+    kind === undefined ||
+    !REPO_NAME_PATTERN.test(repo) ||
+    !ITEM_NUMBER_PATTERN.test(number)
+  ) {
+    return null;
+  }
+  const parsed = Number(number);
+  return Number.isSafeInteger(parsed) ? { kind, repo, number: parsed } : null;
+}
+
+export function claimItemUrl(
+  kind: Item["kind"],
+  url: URL,
+): PluginPanelActionOpenOptions | null {
+  const item = githubItemFromUrl(url);
+  if (item === null || item.kind !== kind) return null;
+  return {
+    title: `${kind === "pr" ? "PR" : "Issue"} #${item.number}`,
+    params: { repo: item.repo, number: item.number },
+  };
+}
+
+export function itemRefFromParams(params: JsonValue | null): ItemRef | null {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) {
+    return null;
+  }
+  const { repo, number } = params;
+  if (typeof repo !== "string" || !REPO_NAME_PATTERN.test(repo)) return null;
+  if (typeof number !== "number" || !Number.isSafeInteger(number)) return null;
+  return number > 0 ? { repo, number } : null;
+}
 
 export type Route =
   | { view: "issues" }

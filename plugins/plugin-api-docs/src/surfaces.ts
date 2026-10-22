@@ -396,9 +396,11 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Show plugin content alongside the conversation",
           "Know which thread it was opened from",
           "Open from a [message action](message-actions), the side panel's + button, or plugin code",
+          "Open in place of the browser when someone clicks a web link the tab can show",
         ],
         apiSymbols: [
           "PluginThreadPanelActionRegistration",
+          "PluginThreadPanelActionRegistration.experimental_claimUrl",
           "BbNavigate.openThreadPanel",
           "PluginThreadPanelProps",
           "PluginThreadPanelActionContext",

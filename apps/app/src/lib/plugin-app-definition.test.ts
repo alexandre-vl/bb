@@ -593,6 +593,7 @@ describe("collectPluginAppRegistrations", () => {
   it("collects every slot kind as plain data", () => {
     const run = () => {};
     const mount = () => {};
+    const claimUrl = () => null;
     const definition = definePluginApp((app) => {
       app.slots.homepageSection({
         id: "issues",
@@ -622,6 +623,7 @@ describe("collectPluginAppRegistrations", () => {
         icon: "Columns",
         component: Component,
         run,
+        experimental_claimUrl: claimUrl,
       });
       app.slots.experimental_newThreadPanelAction({
         id: "template",
@@ -695,6 +697,7 @@ describe("collectPluginAppRegistrations", () => {
         icon: "Columns",
         component: Component,
         run,
+        experimental_claimUrl: claimUrl,
       },
     ]);
     expect(registrations.newThreadPanelActions).toEqual([
@@ -1053,6 +1056,19 @@ describe("collectPluginAppRegistrations", () => {
           });
         }),
       /extensions must be lowercase alphanumerics/,
+    ],
+    [
+      "thread panel action with a non-function experimental_claimUrl",
+      () =>
+        definePluginApp((app) => {
+          app.slots.threadPanelAction({
+            id: "x",
+            title: "X",
+            component: Component,
+            experimental_claimUrl: "github.com" as never,
+          });
+        }),
+      /"experimental_claimUrl" must be a function/,
     ],
     [
       "thread panel action with a non-function run",
