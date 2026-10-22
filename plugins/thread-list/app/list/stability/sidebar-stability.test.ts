@@ -93,6 +93,12 @@ function click(
   return event;
 }
 
+function clickArchive(key: string, clientY: number) {
+  const archive = row(key).querySelector("button");
+  if (!archive) throw new Error(`missing archive button in ${key}`);
+  return click(archive, { clientX: 250, clientY });
+}
+
 function update(
   keys: readonly string[],
   threads: readonly Entry[],
@@ -234,6 +240,115 @@ describe("SidebarStabilityController", () => {
     expect(scrollTop).toBe(60);
   });
 
+  it("gates the row a background removal moves under a resting pointer", () => {
+    const point = pointAt("c");
+    movePointer(row("c"), point);
+    const rest = ["b", "c", "d", "e"];
+
+    update(rest, entries(rest, 1));
+    expect(controller.getState().deferred).toBe(true);
+    update(rest, entries(rest, 1));
+
+    expect(scrollTop).toBe(0);
+    expect(document.elementFromPoint(point.clientX, point.clientY)).toBe(
+      row("d"),
+    );
+    expect(root.getAttribute("data-sidebar-pointer-gate")).toBe("true");
+    expect(click(row("d"), point).defaultPrevented).toBe(true);
+  });
+
+  it("gates the row a background insert moves under a resting pointer in a list too short to scroll", () => {
+    renderRows(["a", "b"]);
+    controller.commit(null, entries(["a", "b"]), new Map());
+    const point = pointAt("b");
+    movePointer(row("b"), point);
+    const grown = ["n", "a", "b"];
+
+    update(grown, entries(grown, 1));
+    update(grown, entries(grown, 1));
+
+    expect(document.elementFromPoint(point.clientX, point.clientY)).toBe(
+      row("a"),
+    );
+    expect(root.getAttribute("data-sidebar-pointer-gate")).toBe("true");
+  });
+
+  it("gates the row that replaces a hovered row removed by something else", () => {
+    const point = pointAt("b");
+    movePointer(row("b"), point);
+    const rest = ["a", "c", "d", "e"];
+
+    update(rest, entries(rest));
+
+    expect(root.getAttribute("data-sidebar-pointer-gate")).toBe("true");
+    expect(click(row("c"), point).defaultPrevented).toBe(true);
+  });
+
+  it("anchors on keyboard focus only while it is in view", () => {
+    scrollTop = 60;
+    const button = row("a").querySelector("button");
+    if (!button) throw new Error("missing button");
+    button.focus();
+    button.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "ArrowUp" }),
+    );
+    const rest = ["a", "c", "d", "e"];
+
+    update(rest, entries(rest, 1));
+
+    expect(scrollTop).toBe(30);
+  });
+
+  it("does not anchor on a row focused by a click", () => {
+    scrollTop = 30;
+    row("c").querySelector("button")?.focus();
+
+    update(["a", "b", "d", "e", "c"], entries(order, 1));
+
+    expect(controller.getState().deferred).toBe(false);
+    expect(scrollTop).toBe(30);
+  });
+
+  it("applies an order deferred under keyboard focus 2 s later", () => {
+    scrollTop = 60;
+    const button = row("c").querySelector("button");
+    if (!button) throw new Error("missing button");
+    button.focus();
+    button.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+    );
+
+    update(["e", "a", "b", "c", "d"], entries(order, 1));
+    expect(controller.getState().deferred).toBe(true);
+
+    vi.advanceTimersByTime(POINTER_STILL_RELEASE_MS);
+    expect(controller.getState().deferred).toBe(false);
+  });
+
+  it("releases the hovered row's hold after 2 s without a move and holds it again after one", () => {
+    scrollTop = 30;
+    const point = pointAt("c");
+    movePointer(row("c"), point);
+    update(order, entries(order, 1));
+    expect(controller.getState().kept.get("c")?.revision).toBe(0);
+
+    vi.advanceTimersByTime(POINTER_STILL_RELEASE_MS);
+    expect(controller.getState().kept.has("c")).toBe(false);
+    update(order, entries(order, 1));
+
+    movePointer(row("c"), {
+      clientX: point.clientX + 5,
+      clientY: point.clientY,
+    });
+    expect(controller.getState().kept.get("c")?.revision).toBe(1);
+  });
+
+  it("exposes the hovered and focused rows as held", () => {
+    movePointer(row("b"), pointAt("b"));
+    row("d").querySelector("button")?.focus();
+    expect([...controller.getState().held].sort()).toEqual(["b", "d"]);
+  });
+
   it("holds the hovered row at the version it is displayed with", () => {
     const shown = entries(order);
     renderRows(order);
@@ -333,6 +448,7 @@ describe("SidebarStabilityController", () => {
       renderRows(order, ["c"]);
       const point = pointAt("b");
       movePointer(row("b"), point);
+      expect(clickArchive("b", point.clientY).defaultPrevented).toBe(false);
 
       update(["a", "c", "d", "e"], entries(["a", "c", "d", "e"]), ["c"]);
 
@@ -349,6 +465,7 @@ describe("SidebarStabilityController", () => {
     it("lets a second Archive click act on a safe row", () => {
       const point = pointAt("b");
       movePointer(row("b"), point);
+      clickArchive("b", point.clientY);
 
       update(["a", "c", "d", "e"], entries(["a", "c", "d", "e"]));
 
@@ -373,6 +490,12 @@ describe("SidebarStabilityController", () => {
     it("keeps the visible rows still when a row lands above them", () => {
       update(["g", "a", "b", "c", "d", "e", "f"], entries(long, 1));
       expect(scrollTop).toBe(90);
+    });
+
+    it("leaves a row lifted to the top in view at the top of the list", () => {
+      scrollTop = 0;
+      update(["g", "a", "b", "c", "d", "e", "f"], entries(long, 1));
+      expect(scrollTop).toBe(0);
     });
 
     it("does not follow a visible row that jumps away", () => {

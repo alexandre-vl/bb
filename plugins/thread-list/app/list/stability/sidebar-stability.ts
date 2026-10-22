@@ -26,6 +26,7 @@ export interface SidebarOrderMeasurement {
 export interface SidebarOrderState<Version> {
   deferred: boolean;
   kept: ReadonlyMap<string, Version>;
+  held: ReadonlySet<string>;
   revision: number;
 }
 
@@ -81,6 +82,27 @@ function isStuck(
   return top <= scrollportTop + offset + 0.5;
 }
 
+function sameKeys(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const key of left) {
+    if (!right.has(key)) return false;
+  }
+  return true;
+}
+
+function isOutsideViewport(
+  element: HTMLElement,
+  top: number,
+  viewport: { top: number; bottom: number } | null,
+): boolean {
+  if (viewport === null) return false;
+  const bottom = top + element.getBoundingClientRect().height;
+  return bottom <= viewport.top || top >= viewport.bottom;
+}
+
 function sameEntries<Version>(
   left: ReadonlyMap<string, Version>,
   right: ReadonlyMap<string, Version>,
@@ -106,12 +128,14 @@ export class SidebarStabilityController<Version extends { id: string }> {
   private movedFromX = Number.NaN;
   private movedFromY = Number.NaN;
   private hoverKey: string | null = null;
+  private hoverHeld = true;
   private focusKey: string | null = null;
   private lastInputWasKey = false;
   private stillTimer: ReturnType<typeof setTimeout> | null = null;
   private state: SidebarOrderState<Version> = {
     deferred: false,
     kept: new Map(),
+    held: new Set(),
     revision: 0,
   };
   private readonly listeners = new Set<Listener>();
@@ -121,11 +145,12 @@ export class SidebarStabilityController<Version extends { id: string }> {
   } | null = null;
   private applied: ReadonlyMap<string, Version> = new Map();
   private staleKeys: ReadonlySet<string> = new Set();
-  private revert: { scrollTop: number | null } | null = null;
+  private revert: SidebarOrderMeasurement | null = null;
   private releasing = false;
   private committing: { focused: HTMLElement | null } | null = null;
   private gateKey: string | null = null;
   private gateAt = 0;
+  private archivedKey: string | null = null;
   private guardedRow: HTMLElement | null = null;
   private readonly animations = new Set<Animation>();
   private nativeAnchoring: { scroller: HTMLElement; inline: string } | null =
@@ -188,7 +213,9 @@ export class SidebarStabilityController<Version extends { id: string }> {
       this.committing = null;
       this.pointerInside = false;
       this.hoverKey = null;
+      this.hoverHeld = true;
       this.focusKey = null;
+      this.archivedKey = null;
       if (this.root === root) this.root = null;
     };
   }
@@ -205,13 +232,14 @@ export class SidebarStabilityController<Version extends { id: string }> {
     const rows = this.measureRows();
     const scroller = this.scroller();
     this.suspendNativeAnchoring(scroller);
-    const viewport = scroller?.getBoundingClientRect() ?? null;
+    const rect = scroller?.getBoundingClientRect() ?? null;
+    const viewport = rect && { top: rect.top, bottom: rect.bottom };
     return {
-      anchor: this.resolveAnchor(rows),
+      anchor: this.resolveAnchor(rows, viewport),
       positions: new Map(rows.map((row) => [row.key, row.top])),
       rowUnderPointer: this.rowUnderPointer(),
       scrollTop: scroller?.scrollTop ?? null,
-      viewport: viewport && { top: viewport.top, bottom: viewport.bottom },
+      viewport,
     };
   }
 
@@ -232,6 +260,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
         scroller.scrollTop = revert.scrollTop;
       }
       this.apply(threads, kept);
+      this.settle(revert);
       return;
     }
     if (measurement === null) {
@@ -249,23 +278,36 @@ export class SidebarStabilityController<Version extends { id: string }> {
       !releasing &&
       !this.state.deferred
     ) {
-      this.revert = { scrollTop: measurement.scrollTop };
+      this.revert = measurement;
       this.setState({ deferred: true, kept: this.applied });
-      if (this.pointerInside) this.restartStillTimer();
+      this.restartStillTimer();
       return;
     }
     this.apply(threads, kept);
     this.settle(measurement);
+    if (
+      this.stillTimer === null &&
+      this.pointerInside &&
+      this.hoverHeld &&
+      this.hoverKey !== null &&
+      this.staleKeys.has(this.hoverKey)
+    ) {
+      this.restartStillTimer();
+    }
   }
 
-  release(): void {
+  release({ still = false }: { still?: boolean } = {}): void {
     this.clearStillTimer();
-    if (!this.state.deferred && !this.hasUnheldStaleKeys()) return;
+    if (still) this.hoverHeld = false;
+    const kept = this.heldVersions(this.state.kept);
+    if (!this.state.deferred && !this.hasUnheldStaleKeys()) {
+      if (!sameEntries(kept, this.state.kept)) {
+        this.state = { ...this.state, kept };
+      }
+      return;
+    }
     this.releasing = true;
-    this.setState({
-      deferred: false,
-      kept: this.heldVersions(this.state.kept),
-    });
+    this.setState({ deferred: false, kept });
   }
 
   private suspendNativeAnchoring(scroller: HTMLElement | null): void {
@@ -326,7 +368,12 @@ export class SidebarStabilityController<Version extends { id: string }> {
     deferred: boolean;
     kept: ReadonlyMap<string, Version>;
   }): void {
-    this.state = { deferred, kept, revision: this.state.revision + 1 };
+    this.state = {
+      deferred,
+      kept,
+      held: this.state.held,
+      revision: this.state.revision + 1,
+    };
     for (const listener of this.listeners) listener();
   }
 
@@ -352,7 +399,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
     current: ReadonlyMap<string, Version>,
   ): ReadonlyMap<string, Version> {
     const next = new Map<string, Version>();
-    for (const key of [this.hoverKey, this.focusKey]) {
+    for (const key of [this.hoverHeld ? this.hoverKey : null, this.focusKey]) {
       if (key === null || next.has(key)) continue;
       const version = current.get(key) ?? this.applied.get(key);
       if (version !== undefined) next.set(key, version);
@@ -362,18 +409,35 @@ export class SidebarStabilityController<Version extends { id: string }> {
 
   private setHeld(kind: "hover" | "focus", key: string | null): void {
     if ((kind === "hover" ? this.hoverKey : this.focusKey) === key) return;
-    if (kind === "hover") this.hoverKey = key;
-    else this.focusKey = key;
-    if (this.state.deferred) return;
-    const kept = this.heldVersions(this.state.kept);
-    if (!sameEntries(kept, this.state.kept)) {
-      this.state = { ...this.state, kept };
+    if (kind === "hover") {
+      this.hoverKey = key;
+      this.hoverHeld = true;
+    } else {
+      this.focusKey = key;
+    }
+    this.refreshHeld();
+  }
+
+  private refreshHeld(): void {
+    const held = new Set<string>();
+    if (this.hoverKey !== null) held.add(this.hoverKey);
+    if (this.focusKey !== null) held.add(this.focusKey);
+    const kept = this.state.deferred
+      ? this.state.kept
+      : this.heldVersions(this.state.kept);
+    const nextHeld = sameKeys(held, this.state.held) ? this.state.held : held;
+    const nextKept = sameEntries(kept, this.state.kept)
+      ? this.state.kept
+      : kept;
+    if (nextHeld !== this.state.held || nextKept !== this.state.kept) {
+      this.state = { ...this.state, held: nextHeld, kept: nextKept };
     }
   }
 
   private hasUnheldStaleKeys(): boolean {
+    const hover = this.hoverHeld ? this.hoverKey : null;
     for (const key of this.staleKeys) {
-      if (key !== this.hoverKey && key !== this.focusKey) return true;
+      if (key !== hover && key !== this.focusKey) return true;
     }
     return false;
   }
@@ -413,15 +477,19 @@ export class SidebarStabilityController<Version extends { id: string }> {
 
   private anchorKey(): string | null {
     if (this.lastInputWasKey && this.focusKey !== null) return this.focusKey;
-    return this.rowUnderPointer() ?? this.focusKey;
+    return this.rowUnderPointer();
   }
 
-  private resolveAnchor(rows: readonly MeasuredRow[]): SidebarRowAnchor | null {
+  private resolveAnchor(
+    rows: readonly MeasuredRow[],
+    viewport: { top: number; bottom: number } | null,
+  ): SidebarRowAnchor | null {
     const key = this.anchorKey();
     if (key === null) return null;
     const index = rows.findIndex((row) => row.key === key);
     const row = rows[index];
-    if (row === undefined) return null;
+    if (row === undefined || isOutsideViewport(row.element, row.top, viewport))
+      return null;
     const scroller = this.scroller();
     if (!isStuck(row.element, row.top, scroller)) {
       return { key: row.key, top: row.top };
@@ -432,7 +500,9 @@ export class SidebarStabilityController<Version extends { id: string }> {
         candidate.top >= bottom - 0.5 &&
         !isStuck(candidate.element, candidate.top, scroller)
       ) {
-        return { key: candidate.key, top: candidate.top };
+        return isOutsideViewport(candidate.element, candidate.top, viewport)
+          ? null
+          : { key: candidate.key, top: candidate.top };
       }
     }
     return null;
@@ -490,6 +560,9 @@ export class SidebarStabilityController<Version extends { id: string }> {
   private compensate(
     measurement: SidebarOrderMeasurement,
   ): "none" | "scrolled" | "impossible" {
+    if (measurement.anchor === null && (measurement.scrollTop ?? 0) < 0.5) {
+      return "none";
+    }
     const delta =
       measurement.anchor === null
         ? this.prevailingDelta(measurement)
@@ -509,16 +582,17 @@ export class SidebarStabilityController<Version extends { id: string }> {
 
   private settle(before: SidebarOrderMeasurement): void {
     const after = this.rowUnderPointer();
-    if (
-      this.pointerInside &&
-      after !== null &&
-      after !== before.rowUnderPointer
-    ) {
-      const replaced =
-        before.rowUnderPointer !== null &&
-        this.findRow(before.rowUnderPointer) === null;
-      if (replaced) this.guardArchive(after);
+    const previous = before.rowUnderPointer;
+    if (this.pointerInside && after !== null && after !== previous) {
+      const archived =
+        previous !== null &&
+        previous === this.archivedKey &&
+        this.findRow(previous) === null;
+      if (archived) this.guardArchive(after);
       else this.setGate(after);
+    }
+    if (this.archivedKey !== null && this.findRow(this.archivedKey) === null) {
+      this.archivedKey = null;
     }
     this.animateFrom(before.positions);
   }
@@ -540,6 +614,10 @@ export class SidebarStabilityController<Version extends { id: string }> {
     this.movedFromY = event.clientY;
     this.clearGate();
     this.clearArchiveGuard();
+    if (!this.hoverHeld) {
+      this.hoverHeld = true;
+      this.refreshHeld();
+    }
     if (this.state.deferred || this.staleKeys.size > 0) {
       this.restartStillTimer();
     }
@@ -551,6 +629,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
     this.movedFromY = Number.NaN;
     this.clearGate();
     this.gateKey = null;
+    this.archivedKey = null;
     this.clearArchiveGuard();
     this.setHeld("hover", null);
     this.release();
@@ -577,6 +656,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
     const target = event.target;
     if (target instanceof Node && this.root?.contains(target)) {
       this.lastInputWasKey = true;
+      if (this.state.deferred) this.restartStillTimer();
       return;
     }
     this.release();
@@ -588,10 +668,21 @@ export class SidebarStabilityController<Version extends { id: string }> {
       return;
     }
     const gateKey = this.gateKey;
-    if (gateKey === null) return;
     this.gateKey = null;
-    if (Date.now() - this.gateAt >= GATED_CLICK_WINDOW_MS) return;
-    if (rowKeyOf(event.target) === gateKey) swallow(event);
+    if (
+      gateKey !== null &&
+      Date.now() - this.gateAt < GATED_CLICK_WINDOW_MS &&
+      rowKeyOf(event.target) === gateKey
+    ) {
+      swallow(event);
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest(ARCHIVE_ACTION_SELECTOR) !== null
+    ) {
+      this.archivedKey = rowKeyOf(event.target);
+    }
   }
 
   private isGuardedArchiveClick(event: MouseEvent): boolean {
@@ -612,7 +703,7 @@ export class SidebarStabilityController<Version extends { id: string }> {
     this.clearStillTimer();
     this.stillTimer = setTimeout(() => {
       this.stillTimer = null;
-      this.release();
+      this.release({ still: true });
     }, POINTER_STILL_RELEASE_MS);
   }
 

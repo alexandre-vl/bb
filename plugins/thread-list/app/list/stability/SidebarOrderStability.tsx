@@ -19,6 +19,7 @@ export interface SidebarOrderStability {
   controller: SidebarStabilityController<SidebarThread>;
   threads: readonly SidebarThread[];
   kept: ReadonlyMap<string, SidebarThread>;
+  held: ReadonlySet<string>;
   versionOf: SidebarThreadVersionOf;
 }
 
@@ -28,7 +29,7 @@ export function useSidebarOrderStability(
   const [controller] = useState(
     () => new SidebarStabilityController<SidebarThread>(),
   );
-  const { kept } = useSyncExternalStore(
+  const { kept, held } = useSyncExternalStore(
     controller.subscribe,
     controller.getState,
     controller.getState,
@@ -38,7 +39,7 @@ export function useSidebarOrderStability(
       kept.size === 0 ? liveVersion : (thread) => kept.get(thread.id) ?? thread,
     [kept],
   );
-  return { controller, threads, kept, versionOf };
+  return { controller, threads, kept, held, versionOf };
 }
 
 interface SidebarOrderStabilityBoundaryProps {
