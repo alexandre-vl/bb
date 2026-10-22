@@ -88,6 +88,15 @@ function count(db: DbConnection, table: string): number {
     .get()?.count ?? 0;
 }
 
+function testForkTags(db: DbConnection): string[] {
+  return db.$client
+    .prepare<[], { tag: string }>(
+      "SELECT tag FROM __fork_migrations WHERE tag LIKE '900%' ORDER BY tag",
+    )
+    .all()
+    .map((row) => row.tag);
+}
+
 function columns(db: DbConnection, table: string): string[] {
   return db.$client
     .prepare<[], { name: string }>(`PRAGMA table_info(${table})`)
@@ -99,7 +108,7 @@ it("applies fork migrations once, after upstream ones, outside drizzle's ledger"
   const db = openDatabase();
   const folder = copyMigrations();
   writeForkJournal(folder, [
-    { tag: "0147_fork_widgets", when: 1, sql: widgetsSql },
+    { tag: "9001_test_fork_widgets", when: 1, sql: widgetsSql },
   ]);
   const upstreamApplied = count(db, "__drizzle_migrations");
 
@@ -109,29 +118,27 @@ it("applies fork migrations once, after upstream ones, outside drizzle's ledger"
   expect(columns(db, "fork_widgets")).toEqual(["id"]);
   expect(columns(db, "projects")).toContain("fork_flag");
   expect(count(db, "__drizzle_migrations")).toBe(upstreamApplied);
-  expect(
-    db.$client.prepare("SELECT tag FROM __fork_migrations").all(),
-  ).toEqual([{ tag: "0147_fork_widgets" }]);
+  expect(testForkTags(db)).toEqual(["9001_test_fork_widgets"]);
 });
 
 it("refuses a fork migration whose SQL changed after it was applied", () => {
   const db = openDatabase();
   const folder = copyMigrations();
   writeForkJournal(folder, [
-    { tag: "0147_fork_widgets", when: 1, sql: widgetsSql },
+    { tag: "9001_test_fork_widgets", when: 1, sql: widgetsSql },
   ]);
   migrateWith(db, folder);
 
   writeForkJournal(folder, [
     {
-      tag: "0147_fork_widgets",
+      tag: "9001_test_fork_widgets",
       when: 1,
       sql: widgetsSql.replace("DEFAULT 0", "DEFAULT 1"),
     },
   ]);
 
   expect(() => prepareForkMigrations(db, folder)).toThrow(
-    /Fork migration 0147_fork_widgets changed after it was applied/,
+    /Fork migration 9001_test_fork_widgets changed after it was applied/,
   );
 });
 
@@ -139,25 +146,26 @@ it("records a renumbered fork migration without running it again", () => {
   const db = openDatabase();
   const folder = copyMigrations();
   writeForkJournal(folder, [
-    { tag: "0147_fork_widgets", when: 1, sql: widgetsSql },
+    { tag: "9001_test_fork_widgets", when: 1, sql: widgetsSql },
   ]);
   migrateWith(db, folder);
 
   writeForkJournal(folder, [
-    { tag: "0149_fork_widgets", when: 2, sql: widgetsSql },
+    { tag: "9002_test_fork_widgets", when: 2, sql: widgetsSql },
   ]);
   migrateWith(db, folder);
 
-  expect(
-    db.$client.prepare("SELECT tag FROM __fork_migrations ORDER BY tag").all(),
-  ).toEqual([{ tag: "0147_fork_widgets" }, { tag: "0149_fork_widgets" }]);
+  expect(testForkTags(db)).toEqual([
+    "9001_test_fork_widgets",
+    "9002_test_fork_widgets",
+  ]);
 });
 
 it("records an upstream migration with the SQL of an applied fork migration without running it, and runs the upstream ones before it", () => {
   const db = openDatabase();
   const folder = copyMigrations();
   writeForkJournal(folder, [
-    { tag: "0147_fork_widgets", when: 1, sql: widgetsSql },
+    { tag: "9001_test_fork_widgets", when: 1, sql: widgetsSql },
   ]);
   migrateWith(db, folder);
   const upstreamApplied = count(db, "__drizzle_migrations");
@@ -180,15 +188,13 @@ it("records a fork migration an upstream migration already ran without running i
   const folder = copyMigrations();
   appendUpstreamMigration(folder, "0147_merged_widgets", widgetsSql);
   writeForkJournal(folder, [
-    { tag: "0147_fork_widgets", when: 1, sql: widgetsSql },
+    { tag: "9001_test_fork_widgets", when: 1, sql: widgetsSql },
   ]);
 
   migrateWith(db, folder);
 
   expect(columns(db, "projects")).toContain("fork_flag");
-  expect(
-    db.$client.prepare("SELECT tag FROM __fork_migrations").all(),
-  ).toEqual([{ tag: "0147_fork_widgets" }]);
+  expect(testForkTags(db)).toEqual(["9001_test_fork_widgets"]);
 });
 
 it("puts back a fork column and index an upstream table rebuild drops, with the column's values", () => {
@@ -201,7 +207,7 @@ it("puts back a fork column and index an upstream table rebuild drops, with the 
   );
   writeForkJournal(folder, [
     {
-      tag: "0147_fork_gadget_notes",
+      tag: "9001_test_fork_gadget_notes",
       when: 1,
       sql: "ALTER TABLE `upstream_gadgets` ADD `fork_note` text;--> statement-breakpoint\nCREATE INDEX `upstream_gadgets_fork_note_idx` ON `upstream_gadgets` (`fork_note`);",
     },
