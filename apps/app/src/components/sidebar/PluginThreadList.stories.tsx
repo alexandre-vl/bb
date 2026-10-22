@@ -826,31 +826,59 @@ export function SidebarV2Stability() {
   );
 }
 
+function shortcut(
+  key: string,
+  modifiers: Partial<AppShortcut> = {},
+): AppShortcut {
+  return {
+    key,
+    mod: false,
+    meta: false,
+    control: false,
+    alt: false,
+    shift: false,
+    ...modifiers,
+  };
+}
+
+function listBinding(
+  command: AppKeybinding["command"],
+  keys: AppShortcut,
+): AppKeybinding {
+  return {
+    command,
+    desktopOnly: false,
+    shortcut: keys,
+    when: {
+      all: ["mainSurface", "sidebarListFocus"],
+      none: ["modalOpen", "editableFocus"],
+    },
+  };
+}
+
+const V2_KEYBINDINGS: AppKeybinding[] = [
+  {
+    command: "sidebar.focus",
+    desktopOnly: false,
+    shortcut: shortcut("l", { mod: true, shift: true }),
+    when: { all: ["mainSurface"], none: ["modalOpen"] },
+  },
+  listBinding("thread.archive", shortcut("e")),
+  listBinding("thread.rename", shortcut("F2")),
+  listBinding("thread.toggleRead", shortcut("u")),
+  listBinding("thread.previousAttention", shortcut("ArrowUp", { alt: true })),
+  listBinding("thread.nextAttention", shortcut("ArrowDown", { alt: true })),
+];
+
 const V2_EDGE_PROJECT_ID = "proj_dashboard";
 const V2_EDGE_PREFERENCES = {
   ...V2_PREFERENCES,
   collapsedThreads: [],
   rowActions: ["bb--core/archive"],
 };
-const V2_EDGE_ARCHIVE_BINDING = {
-  command: "thread.archive",
-  desktopOnly: false,
-  shortcut: {
-    key: "e",
-    mod: false,
-    meta: false,
-    control: false,
-    alt: false,
-    shift: false,
-  },
-  when: {
-    all: ["mainSurface", "sidebarListFocus"],
-    none: ["modalOpen", "editableFocus"],
-  },
-} satisfies AppKeybinding;
 const V2_EDGE_SYSTEM_CONFIG = makeSystemConfig({
-  keybindings: [V2_EDGE_ARCHIVE_BINDING],
-  defaultKeybindings: [V2_EDGE_ARCHIVE_BINDING],
+  keybindings: V2_KEYBINDINGS,
+  defaultKeybindings: V2_KEYBINDINGS,
 });
 
 function v2EdgeNavigation(): SidebarBootstrapResponse {
@@ -977,50 +1005,6 @@ export function SidebarV2Phone() {
     </QueryClientProvider>
   );
 }
-
-function shortcut(
-  key: string,
-  modifiers: Partial<AppShortcut> = {},
-): AppShortcut {
-  return {
-    key,
-    mod: false,
-    meta: false,
-    control: false,
-    alt: false,
-    shift: false,
-    ...modifiers,
-  };
-}
-
-function listBinding(
-  command: AppKeybinding["command"],
-  keys: AppShortcut,
-): AppKeybinding {
-  return {
-    command,
-    desktopOnly: false,
-    shortcut: keys,
-    when: {
-      all: ["mainSurface", "sidebarListFocus"],
-      none: ["modalOpen", "editableFocus"],
-    },
-  };
-}
-
-const V2_KEYBINDINGS: AppKeybinding[] = [
-  {
-    command: "sidebar.focus",
-    desktopOnly: false,
-    shortcut: shortcut("l", { mod: true, shift: true }),
-    when: { all: ["mainSurface"], none: ["modalOpen"] },
-  },
-  listBinding("thread.archive", shortcut("e")),
-  listBinding("thread.rename", shortcut("F2")),
-  listBinding("thread.toggleRead", shortcut("u")),
-  listBinding("thread.previousAttention", shortcut("ArrowUp", { alt: true })),
-  listBinding("thread.nextAttention", shortcut("ArrowDown", { alt: true })),
-];
 
 const V2_NOTIFICATION_LEVELS: Readonly<Record<string, string>> = {
   thr_v2_deploy: "Muted",
