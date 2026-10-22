@@ -25,3 +25,4 @@ github-links-open-in-side-panel
 provisioning-time
 fix/settle-orphaned-background-tasks
 bb/provision-while-title-generates-thr_7f2hskrgmn
+bb/file-mentions-resolve-touched-files
