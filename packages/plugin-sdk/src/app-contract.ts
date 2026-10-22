@@ -1378,10 +1378,11 @@ export interface PluginSidebarThread {
   /**
    * What `indicator` asks of the user: "needs-you" for "waiting-for-input",
    * "failed" for "unread-error" and "queued-failed", "new" for
-   * "unread-success", and null for every other kind. Experimental: see
+   * "unread-success", and null for every other kind. Hosts that predate it
+   * leave it out: read a missing value as null. Experimental: see
    * docs/api_to_audit.md.
    */
-  experimental_attention: ExperimentalThreadAttention | null;
+  experimental_attention?: ExperimentalThreadAttention | null;
 
   isUnread: boolean;
   isPinned: boolean;

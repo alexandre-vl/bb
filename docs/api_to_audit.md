@@ -3347,9 +3347,9 @@ Docs: `frontend-registration.md`.
    client-local draft (which never carries attention) and the thread's
    descendants. Decide whether a collapsed parent's rolled-up attention
    belongs on the DTO.
-3. **Required field.** Older hosts omit it; a plugin built against this SDK
-   reads `undefined` there. Decide whether to document that or make the field
-   optional until the prefix drops.
+3. **Optional field.** Older hosts omit it, and so do thread fixtures written
+   before it existed, so it stays optional and documented as "missing means
+   null" until the prefix drops. Make it required when stabilizing.
 
 ## `HostsArea.experimental_reconcile`
 
