@@ -2,10 +2,26 @@ import {
   cliCommand,
   defineCli,
   defineRpcContract,
+  experimental_PluginRpcRefusal,
   PluginCliError,
   type BbPluginApi,
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import {
+  attentionThreadSchema,
+  listAttentionThreads,
+  type AttentionThread,
+} from "./shared/attention.js";
+import {
+  COLLAPSE_REF_FORMS,
+  collapseListKeySchema,
+  collapseRefSchema,
+  nextCollapseList,
+  parseCollapseRef,
+  resolveCollapseUpdate,
+  type CollapseListKey,
+  type CollapseRef,
+} from "./shared/collapse.js";
 import {
   defaultPreferences,
   describePreference,
@@ -23,6 +39,8 @@ import {
 
 const PREFERENCE_KV_PREFIX = "preference:";
 const MIGRATION_KV_KEY = "migration:ui-preferences:v1";
+const SIDEBAR_V2_MIGRATION_KV_KEY = "migration:sidebar-v2:v1";
+const GROUP_BY_READ_STATUS_KV_KEY = `${PREFERENCE_KV_PREFIX}groupByReadStatus`;
 
 const preferenceKeySchema = z.enum(
   PREFERENCE_KEYS as [PreferenceKey, ...PreferenceKey[]],
@@ -51,6 +69,19 @@ export const threadListRpcContract = defineRpcContract({
       .object({ key: preferenceKeySchema, value: z.unknown() })
       .strict(),
   },
+  listAttention: {
+    input: z
+      .object({ projectId: z.string().min(1).optional() })
+      .strict()
+      .nullable(),
+    output: z.object({ threads: z.array(attentionThreadSchema) }).strict(),
+  },
+  setCollapsed: {
+    input: z.object({ ref: collapseRefSchema, collapsed: z.boolean() }).strict(),
+    output: z
+      .object({ key: collapseListKeySchema, value: z.array(z.string()) })
+      .strict(),
+  },
 });
 
 function kvKey(key: PreferenceKey): string {
@@ -58,6 +89,14 @@ function kvKey(key: PreferenceKey): string {
 }
 
 export function createPreferenceStore(bb: BbPluginApi) {
+  let queue: Promise<unknown> = Promise.resolve();
+
+  function exclusive<Result>(task: () => Promise<Result>): Promise<Result> {
+    const result = queue.then(task);
+    queue = result.catch(() => undefined);
+    return result;
+  }
+
   async function read<Key extends PreferenceKey>(
     key: Key,
   ): Promise<PreferenceValue<Key>> {
@@ -81,7 +120,7 @@ export function createPreferenceStore(bb: BbPluginApi) {
     return values;
   }
 
-  async function write<Key extends PreferenceKey>(
+  async function persist<Key extends PreferenceKey>(
     key: Key,
     value: unknown,
   ): Promise<PreferenceValue<Key>> {
@@ -97,17 +136,35 @@ export function createPreferenceStore(bb: BbPluginApi) {
     return parsed.value;
   }
 
-  async function reset<Key extends PreferenceKey>(
+  function write<Key extends PreferenceKey>(
     key: Key,
+    value: unknown,
   ): Promise<PreferenceValue<Key>> {
-    await bb.storage.kv.delete(kvKey(key));
-    const value = getPreferenceDefault(key);
-    bb.realtime.publish(PREFERENCES_CHANGED_CHANNEL, { key, value });
-    return value;
+    return exclusive(() => persist(key, value));
   }
 
-  return { read, readAll, write, reset };
+  function update<Key extends PreferenceKey>(
+    key: Key,
+    next: (current: PreferenceValue<Key>) => unknown,
+  ): Promise<PreferenceValue<Key>> {
+    return exclusive(async () => persist(key, next(await read(key))));
+  }
+
+  function reset<Key extends PreferenceKey>(
+    key: Key,
+  ): Promise<PreferenceValue<Key>> {
+    return exclusive(async () => {
+      await bb.storage.kv.delete(kvKey(key));
+      const value = getPreferenceDefault(key);
+      bb.realtime.publish(PREFERENCES_CHANGED_CHANNEL, { key, value });
+      return value;
+    });
+  }
+
+  return { read, readAll, write, update, reset };
 }
+
+type PreferenceStore = ReturnType<typeof createPreferenceStore>;
 
 export class PreferenceValidationError extends Error {
   constructor(
@@ -159,6 +216,113 @@ export async function migrateFromUiPreferences(
   return { migrated };
 }
 
+type PreferenceEntry = {
+  [Key in PreferenceKey]: { key: Key; value: PreferenceValue<Key> };
+}[PreferenceKey];
+
+function sidebarV2Preferences(groupByReadStatus: boolean | null): PreferenceEntry[] {
+  if (groupByReadStatus === null) return [];
+  if (!groupByReadStatus) return [{ key: "attentionFirst", value: false }];
+  return [
+    { key: "attentionFirst", value: true },
+    { key: "parentsStartCollapsed", value: true },
+    { key: "expandedThreads", value: [] },
+  ];
+}
+
+export async function migrateToSidebarV2(
+  bb: BbPluginApi,
+): Promise<{ migrated: PreferenceKey[] }> {
+  const done = await bb.storage.kv.get<boolean>(SIDEBAR_V2_MIGRATION_KV_KEY);
+  if (done === true) return { migrated: [] };
+  const store = createPreferenceStore(bb);
+  const groupByReadStatus = z
+    .boolean()
+    .safeParse(await bb.storage.kv.get<unknown>(GROUP_BY_READ_STATUS_KV_KEY));
+  const migrated: PreferenceKey[] = [];
+  for (const { key, value } of sidebarV2Preferences(
+    groupByReadStatus.success ? groupByReadStatus.data : null,
+  )) {
+    if ((await bb.storage.kv.get<unknown>(kvKey(key))) !== undefined) continue;
+    await store.write(key, value);
+    migrated.push(key);
+  }
+  await bb.storage.kv.delete(GROUP_BY_READ_STATUS_KV_KEY);
+  await bb.storage.kv.set(SIDEBAR_V2_MIGRATION_KV_KEY, true);
+  return { migrated };
+}
+
+class ProjectNotFoundError extends Error {
+  constructor(readonly projectId: string) {
+    super(`Project not found: ${projectId}`);
+    this.name = "ProjectNotFoundError";
+  }
+}
+
+function isNotFoundResponse(error: unknown): boolean {
+  return error instanceof Error && "status" in error && error.status === 404;
+}
+
+function lifecycleFilter(
+  lifecycles: PreferenceValue<"threadLifecycles">,
+): { archived?: boolean } {
+  if (lifecycles.includes("active") && lifecycles.includes("archived")) {
+    return {};
+  }
+  return { archived: lifecycles.includes("archived") };
+}
+
+function createThreadListService(bb: BbPluginApi, store: PreferenceStore) {
+  async function listLiveThreads(projectId: string | null) {
+    try {
+      return await bb.sdk.threads.list(
+        projectId === null ? { archived: false } : { archived: false, projectId },
+      );
+    } catch (error) {
+      if (projectId !== null && isNotFoundResponse(error)) {
+        throw new ProjectNotFoundError(projectId);
+      }
+      throw error;
+    }
+  }
+
+  async function listAttention(
+    projectId: string | null,
+  ): Promise<AttentionThread[]> {
+    return listAttentionThreads(await listLiveThreads(projectId));
+  }
+
+  async function listParentThreadIds(): Promise<string[]> {
+    const threads = await bb.sdk.threads.list(
+      lifecycleFilter(await store.read("threadLifecycles")),
+    );
+    return threads.flatMap((thread) =>
+      thread.parentThreadId === null ? [] : [thread.parentThreadId],
+    );
+  }
+
+  async function setCollapsed(
+    ref: CollapseRef,
+    collapsed: boolean,
+  ): Promise<{ key: CollapseListKey; value: string[] }> {
+    const update = resolveCollapseUpdate(
+      ref,
+      collapsed,
+      await store.read("parentsStartCollapsed"),
+    );
+    const parentThreadIds =
+      update.kind === "add-every-parent" ? await listParentThreadIds() : [];
+    const value = await store.update(update.key, (current) =>
+      nextCollapseList(current, update, parentThreadIds),
+    );
+    return { key: update.key, value };
+  }
+
+  return { listAttention, setCollapsed };
+}
+
+type ThreadListService = ReturnType<typeof createThreadListService>;
+
 function parseCliValue(raw: string): unknown {
   try {
     return JSON.parse(raw) as unknown;
@@ -175,13 +339,87 @@ function requireCliPreferenceKey(raw: string): PreferenceKey {
   });
 }
 
+function toCliPreferenceError(error: unknown): unknown {
+  if (!(error instanceof PreferenceValidationError)) return error;
+  return new PluginCliError(error.message, {
+    code: "invalid_preference_value",
+    hint: describePreference(error.key),
+  });
+}
+
+function requireCliProjectId(raw: string | undefined): string | null {
+  if (raw === undefined) return null;
+  if (raw.length > 0) return raw;
+  throw new PluginCliError("--project needs a project id", {
+    code: "invalid_value",
+  });
+}
+
+function requireCliCollapseRef(raw: string | undefined, all: boolean): CollapseRef {
+  if (raw !== undefined && all) {
+    throw new PluginCliError("<ref> and --all cannot be combined", {
+      code: "unexpected_argument",
+      hint: "Pass exactly one of: <ref>, --all",
+    });
+  }
+  if (all) return { kind: "all" };
+  if (raw === undefined) {
+    throw new PluginCliError("missing required argument: <ref> or --all", {
+      code: "missing_required",
+      hint: `<ref> is ${COLLAPSE_REF_FORMS}.`,
+    });
+  }
+  const parsed = parseCollapseRef(raw);
+  if (parsed.success) return parsed.ref;
+  throw new PluginCliError(parsed.message, { code: "invalid_ref" });
+}
+
+function formatAttentionThread(thread: AttentionThread): string {
+  return [thread.attention, thread.threadId, thread.projectId, thread.title].join(
+    "\t",
+  );
+}
+
 const JSON_OPTION = {
   type: "boolean",
   description: "Emit machine-readable JSON",
 } as const;
 
+function collapseCommand(service: ThreadListService, collapsed: boolean) {
+  const verb = collapsed ? "Collapse" : "Expand";
+  return cliCommand({
+    summary: `${verb} a parent thread, project, environment, or section`,
+    description: `<ref> is ${COLLAPSE_REF_FORMS}. Thread refs and --all write collapsedThreads, or expandedThreads while parentsStartCollapsed is on.`,
+    positionals: [
+      { name: "ref", description: `What to ${verb.toLowerCase()}: ${COLLAPSE_REF_FORMS}` },
+    ],
+    options: {
+      all: {
+        type: "boolean",
+        description: `${verb} every parent thread instead of one <ref>`,
+      },
+      json: JSON_OPTION,
+    },
+    async run(input) {
+      const ref = requireCliCollapseRef(input.positionals.ref, input.options.all);
+      try {
+        const { key, value } = await service.setCollapsed(ref, collapsed);
+        return {
+          exitCode: 0,
+          stdout: input.options.json
+            ? JSON.stringify({ key, value })
+            : `${key} = ${JSON.stringify(value)}`,
+        };
+      } catch (error) {
+        throw toCliPreferenceError(error);
+      }
+    },
+  });
+}
+
 export default async function threadListPlugin(bb: BbPluginApi) {
   const store = createPreferenceStore(bb);
+  const service = createThreadListService(bb, store);
 
   bb.rpc.register(threadListRpcContract, {
     async listPreferences() {
@@ -193,15 +431,71 @@ export default async function threadListPlugin(bb: BbPluginApi) {
     async resetPreference({ key }) {
       return { key, value: await store.reset(key) };
     },
+    async listAttention(input) {
+      try {
+        return { threads: await service.listAttention(input?.projectId ?? null) };
+      } catch (error) {
+        if (error instanceof ProjectNotFoundError) {
+          throw new experimental_PluginRpcRefusal({
+            code: "not_found",
+            message: error.message,
+          });
+        }
+        throw error;
+      }
+    },
+    async setCollapsed({ ref, collapsed }) {
+      return service.setCollapsed(ref, collapsed);
+    },
   });
 
   bb.cli.register(
     defineCli({
       name: bb.pluginId,
-      summary: "Inspect and change the sidebar thread list's layout preferences",
+      summary:
+        "List threads that need attention, collapse or expand groups, and change the sidebar thread list's layout preferences",
       description:
-        "Organization mode, sort, section order, hidden groups, and collapsed groups for bb's sidebar thread list. Values are JSON; a bare word is read as a string.",
+        "Attention, collapsed groups, organization mode, sort, section order, and hidden groups for bb's sidebar thread list. Preference values are JSON; a bare word is read as a string.",
       commands: {
+        attention: cliCommand({
+          summary: "List threads that need you, failed, or have a new result",
+          description:
+            "Ordered needs-you, failed, then new, most recently updated first within each. Sub-agents are included; archived and hidden threads are not.",
+          options: {
+            project: {
+              type: "string",
+              description: "Only threads in this project",
+              placeholder: "project-id",
+            },
+            json: JSON_OPTION,
+          },
+          async run(input) {
+            const projectId = requireCliProjectId(input.options.project);
+            let threads: AttentionThread[];
+            try {
+              threads = await service.listAttention(projectId);
+            } catch (error) {
+              if (error instanceof ProjectNotFoundError) {
+                throw new PluginCliError(error.message, {
+                  code: "project_not_found",
+                });
+              }
+              throw error;
+            }
+            if (input.options.json) {
+              return { exitCode: 0, stdout: JSON.stringify(threads) };
+            }
+            return {
+              exitCode: 0,
+              stdout:
+                threads.length === 0
+                  ? "No threads need attention."
+                  : threads.map(formatAttentionThread).join("\n"),
+            };
+          },
+        }),
+        collapse: collapseCommand(service, true),
+        expand: collapseCommand(service, false),
         "prefs list": cliCommand({
           summary: "List every preference and its current value",
           options: { json: JSON_OPTION },
@@ -261,13 +555,7 @@ export default async function threadListPlugin(bb: BbPluginApi) {
                   : `${key} = ${JSON.stringify(value)}`,
               };
             } catch (error) {
-              if (error instanceof PreferenceValidationError) {
-                throw new PluginCliError(error.message, {
-                  code: "invalid_preference_value",
-                  hint: describePreference(key),
-                });
-              }
-              throw error;
+              throw toCliPreferenceError(error);
             }
           },
         }),
@@ -296,6 +584,12 @@ export default async function threadListPlugin(bb: BbPluginApi) {
   if (migrated.length > 0) {
     bb.log.info(
       `migrated sidebar preferences from bb settings: ${migrated.join(", ")}`,
+    );
+  }
+  const sidebarV2 = await migrateToSidebarV2(bb);
+  if (sidebarV2.migrated.length > 0) {
+    bb.log.info(
+      `migrated read-status grouping to sidebar V2 preferences: ${sidebarV2.migrated.join(", ")}`,
     );
   }
 }

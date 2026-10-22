@@ -215,9 +215,10 @@ function OpenThreadControls() {
   return (
     <section className="grid max-w-xs content-start gap-3 text-sm">
       <p className="text-muted-foreground">
-        Organize → Groups → By read status starts on. Click a thread to open it,
-        then mark it read the way bb does when you view it. It keeps its group
-        until you open another thread.
+        Attention first starts on and parents start collapsed, as for a user
+        migrated from By read status. Click a thread to open it, then mark it
+        read the way bb does when you view it. It keeps its place until you
+        open another thread.
       </p>
       <p className="text-xs text-muted-foreground">
         Open thread: {openThread?.title ?? "none"}
@@ -249,14 +250,16 @@ function OpenThreadControls() {
   );
 }
 
-const READ_STATUS_PREFERENCES = {
+const ATTENTION_FIRST_PREFERENCES = {
   organizationMode: "chronological",
-  groupByReadStatus: true,
+  attentionFirst: true,
+  parentsStartCollapsed: true,
+  expandedThreads: [],
 };
 
-export function InboxReadStatus() {
+export function InboxAttentionFirst() {
   const [queryClient] = useState(createThreadListQueryClient);
-  const rpcReady = useThreadListPreferenceRpc(READ_STATUS_PREFERENCES);
+  const rpcReady = useThreadListPreferenceRpc(ATTENTION_FIRST_PREFERENCES);
   useThreadListPlugin();
   if (!rpcReady) return null;
   return (
@@ -289,7 +292,7 @@ const ACTION_THREADS = ACTION_TITLES.flatMap(([length, title]) => [
 ]);
 const ACTION_PREFERENCES = {
   organizationMode: "chronological",
-  groupByReadStatus: false,
+  attentionFirst: false,
   collapsedThreads: [
     "thr_actions_short_collapsed",
     "thr_actions_long_collapsed",
