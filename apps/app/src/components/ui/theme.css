@@ -1092,6 +1092,17 @@ body.sidebar-resizing [data-sidebar="panel"] {
       -webkit-text-fill-color: currentColor;
     }
   }
+
+  [data-sidebar-section-list]
+    > :is(
+      [data-sidebar-section-folded="true"],
+      :has([data-sidebar-section-folded="true"])
+    ):has(
+      + [data-sidebar-section-folded="true"],
+      + * [data-sidebar-section-folded="true"]
+    ) {
+    margin-block-end: 2px;
+  }
 }
 
 @keyframes indeterminate-progress {

@@ -58,7 +58,10 @@ fails with `project_not_found`. Plugins and SDK clients get
 
 `attentionFirst` (default `true`) lists those threads first in each group of
 the sidebar, keeping the selected sort within the rest. Rows never move under
-the pointer.
+the pointer or the keyboard focus: the list scrolls to keep that row still,
+and when it cannot, the new order waits until the pointer leaves the list,
+rests for 2 s, or focus moves. A thread that needs attention never expands
+its collapsed parents; only opening a thread expands its ancestors.
 
 ## Collapse and expand
 

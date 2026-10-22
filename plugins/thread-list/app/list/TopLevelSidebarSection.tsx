@@ -158,6 +158,7 @@ export function TopLevelSidebarSection({
       ref={sectionRef}
       style={sectionStyle}
       data-sidebar-section-id={sectionId}
+      data-sidebar-section-folded={isCollapsed || isEmpty ? "true" : undefined}
       data-sidebar-drop-target={threadDropState ?? undefined}
       data-sidebar-rename-row=""
       data-sidebar-sticky-header={stickyHeader ? undefined : "false"}
