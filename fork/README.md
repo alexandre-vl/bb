@@ -99,10 +99,42 @@ Read and write** and **Workflows: Read and write**, then:
 gh secret set FORK_SYNC_TOKEN --repo alexandre-vl/bb
 ```
 
-## Run alex as my bb: bb-alex
+## Run alex as my bb
 
-bb-alex is a second bb on a Linux machine, beside the official one, that runs
-the newest `fork-v*` release. Install or refresh it with:
+[`instance/adopt.sh`](instance/adopt.sh) makes the bb I already run, through
+its systemd user unit, run the newest `fork-v*` release with the same data
+dir, ports and account:
+
+```bash
+fork/instance/adopt.sh bb-host-daemon-alexvl-getbb-app-host_3ussyf3xqh.service --now
+```
+
+- `bb-fork-update.timer` runs [`instance/update.sh`](instance/update.sh)
+  every 10 minutes. It switches only when no thread is running: it stops the
+  unit, copies `bb.db` and each plugin's `data.db` to
+  `~/.bb-fork-app/backups/` (keeps 3), and starts the unit again through the
+  drop-in `<unit>.d/zz-alexandre-vl-fork.conf`, which runs
+  `~/.bb-fork-app/current` with `--no-in-app-updates`.
+- A release that does not answer within 6 minutes is marked failed and never
+  retried, and the unit goes back to the build it ran before (its own install
+  after a first switch). If that build does not answer either, the backup is
+  restored; the databases it replaces are moved to `~/.bb-fork-app/failed/`.
+- The unit's own install stays on disk. Back to it, at once, running threads
+  or not: `systemctl --user start bb-fork-revert.service`, which also turns
+  the timer off. Then update it from Settings: its install may be older than
+  the fork's upstream base.
+- Machines enrolled in this bb update their daemon from it, so they run the
+  fork's build too.
+- Layers that add migrations stay held back, so the database keeps upstream's
+  schema and an official build can open it again (nightly
+  0.46.2-nightly.39620384282.1 reopened a database the fork build had
+  migrated).
+- Logs: `journalctl --user -u bb-fork-update -u bb-fork-revert`.
+
+## A second bb beside it: bb-alex
+
+bb-alex is a separate bb on a Linux machine, beside the official one, with its
+own empty data dir, that runs the newest `fork-v*` release:
 
 ```bash
 fork/instance/install.sh
@@ -111,14 +143,14 @@ fork/instance/install.sh
 - Data in `~/.bb-alex`, server on `127.0.0.1:48886`, daemon on `48887`,
   in-app updates off, so it can never install an official `bb-app`.
 - `bb-alex-update.timer` runs [`instance/update.sh`](instance/update.sh) every
-  30 minutes. It installs a new release only when no thread is running,
-  copies every SQLite file of the data dir to `~/.bb-alex/backups/` first
-  (keeps 10), switches `~/.bb-alex-app/current`, and waits for the new version
-  to answer. A release that does not come up is rolled back and never retried;
-  bb-alex then stays stopped until its backup is restored.
-- `bb-alex <command>` (in `~/.local/bin`) is the CLI for this instance; it drops the official instance's `BB_*` variables. Sign it in once with
-  `bb-alex account login` to get its own getbb.app address
-  (`bb-alex connect servers` lists it).
+  30 minutes, the same way as above, with its backups in `~/.bb-alex/backups/`
+  (keeps 10).
+- `bb-alex <command>` (in `~/.local/bin`) is the CLI for this instance; it
+  drops the official instance's `BB_*` variables.
+- Its getbb.app sign-in request carries the machine's hostname, the same as
+  the official bb's, and the page can preselect "Replace <my address>":
+  approving that moves my address to bb-alex and signs the official bb out.
+  Choose **New server**, or leave bb-alex signed out.
 - Logs: `journalctl --user -u bb-alex -u bb-alex-update`. Stop it for good:
   `systemctl --user disable --now bb-alex.service bb-alex-update.timer`
   (the data stays).
