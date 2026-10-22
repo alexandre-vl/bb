@@ -706,6 +706,8 @@ async function suspendMachine(
             daemonSessionId,
             daemonShutdownTimeoutMs,
           );
+          const shutdownAcknowledged =
+            deps.hub.takeDaemonShutdownAck(daemonSessionId);
           if (!closed || deps.hub.hasDaemonForHost(hostId)) {
             if (!coordinateMaintenance) {
               updateHost(deps.db, deps.hub, hostId, {
@@ -717,10 +719,12 @@ async function suspendMachine(
               `Machine "${hostId}" daemon did not shut down cleanly within ${daemonShutdownTimeoutMs}ms; suspend was cancelled`,
             );
           }
-          settleDanglingBackgroundTasks(deps, {
-            hostId,
-            reason: "machine-suspended",
-          });
+          if (shutdownAcknowledged) {
+            settleDanglingBackgroundTasks(deps, {
+              hostId,
+              reason: "machine-suspended",
+            });
+          }
         }
         updateHost(deps.db, deps.hub, hostId, { suspendedAt: Date.now() });
         const invocation = await invokeMachineProvider(

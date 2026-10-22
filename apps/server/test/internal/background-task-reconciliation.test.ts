@@ -371,6 +371,36 @@ describe("background-task lifecycle reconciliation triggers", () => {
     });
   });
 
+  it("keeps open tasks when the daemon's socket closes before it acknowledged the shutdown", async () => {
+    await withTestHarness(async (harness) => {
+      const { host, session, thread } = seedOpenBackgroundTaskThread(harness);
+      installMachineProvider({
+        suspend: async () => ({ resource: { id: "owned" } }),
+        resume: async () => ({ resource: { id: "owned" } }),
+      });
+      updateHost(harness.db, harness.hub, host.id, {
+        machineProviderId: "test-machine",
+        resource: { id: "owned" },
+      });
+      harness.deps.hub.registerDaemon(session.id, host.id, {
+        ...createMockHubSocket(),
+        send(data: string) {
+          if (
+            hostDaemonServerWsMessageSchema.parse(JSON.parse(data)).type ===
+            "machine.shutdown"
+          ) {
+            harness.deps.hub.unregisterDaemon(session.id);
+          }
+        },
+      });
+
+      await requestMachineSuspension(harness.deps, host.id);
+
+      expect(getHost(harness.db, host.id)?.phase).toBe("suspended");
+      expect(listSettledBackgroundTaskItems(harness, thread.id)).toEqual([]);
+    });
+  });
+
   it("keeps open tasks when a suspension is cancelled because the daemon stayed up", async () => {
     await withTestHarness(async (harness) => {
       const { host, session, thread } = seedOpenBackgroundTaskThread(harness);
