@@ -21,3 +21,4 @@ plugin-update-rollback
 bb/project-default-environment
 carry/automation-environment-composer
 bb/automation-environment-composer
+bb/child-threads-follow-parent-execution
