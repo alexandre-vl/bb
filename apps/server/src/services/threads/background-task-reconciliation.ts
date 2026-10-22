@@ -8,6 +8,7 @@ import {
   type OpenBackgroundTaskItemRow,
 } from "@bb/db";
 import {
+  convertLegacyStoredThreadEvent,
   stoppedBackgroundTaskItem,
   threadEventBackgroundTaskItemSchema,
   threadScope,
@@ -32,6 +33,8 @@ type SettleDanglingBackgroundTasksTransactionDeps = {
   logger: AppDeps["logger"];
 };
 
+const storedEventDataSchema = z.record(z.string(), z.unknown());
+
 const storedBackgroundTaskEventDataSchema = z.object({
   item: threadEventBackgroundTaskItemSchema,
 });
@@ -40,9 +43,15 @@ function parseStoredBackgroundTaskItem(
   row: OpenBackgroundTaskItemRow,
 ): ThreadEventBackgroundTaskItem | null {
   try {
-    const parsed = storedBackgroundTaskEventDataSchema.safeParse(
-      JSON.parse(row.data),
-    );
+    const data = storedEventDataSchema.safeParse(JSON.parse(row.data));
+    if (!data.success) {
+      return null;
+    }
+    const stored = convertLegacyStoredThreadEvent({
+      type: row.type,
+      data: data.data,
+    });
+    const parsed = storedBackgroundTaskEventDataSchema.safeParse(stored.data);
     return parsed.success ? parsed.data.item : null;
   } catch {
     return null;
@@ -73,6 +82,9 @@ export function settleDanglingBackgroundTasks(
     { behavior: "immediate" },
   );
 
+  if (settledThreadIds.size === 0) {
+    return;
+  }
   deps.logger.info(
     {
       hostId: args.hostId,
