@@ -3,11 +3,10 @@ import type {
   PermissionMode,
   ProjectExecutionDefaults,
   RecordedPermissionMode,
-  RecordedThreadExecutionOptions,
   ReasoningLevel,
   Thread,
 } from "@bb/domain";
-import { getEnvironment } from "@bb/db";
+import { getEnvironment, getProjectSourceOnPersistentHost } from "@bb/db";
 import { DEFAULT_ENVIRONMENT_PROVIDER_ID } from "../environments/environment-provider-ids.js";
 import { DEFAULT_SERVICE_TIER, PERSONAL_PROJECT_ID } from "@bb/domain";
 import type {
@@ -19,8 +18,15 @@ import type { WorkSessionDeps } from "../../types.js";
 import type { ProviderRegistryService } from "../providers/provider-registry.js";
 import { ApiError } from "../../errors.js";
 import { callHostRetryableOnlineRpc } from "../hosts/online-rpc.js";
-import { requireConnectedPrimaryHostId } from "../hosts/primary-host.js";
-import { resolveProjectWorkspaceTarget } from "../projects/project-workspace.js";
+import {
+  requireConnectedPrimaryHostId,
+  resolvePrimaryHostId,
+} from "../hosts/primary-host.js";
+import { ensureHostSessionReadyForWork } from "../hosts/host-lifecycle.js";
+import {
+  projectCheckoutPathOnHost,
+  resolveProjectWorkspaceTarget,
+} from "../projects/project-workspace.js";
 import { resolveDefaultWorktreeBaseBranch } from "../projects/worktree-base-branch.js";
 import {
   checkoutProviderInputs,
@@ -71,12 +77,6 @@ interface CreateThreadExecutionDefaultsResolved {
   executionDefaults: ProjectExecutionDefaults | null;
   providerId: string;
   providerFallbackCandidates: readonly string[];
-}
-
-interface ResolveParentThreadExecutionDefaultsArgs {
-  parentExecution: RecordedThreadExecutionOptions | null;
-  parentProviderId: string;
-  requestedProviderId?: string;
 }
 
 interface IsManagedChildThreadArgs {
@@ -234,30 +234,6 @@ export function resolveCreateThreadExecutionDefaults(
   };
 }
 
-export function resolveParentThreadExecutionDefaults(
-  registry: ProviderRegistryService,
-  args: ResolveParentThreadExecutionDefaultsArgs,
-): ProjectExecutionDefaults | null {
-  if (
-    args.parentExecution === null ||
-    registry.get(args.parentProviderId)?.info.available !== true ||
-    registry.disabledProviderIds().has(args.parentProviderId) ||
-    (args.requestedProviderId !== undefined &&
-      args.requestedProviderId !== args.parentProviderId)
-  ) {
-    return null;
-  }
-  return {
-    providerId: args.parentProviderId,
-    model: args.parentExecution.model,
-    reasoningLevel: args.parentExecution.reasoningLevel,
-    permissionMode: normalizeRecordedPermissionMode(
-      args.parentExecution.permissionMode,
-    ),
-    serviceTier: args.parentExecution.serviceTier,
-  };
-}
-
 export function buildProviderThreadExecutionDefaults(
   registry: ProviderRegistryService,
   args: {
@@ -288,6 +264,24 @@ function requireDefaultEnvironmentProvider(id: string): string {
   return id;
 }
 
+async function resolveProjectDefaultHostId(
+  deps: WorkSessionDeps,
+  projectId: string,
+): Promise<string> {
+  const primaryHostId = resolvePrimaryHostId(deps);
+  if (
+    primaryHostId === null ||
+    projectCheckoutPathOnHost(deps, projectId, primaryHostId) === undefined
+  ) {
+    const source = getProjectSourceOnPersistentHost(deps.db, projectId);
+    if (source !== null) {
+      await ensureHostSessionReadyForWork(deps, { hostId: source.hostId });
+      return source.hostId;
+    }
+  }
+  return requireConnectedPrimaryHostId(deps);
+}
+
 export async function resolveProjectDefaultThreadEnvironment(
   deps: WorkSessionDeps,
   args: { projectId: string },
@@ -306,7 +300,7 @@ export async function resolveProjectDefaultThreadEnvironment(
     };
   }
 
-  const hostId = requireConnectedPrimaryHostId(deps);
+  const hostId = await resolveProjectDefaultHostId(deps, args.projectId);
   const source = resolveProjectWorkspaceTarget(deps, {
     hostId,
     projectId: args.projectId,

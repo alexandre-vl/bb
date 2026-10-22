@@ -194,45 +194,88 @@ describe("Workspace", () => {
     const repoPath = await initRepo(await makeTempDir("bb-workspace-repo-"));
     const workspace = new Workspace(repoPath);
 
-    const initialFingerprint = await workspace.getLocalStateFingerprint();
+    const initialFingerprint = await workspace.getLocalStateSnapshot();
+    expect(initialFingerprint.branchName).toBe("main");
 
     await fs.writeFile(path.join(repoPath, "README.md"), "dirty\n", "utf8");
-    const dirtyFingerprint = await workspace.getLocalStateFingerprint();
-    expect(dirtyFingerprint).not.toBe(initialFingerprint);
+    const dirtyFingerprint = await workspace.getLocalStateSnapshot();
+    expect(dirtyFingerprint.fingerprint).not.toBe(
+      initialFingerprint.fingerprint,
+    );
 
     await runGit(["checkout", "-b", "feature"], { cwd: repoPath });
-    const branchFingerprint = await workspace.getLocalStateFingerprint();
-    expect(branchFingerprint).not.toBe(dirtyFingerprint);
+    const branchFingerprint = await workspace.getLocalStateSnapshot();
+    expect(branchFingerprint.fingerprint).not.toBe(
+      dirtyFingerprint.fingerprint,
+    );
+    expect(branchFingerprint.branchName).toBe("feature");
+    await runGit(["checkout", "--detach"], { cwd: repoPath });
+    const detached = await workspace.getLocalStateSnapshot();
+    expect(detached.branchName).toBeNull();
+    expect(detached.fingerprint).not.toBe(branchFingerprint.fingerprint);
+  });
+
+  it("observes the initial branch before the first commit", async () => {
+    const repoPath = await makeTempDir("bb-workspace-unborn-");
+    await runGit(["init", "-b", "main"], { cwd: repoPath });
+    const workspace = new Workspace(repoPath);
+    expect((await workspace.getLocalStateSnapshot()).branchName).toBe("main");
+    expect(
+      (await workspace.getSharedGitRefsSnapshot()).defaultBranch,
+    ).toBeNull();
   });
 
   it("fingerprints an untracked path without reading its contents", async () => {
     const repoPath = await initRepo(await makeTempDir("bb-workspace-repo-"));
     const workspace = new Workspace(repoPath);
-    const initialFingerprint = await workspace.getLocalStateFingerprint();
+    const initialFingerprint = await workspace.getLocalStateSnapshot();
 
     await fs.writeFile(path.join(repoPath, "notes.txt"), "one\n", "utf8");
-    const untrackedFingerprint = await workspace.getLocalStateFingerprint();
-    expect(untrackedFingerprint).not.toBe(initialFingerprint);
+    const untrackedFingerprint = await workspace.getLocalStateSnapshot();
+    expect(untrackedFingerprint.fingerprint).not.toBe(
+      initialFingerprint.fingerprint,
+    );
 
     await fs.writeFile(path.join(repoPath, "notes.txt"), "one\ntwo\n", "utf8");
-    expect(await workspace.getLocalStateFingerprint()).toBe(
+    expect(await workspace.getLocalStateSnapshot()).toEqual(
       untrackedFingerprint,
     );
   });
 
-  it("changes the shared git refs fingerprint only when refs change", async () => {
+  it("includes the default branch in the shared refs snapshot without depending on file edits", async () => {
     const repoPath = await initRepo(await makeTempDir("bb-workspace-repo-"));
     const workspace = new Workspace(repoPath);
-
-    const initialFingerprint = await workspace.getSharedGitRefsFingerprint();
+    const initialSnapshot = await workspace.getSharedGitRefsSnapshot();
+    expect(initialSnapshot.defaultBranch).toBe("main");
 
     await fs.writeFile(path.join(repoPath, "README.md"), "dirty\n", "utf8");
-    const dirtyFingerprint = await workspace.getSharedGitRefsFingerprint();
-    expect(dirtyFingerprint).toBe(initialFingerprint);
+    expect(await workspace.getSharedGitRefsSnapshot()).toEqual(initialSnapshot);
 
     await runGit(["branch", "feature"], { cwd: repoPath });
-    const branchFingerprint = await workspace.getSharedGitRefsFingerprint();
-    expect(branchFingerprint).not.toBe(initialFingerprint);
+    const branchSnapshot = await workspace.getSharedGitRefsSnapshot();
+    expect(branchSnapshot.fingerprint).not.toBe(initialSnapshot.fingerprint);
+    expect(branchSnapshot.defaultBranch).toBe("main");
+
+    await runGit(
+      ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"],
+      { cwd: repoPath },
+    );
+    const remoteSnapshot = await workspace.getSharedGitRefsSnapshot();
+    expect(remoteSnapshot.fingerprint).not.toBe(branchSnapshot.fingerprint);
+    expect(remoteSnapshot.defaultBranch).toBe("trunk");
+
+    await runGit(["symbolic-ref", "--delete", "refs/remotes/origin/HEAD"], {
+      cwd: repoPath,
+    });
+    await runGit(["branch", "-m", "main", "master"], { cwd: repoPath });
+    expect((await workspace.getSharedGitRefsSnapshot()).defaultBranch).toBe(
+      "master",
+    );
+    await runGit(["checkout", "feature"], { cwd: repoPath });
+    await runGit(["branch", "-D", "master"], { cwd: repoPath });
+    expect((await workspace.getSharedGitRefsSnapshot()).defaultBranch).toBe(
+      "feature",
+    );
   });
 
   it("returns grouped status details only when merge-base data is requested", async () => {
@@ -255,6 +298,7 @@ describe("Workspace", () => {
       mergeBaseBranch: "main",
       aheadCount: 1,
       behindCount: 0,
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: true,
     });
     expect(status.mergeBase?.commits[0]?.subject).toBe("Feature commit");
@@ -357,6 +401,7 @@ describe("Workspace", () => {
     ]);
     expect(status.mergeBase).toMatchObject({
       mergeBaseBranch: "main",
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: true,
       aheadCount: 1,
       behindCount: 0,
@@ -385,6 +430,7 @@ describe("Workspace", () => {
     expect(status.workingTree.state).toBe("clean");
     expect(status.mergeBase).toMatchObject({
       mergeBaseBranch: "main",
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: false,
       aheadCount: 0,
       behindCount: 1,
@@ -412,6 +458,7 @@ describe("Workspace", () => {
 
     expect(status.mergeBase).toMatchObject({
       mergeBaseBranch: "main",
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: false,
       aheadCount: 0,
     });
@@ -452,6 +499,7 @@ describe("Workspace", () => {
 
     expect(status.mergeBase).toMatchObject({
       mergeBaseBranch: "main",
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: false,
       aheadCount: 0,
     });
@@ -478,6 +526,7 @@ describe("Workspace", () => {
 
     expect(status.mergeBase).toMatchObject({
       mergeBaseBranch: "main",
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: false,
       aheadCount: 0,
     });
@@ -494,6 +543,7 @@ describe("Workspace", () => {
 
     expect(status.mergeBase).toMatchObject({
       mergeBaseBranch: "main",
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: true,
       aheadCount: 2,
     });
@@ -521,6 +571,7 @@ describe("Workspace", () => {
     expect(status.workingTree.state).toBe("clean");
     expect(status.mergeBase).toMatchObject({
       mergeBaseBranch: "main",
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: false,
       aheadCount: 0,
       behindCount: 1,
@@ -571,6 +622,7 @@ describe("Workspace", () => {
       baseRef: null,
       aheadCount: 0,
       behindCount: 0,
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: false,
       commits: [],
       files: [],
