@@ -2208,6 +2208,7 @@ describe("thread actions menu fake", () => {
             pluginId: "bb--core",
             group: "2_organize",
             action: { label: "Pin", icon: "Pin", run },
+            shortcut: null,
           },
         ],
       },

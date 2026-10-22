@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { SidebarSectionId } from "../model/sidebar-section-id.js";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -18,6 +24,7 @@ import {
 import { SIDEBAR_CONTROL_BUTTON_CLASS } from "@/components/ui/sidebar-row-classes";
 import { ThreadListVisibilityMenuItems } from "./ThreadListVisibility.js";
 import { SidebarHeaderMenuContents } from "./SidebarViewItems.js";
+import { useCustomizeThreadRowActions } from "./customizeRowActionsContext.js";
 
 export interface HeaderCreationActions {
   onNewSection?: (anchorSectionId?: SidebarSectionId) => void;
@@ -49,9 +56,30 @@ export function SidebarHeaderControls({
   const creation = useContext(HeaderCreationContext);
   const compact = useIsCompactViewport();
   const [page, setPage] = useState<"organize" | "sort" | "filter" | null>(null);
+  const startCustomizingRowActions = useCustomizeThreadRowActions();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const afterClose = useRef<(() => void) | null>(null);
   const changeOpen = (next: boolean) => {
     if (!next) setPage(null);
     onOpenChange?.(next);
+  };
+  const customizeRowActions =
+    startCustomizingRowActions === null
+      ? undefined
+      : () => {
+          const start = () => startCustomizingRowActions(triggerRef.current);
+          if (compact) start();
+          else afterClose.current = start;
+        };
+  const handleCloseAutoFocus = (event: Event) => {
+    const run = afterClose.current;
+    if (run === null) {
+      onCloseAutoFocus?.(event);
+      return;
+    }
+    afterClose.current = null;
+    event.preventDefault();
+    run();
   };
   return (
     <SidebarRowControls
@@ -69,6 +97,7 @@ export function SidebarHeaderControls({
       <DropdownMenu open={open} onOpenChange={changeOpen}>
         <DropdownMenuTrigger asChild>
           <Button
+            ref={triggerRef}
             type="button"
             variant="ghost"
             size="icon"
@@ -86,7 +115,7 @@ export function SidebarHeaderControls({
           side="right"
           align="start"
           sideOffset={8}
-          onCloseAutoFocus={onCloseAutoFocus}
+          onCloseAutoFocus={handleCloseAutoFocus}
           mobileTitle={
             page === "organize"
               ? "Organize"
@@ -103,6 +132,7 @@ export function SidebarHeaderControls({
             compact={compact}
             page={page}
             onPageChange={setPage}
+            onCustomizeRowActions={customizeRowActions}
           >
             {children}
           </SidebarHeaderMenuContents>

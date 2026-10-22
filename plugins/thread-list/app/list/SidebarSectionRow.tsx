@@ -25,6 +25,7 @@ import type { SidebarSectionId } from "../model/sidebar-section-id.js";
 import {
   EMPTY_THREAD_ROLLUP,
   describeThreadRollup,
+  threadListIndicatorRung,
   type ThreadRollup,
 } from "../model/thread-activity.js";
 import { SidebarTreeChevron } from "../rows/SidebarTreeChevron.js";
@@ -178,6 +179,7 @@ function SidebarSectionRowComponent({
       >
         {labelEditor ?? (
           <span
+            data-sidebar-row-title=""
             className="min-w-0 truncate"
             onDoubleClick={
               onRename
@@ -270,6 +272,7 @@ function SidebarSectionRowComponent({
     </>
   );
   const tooltip = labelEditor ? undefined : `${name} · ${summary}`;
+  const rung = threadListIndicatorRung(rollupKind);
 
   if (stickyLevel !== undefined) {
     return (
@@ -279,6 +282,7 @@ function SidebarSectionRowComponent({
         data-sidebar-tree-row=""
         data-sidebar-row-key={sectionId}
         data-sidebar-row-tooltip={tooltip}
+        data-sidebar-row-rung={rung}
         tier="parent"
         level={stickyLevel}
         className={className}
@@ -301,6 +305,7 @@ function SidebarSectionRowComponent({
       data-sidebar-tree-row=""
       data-sidebar-row-key={sectionId}
       data-sidebar-row-tooltip={tooltip}
+      data-sidebar-row-rung={rung}
       className={className}
       style={style}
       {...(dragBindings?.listeners ?? {})}

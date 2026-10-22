@@ -2536,6 +2536,14 @@ for every menu and the quick-action picker. Thread-list registers Move to
 section, and push-notifications registers Notifications. The SDK test fake
 throws when a menu `trigger` drops its props and ref.
 
+Each entry carries `shortcut: ExperimentalThreadActionShortcut | null`, the
+person's binding for the app command that runs the action on the focused
+sidebar row: `thread.archive` for `bb--core/archive` (null on an archived
+thread, whose action is Unarchive), `thread.rename` for `bb--core/rename`, and
+`thread.toggleRead` for `bb--core/read`. `useThreadActionEntries` fills it
+from `useAppCommandShortcuts`, so a rebind shows at once. The thread list's
+quick-action buttons show it in their tooltip and `aria-keyshortcuts`.
+
 **Core callers.** bb's own actions are `CORE_THREAD_ACTIONS`
 (`apps/app/src/lib/thread-actions/core-thread-actions.ts`), registered under
 the reserved `bb--core` owner. The header menu (`ThreadDetailView` →
@@ -2561,6 +2569,10 @@ Docs: `frontend-registration.md`.
 4. **Inline items.** `inline` exists for surface-specific entries that are not
    about a thread. Confirm it should stay a component prop rather than a
    registration.
+5. **Shortcut scope.** `shortcut` is the sidebar-list binding, and no bb menu
+   shows it yet: the header menu offers the same actions where those keys do
+   nothing. Decide whether menus opened from a row should show it, and whether
+   a plugin registration should be able to name a command of its own.
 
 ## `experimental_useArchiveEnvironmentThreads` (`@get-bb/plugin-sdk/app`)
 

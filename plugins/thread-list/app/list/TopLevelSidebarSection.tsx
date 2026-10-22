@@ -25,6 +25,7 @@ import type { SidebarSortableDragBindings } from "@/components/ui/sortable-motio
 import {
   EMPTY_THREAD_ROLLUP,
   describeThreadRollup,
+  threadListIndicatorRung,
   type ThreadRollup,
 } from "../model/thread-activity.js";
 import {
@@ -178,6 +179,8 @@ export function TopLevelSidebarSection({
         data-sidebar-row-key={dropParentKey ?? sectionId}
         data-sidebar-section-header=""
         data-sidebar-row-tooltip={labelEditor ? undefined : tooltip}
+        data-sidebar-row-tooltip-title-only={summary ? undefined : ""}
+        data-sidebar-row-rung={threadListIndicatorRung(rollupKind)}
         className={cn(
           SIDEBAR_HOVER_ACTIONS_ROW_CLASS,
           "group/section-header flex w-full min-w-0 items-center rounded-md pr-0 text-xs font-medium text-sidebar-foreground-quiet",
@@ -206,6 +209,7 @@ export function TopLevelSidebarSection({
           {labelEditor ?? (
             <span
               data-sidebar-section-label=""
+              data-sidebar-row-title=""
               className="min-w-0 truncate"
               onDoubleClick={
                 onRename

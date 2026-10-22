@@ -2118,6 +2118,17 @@ export interface PluginBoundThreadAction extends Omit<
 }
 
 /**
+ * The key bb binds to a thread action for the focused sidebar row, as the
+ * person configured it in Keyboard shortcuts.
+ */
+export interface ExperimentalThreadActionShortcut {
+  /** Display text, such as `E` or `F2`. */
+  label: string;
+  /** Value for the control's `aria-keyshortcuts` attribute. */
+  ariaKeyshortcuts: string;
+}
+
+/**
  * One row of {@link PluginSdkApp.experimental_useThreadActions}: `key` is
  * `<owner>/<id>`, where the owner is the registering plugin's id or
  * `bb--core` for bb's own actions.
@@ -2128,6 +2139,12 @@ export interface PluginThreadActionEntry {
   /** The registration's group, for separators in a caller's own list. */
   group: string;
   action: PluginBoundThreadAction;
+  /**
+   * The key that runs this action on the focused sidebar row (bb's Archive,
+   * Rename and Mark read / unread), or null when the action has none or the
+   * person unbound it. Show it beside the action's label in a row's tooltip.
+   */
+  shortcut: ExperimentalThreadActionShortcut | null;
 }
 
 /** One row of {@link PluginSdkApp.experimental_useThreadActionRegistrations}. */

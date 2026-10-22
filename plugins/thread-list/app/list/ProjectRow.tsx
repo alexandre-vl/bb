@@ -98,6 +98,7 @@ import {
   describeThreadRollup,
   EMPTY_THREAD_ROLLUP,
   rollUpThreads,
+  threadListIndicatorRung,
   type ThreadRollup,
 } from "../model/thread-activity.js";
 import { cn } from "@/lib/utils";
@@ -112,6 +113,7 @@ import {
   buildSectionThreadList,
   buildProjectThreadGroups,
   CHRONOLOGICAL_CONTAINER_ID,
+  collectProjectThreadItemAttention,
   collectProjectThreadItemNavigationEntries,
   countProjectThreadItemRows,
   getProjectThreadItemDescendants,
@@ -120,6 +122,7 @@ import {
   projectThreadItemContainsThread,
   type EnvironmentThreadGroup,
   type ProjectThreadItem,
+  type ProjectThreadItemAttention,
   type ProjectThreadItemRowCountContext,
   type ProjectThreadNode,
   type SidebarSectionDefinition,
@@ -276,6 +279,7 @@ type ProjectThreadListClickCaptureHandler = MouseEventHandler<HTMLDivElement>;
 const EMPTY_PROJECT_THREADS: SidebarThread[] = [];
 const EMPTY_PINNED_ROOT_NODES: readonly ProjectThreadNode[] = [];
 const EMPTY_THREAD_SECTIONS: readonly SidebarSectionDefinition[] = [];
+const NO_ATTENTION: ProjectThreadItemAttention = { needsYou: 0, failed: 0 };
 const PROJECT_THREAD_TREE_EMPTY_STATE_CLASS = "py-0.5 px-2";
 
 interface ProjectThreadTreeGroupProps {
@@ -798,6 +802,7 @@ function EnvironmentThreadGroupHeader({
   const groupTooltip = rename.isEditing
     ? undefined
     : `${displayName} · worktree · ${threadSummary}`;
+  const rung = threadListIndicatorRung(rollupKind);
   const className = cn(
     SIDEBAR_HOVER_ACTIONS_ROW_CLASS,
     "group/environment-row cursor-pointer",
@@ -844,6 +849,7 @@ function EnvironmentThreadGroupHeader({
       >
         {rename.editor ?? (
           <span
+            data-sidebar-row-title=""
             className="min-w-0 truncate"
             onDoubleClick={(event) => {
               event.preventDefault();
@@ -910,6 +916,7 @@ function EnvironmentThreadGroupHeader({
         data-sidebar-tree-row=""
         data-sidebar-row-key={`env:${environmentId}`}
         data-sidebar-row-tooltip={groupTooltip}
+        data-sidebar-row-rung={rung}
         level={stickyLevel}
         className={className}
         style={style}
@@ -929,6 +936,7 @@ function EnvironmentThreadGroupHeader({
       data-sidebar-tree-row=""
       data-sidebar-row-key={`env:${environmentId}`}
       data-sidebar-row-tooltip={groupTooltip}
+      data-sidebar-row-rung={rung}
       className={className}
       style={style}
       onClick={handleRowClick}
@@ -992,13 +1000,18 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
     () => nodes.map((node) => ({ kind: "thread", node })),
     [nodes],
   );
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items: nodeItems,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    getAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items: nodeItems,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
 
   return (
     <>
@@ -1032,6 +1045,7 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
               itemKeys={itemKeys}
               estimateRows={estimateRows}
               getNavigationEntries={getNavigationEntries}
+              getAttention={getAttention}
               alwaysMountedKeys={alwaysMountedKeys}
               renderItem={(index) => {
                 const node = nodes[index];
@@ -1311,13 +1325,18 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
     () => getProjectThreadItemDescendants(section.items),
     [section.items],
   );
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items: section.items,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    getAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items: section.items,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
 
   const childrenArea = showChildren ? (
     <div className="relative space-y-0.5">
@@ -1330,6 +1349,7 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
             itemKeys={itemKeys}
             estimateRows={estimateRows}
             getNavigationEntries={getNavigationEntries}
+            getAttention={getAttention}
             alwaysMountedKeys={alwaysMountedKeys}
             renderItem={(index) => {
               const item = section.items[index];
@@ -1556,13 +1576,18 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
     items: node.children,
     selectedThreadId,
   });
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items: folded.items,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    getAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items: folded.items,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
   const row = (
     <ThreadRow
       thread={node.thread}
@@ -1595,6 +1620,7 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
               focusItemKey={folded.focusItemKey}
               estimateRows={estimateRows}
               getNavigationEntries={getNavigationEntries}
+              getAttention={getAttention}
               alwaysMountedKeys={alwaysMountedKeys}
               renderItem={(index) => {
                 const item = folded.items[index];
@@ -1765,7 +1791,22 @@ function useWindowedThreadItems({
     }
     return keys.size > 0 ? keys : undefined;
   }, [items, selectedThreadId, rename]);
-  return { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys };
+  const getAttention = useCallback(
+    (index: number) => {
+      const item = items[index];
+      return item
+        ? collectProjectThreadItemAttention(item, rowCountContext)
+        : NO_ATTENTION;
+    },
+    [items, rowCountContext],
+  );
+  return {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    getAttention,
+    alwaysMountedKeys,
+  };
 }
 
 function SectionThreadTreeItems({
@@ -1792,19 +1833,25 @@ function SectionThreadTreeItems({
   });
   const items = olderFoldKey === undefined ? allItems : folded.items;
   const fold = olderFoldKey === undefined ? null : folded.fold;
-  const { itemKeys, estimateRows, getNavigationEntries, alwaysMountedKeys } =
-    useWindowedThreadItems({
-      items,
-      collapsedThreadIds,
-      collapsedEnvironmentIds,
-      selectedThreadId,
-    });
+  const {
+    itemKeys,
+    estimateRows,
+    getNavigationEntries,
+    getAttention,
+    alwaysMountedKeys,
+  } = useWindowedThreadItems({
+    items,
+    collapsedThreadIds,
+    collapsedEnvironmentIds,
+    selectedThreadId,
+  });
   const windowedRows = (
     <SidebarWindowedItems
       itemKeys={itemKeys}
       focusItemKey={fold ? folded.focusItemKey : undefined}
       estimateRows={estimateRows}
       getNavigationEntries={getNavigationEntries}
+      getAttention={getAttention}
       alwaysMountedKeys={alwaysMountedKeys}
       renderItem={(index) => {
         const item = items[index];

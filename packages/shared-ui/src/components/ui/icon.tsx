@@ -8,7 +8,6 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import Alert02Icon from "@hugeicons/core-free-icons/Alert02Icon";
 import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon";
-import Archive03Icon from "@hugeicons/core-free-icons/Archive03Icon";
 import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon";
 import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon";
@@ -66,6 +65,41 @@ import {
   getExtendedIcons,
   subscribeExtendedIcons,
 } from "./icon-registry";
+
+const ArchiveBoxStrokeRoundedIcon: IconSvgElement = [
+  [
+    "path",
+    {
+      d: "M3 5.5C3 4.67157 3.67157 4 4.5 4H19.5C20.3284 4 21 4.67157 21 5.5V7.5C21 8.32843 20.3284 9 19.5 9H4.5C3.67157 9 3 8.32843 3 7.5V5.5Z",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.5",
+      key: "0",
+    },
+  ],
+  [
+    "path",
+    {
+      d: "M5 9V18C5 19.1046 5.89543 20 7 20H17C18.1046 20 19 19.1046 19 18V9",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.5",
+      key: "1",
+    },
+  ],
+  [
+    "path",
+    {
+      d: "M10 13H14",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeWidth: "1.5",
+      key: "2",
+    },
+  ],
+];
 
 const SectionAddStrokeRoundedIcon: IconSvgElement = [
   [
@@ -157,7 +191,7 @@ const SectionMoveStrokeRoundedIcon: IconSvgElement = [
 const CORE_ICON_MAP = {
   AlertCircle: AlertCircleIcon,
   AlertTriangle: Alert02Icon,
-  Archive: Archive03Icon,
+  Archive: ArchiveBoxStrokeRoundedIcon,
   Bot: BotIcon,
   Bug: Bug01Icon,
   Check: Tick02Icon,

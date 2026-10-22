@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   QueryClientProvider,
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { PERSONAL_PROJECT_ID } from "@bb/domain";
+import { PERSONAL_PROJECT_ID, type AppKeybinding } from "@bb/domain";
 import type { SidebarBootstrapResponse } from "@bb/server-contract";
 import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+import { AppCommandProvider } from "@/components/commands/AppCommandProvider";
 import { ThreadActionsProvider } from "@/components/thread/ThreadActionsProvider";
 import { SidebarContent, SidebarProvider } from "@/components/ui/sidebar";
 import {
@@ -466,9 +467,11 @@ const V2_PREFERENCES = {
 function V2Sidebar({
   width,
   height = 900,
+  footer,
 }: {
   width: number;
-  height?: number;
+  height?: number | string;
+  footer?: ReactNode;
 }) {
   const replacement = useThreadListReplacement();
   const { data } = useSidebarNavigation();
@@ -483,6 +486,7 @@ function V2Sidebar({
           <SidebarContent>
             <PluginThreadList replacement={replacement} onNavigate={() => {}} />
           </SidebarContent>
+          {footer}
         </main>
       </SidebarProvider>
     </SidebarThreadEntriesProvider>
@@ -679,6 +683,91 @@ export function SidebarV2Stability() {
           <BackgroundUpdateControls />
         </main>
       </ThreadActionsProvider>
+    </QueryClientProvider>
+  );
+}
+
+const V2_EDGE_PROJECT_ID = "proj_dashboard";
+const V2_EDGE_PREFERENCES = {
+  ...V2_PREFERENCES,
+  collapsedThreads: [],
+  rowActions: ["bb--core/archive"],
+};
+const V2_EDGE_ARCHIVE_BINDING = {
+  command: "thread.archive",
+  desktopOnly: false,
+  shortcut: {
+    key: "e",
+    mod: false,
+    meta: false,
+    control: false,
+    alt: false,
+    shift: false,
+  },
+  when: {
+    all: ["mainSurface", "sidebarListFocus"],
+    none: ["modalOpen", "editableFocus"],
+  },
+} satisfies AppKeybinding;
+const V2_EDGE_SYSTEM_CONFIG = makeSystemConfig({
+  keybindings: [V2_EDGE_ARCHIVE_BINDING],
+  defaultKeybindings: [V2_EDGE_ARCHIVE_BINDING],
+});
+
+function v2EdgeNavigation(): SidebarBootstrapResponse {
+  const navigation = v2Navigation();
+  const dashboard = Array.from({ length: 14 }, (_, index) =>
+    v2Entry(`thr_v2_dash_${index}`, `Dashboard task ${index + 1}`, {
+      projectId: V2_EDGE_PROJECT_ID,
+      ...(index === 9
+        ? V2_FAILED
+        : index === 12
+          ? { hasPendingInteraction: true }
+          : {}),
+    }),
+  );
+  const [bb, ...rest] = navigation.projects;
+  if (bb === undefined) return navigation;
+  return {
+    ...navigation,
+    projects: [
+      bb,
+      {
+        ...makeProject({ id: V2_EDGE_PROJECT_ID, name: "kops-dashboard" }),
+        defaultExecutionOptions: null,
+        threads: dashboard,
+      },
+      ...rest,
+    ],
+  };
+}
+
+export function SidebarV2EdgeRows() {
+  const [queryClient] = useState(() => {
+    const client = createThreadListQueryClient();
+    client.setQueryData(systemConfigQueryKey(), V2_EDGE_SYSTEM_CONFIG);
+    client.setQueryData(sidebarNavigationQueryKey(), v2EdgeNavigation());
+    return client;
+  });
+  const ready = useThreadListPreferenceRpc(V2_EDGE_PREFERENCES);
+  useArchiveRoutes();
+  useThreadListPlugin();
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppCommandProvider>
+        <ThreadActionsProvider>
+          <V2Sidebar
+            width={288}
+            height="100vh"
+            footer={
+              <div className="flex h-12 shrink-0 items-center border-t border-sidebar-border px-4 text-sm text-sidebar-foreground-quiet">
+                Settings
+              </div>
+            }
+          />
+        </ThreadActionsProvider>
+      </AppCommandProvider>
     </QueryClientProvider>
   );
 }
