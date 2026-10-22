@@ -16,6 +16,9 @@ import {
   type SidebarThreadOverrides,
 } from "./fixtures.js";
 import type { SidebarThread } from "./sidebar-thread.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 type TreeSummary =
   | string

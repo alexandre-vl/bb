@@ -90,6 +90,7 @@ import {
   type PinnedThreadTreeProps,
 } from "./PinnedThreadTree.js";
 import {
+  sidebarShowProviderIconsAtom,
   collapsedEnvironmentIdsAtom,
   collapsedProjectIdsAtom,
   collapsedSidebarSectionIdsAtom,
@@ -120,6 +121,7 @@ import {
 import { ReorderableSidebarSectionOrderList } from "./ReorderableSidebarSectionOrderList.js";
 import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder.js";
 import { useAttentionOrdering } from "./useAttentionOrdering.js";
+import { SIDEBAR_TREE_GEOMETRY_CLASS } from "../ui/tree-geometry.js";
 import { haveSameOrder } from "../model/stored-order.js";
 import {
   SidebarProjectsContext,
@@ -383,11 +385,20 @@ function ProjectListNavigationLoadingRow({
 }
 
 export function ProjectListShell({ children }: ProjectListShellProps) {
+  const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
   return (
     <ThreadRowNavigationProvider>
       <SidebarContentElementProvider>
         <SidebarStickyStack data-sidebar-sticky-density="compact-actions">
-          <SidebarGroupContent>{children}</SidebarGroupContent>
+          <SidebarGroupContent
+            role="tree"
+            aria-label="Threads"
+            data-sidebar-thread-tree=""
+            data-sidebar-provider-icons={showProviderIcons ? "true" : undefined}
+            className={SIDEBAR_TREE_GEOMETRY_CLASS}
+          >
+            {children}
+          </SidebarGroupContent>
         </SidebarStickyStack>
       </SidebarContentElementProvider>
     </ThreadRowNavigationProvider>

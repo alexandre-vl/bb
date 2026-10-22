@@ -31,6 +31,7 @@ import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport
 import { SIDEBAR_DISCLOSURE_ACTION_CLASS } from "@/components/ui/chrome-style-tokens";
 import type { SidebarVisibilityItem } from "@/components/ui/sidebar-visibility-customize";
 import { cn } from "@/lib/utils";
+import { SIDEBAR_TREE_GEOMETRY_CLASS } from "../ui/tree-geometry.js";
 import {
   PROJECT_LIST_ACTION_BUTTON_CLASS,
   SIDEBAR_ROW_SELECTED_STATE_CLASS,
@@ -237,7 +238,10 @@ export function SidebarOverflowItem({
   const compact = useIsCompactViewport();
   const compactOverflow = useContext(CompactOverflowContext);
   const content = (close: () => void) => (
-    <div data-sidebar-overflow="true" className="flex min-h-0 flex-col">
+    <div
+      data-sidebar-overflow="true"
+      className={cn("flex min-h-0 flex-col", SIDEBAR_TREE_GEOMETRY_CLASS)}
+    >
       {empty ? (
         onNewThread ? (
           <Button

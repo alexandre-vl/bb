@@ -14,6 +14,9 @@ import {
   type SidebarThreadOverrides,
 } from "./fixtures.js";
 import type { SidebarThread } from "./sidebar-thread.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 function thread(id: string, overrides: SidebarThreadOverrides = {}) {
   return makeSidebarThread({

@@ -17,6 +17,9 @@ import {
   type ThreadListIndicatorState,
 } from "./thread-activity.js";
 import { makeSidebarThread, type SidebarThreadOverrides } from "./fixtures.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 function makeEntry(overrides: SidebarThreadOverrides = {}) {
   return makeSidebarThread({

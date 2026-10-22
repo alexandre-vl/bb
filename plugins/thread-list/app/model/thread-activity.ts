@@ -1,7 +1,12 @@
-import type {
-  PluginSidebarThread,
-  PluginSidebarThreadIndicator,
-  PluginSidebarThreadRowStatus,
+import {
+  experimental_resolveThreadListIndicator,
+  experimental_rollUpThreadIndicators,
+  experimental_threadIndicatorRung,
+  type ExperimentalThreadIndicatorRung,
+  type ExperimentalThreadListIndicatorState,
+  type PluginSidebarThread,
+  type PluginSidebarThreadIndicator,
+  type PluginSidebarThreadRowStatus,
 } from "@get-bb/plugin-sdk/app";
 
 type ThreadStatusShape = Pick<PluginSidebarThread, "status" | "isUnread">;
@@ -59,23 +64,11 @@ function hasActiveGoalActivity(thread: ThreadActivityStateShape): boolean {
   return thread.activity.goals > 0;
 }
 
-export interface ThreadListIndicatorState {
-  hasPendingInteraction: boolean;
-  hasUnsubmittedDraft: boolean;
-  hasUnreadError: boolean;
-  hasUnreadSuccess: boolean;
-  isBackgroundAgentActive: boolean;
-  isBackgroundCommandActive: boolean;
-  isGoalActive: boolean;
-  isPlanModeActive: boolean;
-  isRuntimeActive: boolean;
-  isWorkflowActive: boolean;
-  queuedWork: PluginSidebarThread["queuedWork"];
-}
+export type ThreadListIndicatorState = ExperimentalThreadListIndicatorState;
 
 export type ThreadListIndicatorKind = PluginSidebarThreadIndicator;
 
-export type ThreadListRung = 0 | 1 | 2 | 3 | 4 | 5;
+export type ThreadListRung = ExperimentalThreadIndicatorRung;
 
 export const NEEDS_YOU_RUNG: ThreadListRung = 5;
 export const FAILED_RUNG: ThreadListRung = 4;
@@ -83,74 +76,16 @@ export const NEW_RUNG: ThreadListRung = 3;
 export const WORKING_RUNG: ThreadListRung = 2;
 export const ATTENTION_RUNG: ThreadListRung = NEW_RUNG;
 
-const THREAD_LIST_INDICATOR_RUNGS: Record<
-  ThreadListIndicatorKind,
-  ThreadListRung
-> = {
-  "waiting-for-input": 5,
-  "unread-error": 4,
-  "queued-failed": 4,
-  "unread-success": 3,
-  "plan-mode": 2,
-  goal: 2,
-  runtime: 2,
-  workflow: 2,
-  "background-agent": 2,
-  "background-command": 2,
-  "working-draft": 2,
-  "queued-waiting": 1,
-  draft: 1,
-  none: 0,
-};
-
-const THREAD_LIST_INDICATOR_PRECEDENCE: readonly ThreadListIndicatorKind[] = [
-  "waiting-for-input",
-  "unread-error",
-  "queued-failed",
-  "unread-success",
-  "plan-mode",
-  "goal",
-  "runtime",
-  "workflow",
-  "background-agent",
-  "background-command",
-  "working-draft",
-  "queued-waiting",
-  "draft",
-  "none",
-];
-
-const THREAD_LIST_INDICATOR_ORDER = new Map(
-  THREAD_LIST_INDICATOR_PRECEDENCE.map((kind, index) => [kind, index]),
-);
-
 export function threadListIndicatorRung(
   kind: ThreadListIndicatorKind,
 ): ThreadListRung {
-  return THREAD_LIST_INDICATOR_RUNGS[kind] ?? 0;
-}
-
-function outranks(
-  candidate: ThreadListIndicatorKind,
-  current: ThreadListIndicatorKind,
-): boolean {
-  const candidateRung = threadListIndicatorRung(candidate);
-  const currentRung = threadListIndicatorRung(current);
-  if (candidateRung !== currentRung) return candidateRung > currentRung;
-  return (
-    (THREAD_LIST_INDICATOR_ORDER.get(candidate) ?? Number.MAX_SAFE_INTEGER) <
-    (THREAD_LIST_INDICATOR_ORDER.get(current) ?? Number.MAX_SAFE_INTEGER)
-  );
+  return experimental_threadIndicatorRung(kind);
 }
 
 export function rollUpThreadListIndicators(
   kinds: Iterable<ThreadListIndicatorKind>,
 ): ThreadListIndicatorKind {
-  let best: ThreadListIndicatorKind = "none";
-  for (const kind of kinds) {
-    if (outranks(kind, best)) best = kind;
-  }
-  return best;
+  return experimental_rollUpThreadIndicators(kinds);
 }
 
 const THREAD_LIST_INDICATOR_LABELS: Record<
@@ -278,19 +213,7 @@ export function threadListIndicatorStateForThread(
 export function resolveThreadListIndicator(
   state: ThreadListIndicatorState,
 ): ThreadListIndicatorKind {
-  if (state.hasPendingInteraction) return "waiting-for-input";
-  if (state.hasUnreadError) return "unread-error";
-  if (state.queuedWork === "failed") return "queued-failed";
-  if (state.hasUnreadSuccess) return "unread-success";
-  if (state.isPlanModeActive) return "plan-mode";
-  if (state.isGoalActive) return "goal";
-  if (state.isRuntimeActive) return "runtime";
-  if (state.isWorkflowActive) return "workflow";
-  if (state.isBackgroundAgentActive) return "background-agent";
-  if (state.isBackgroundCommandActive) return "background-command";
-  if (state.queuedWork === "waiting") return "queued-waiting";
-  if (state.hasUnsubmittedDraft) return "draft";
-  return "none";
+  return experimental_resolveThreadListIndicator(state);
 }
 
 export function threadIndicatorKind(
@@ -368,14 +291,14 @@ export function rollUpThreads(
   if (threads.length === 0) return EMPTY_THREAD_ROLLUP;
   const counts = { ...NO_THREAD_STATE_COUNTS };
   const threadIds: string[] = [];
-  let kind: ThreadListIndicatorKind = "none";
+  const kinds: ThreadListIndicatorKind[] = [];
   for (const thread of threads) {
     threadIds.push(thread.id);
     const threadKind = threadIndicatorKind(thread);
     countThreadKind(counts, threadKind);
-    if (outranks(threadKind, kind)) kind = threadKind;
+    kinds.push(threadKind);
   }
-  return { threadIds, kind, counts };
+  return { threadIds, kind: rollUpThreadListIndicators(kinds), counts };
 }
 
 export function rollUpWithDraft(

@@ -11,6 +11,9 @@ import {
   resolveThreadRevealExpansion,
   stepSidebarThreadReveal,
 } from "./useSidebarThreadReveal.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 function thread(id: string, overrides: SidebarThreadOverrides = {}) {
   return makeSidebarThread({

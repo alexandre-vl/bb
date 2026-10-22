@@ -6,6 +6,9 @@ import {
 } from "./fixtures.js";
 import { buildPinnedSidebarState } from "./pinned-sidebar-threads.js";
 import type { SidebarThread } from "./sidebar-thread.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 function createThread(overrides: SidebarThreadOverrides = {}): SidebarThread {
   return makeSidebarThread({
