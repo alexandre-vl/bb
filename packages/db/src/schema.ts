@@ -18,6 +18,7 @@ import { threadOriginKindValues } from "@bb/domain/thread-origin-kind";
 import { threadParentNotificationsValues } from "@bb/domain/thread-parent-notifications";
 import { threadVisibilityValues } from "@bb/domain/thread-visibility";
 import type {
+  EnvironmentMachineSelection,
   EnvironmentProviderSelection,
   JsonValue,
   EnvironmentStatus,
@@ -1366,4 +1367,34 @@ export const projectAttachmentBackfills = sqliteTable(
     attemptedAt: integer("attempted_at").notNull(),
     error: text("error"),
   },
+);
+
+export const threadProvisioningRuns = sqliteTable(
+  "thread_provisioning_runs",
+  {
+    provisioningId: text("provisioning_id").primaryKey(),
+    threadId: text("thread_id").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    environmentProviderId: text("environment_provider_id").notNull(),
+    machineKind: text("machine_kind")
+      .$type<EnvironmentMachineSelection["type"]>()
+      .notNull(),
+    startedAt: integer("started_at").notNull(),
+    finishedAt: integer("finished_at").notNull(),
+  },
+  (table) => [
+    index("thread_provisioning_runs_project_estimate_idx").on(
+      table.projectId,
+      table.environmentProviderId,
+      table.machineKind,
+      table.finishedAt,
+    ),
+    index("thread_provisioning_runs_estimate_idx").on(
+      table.environmentProviderId,
+      table.machineKind,
+      table.finishedAt,
+    ),
+  ],
 );

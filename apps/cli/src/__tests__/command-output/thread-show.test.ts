@@ -452,7 +452,73 @@ describe("bb thread show command output", () => {
         },
       },
       pendingTodos: null,
+      provisioning: null,
     });
+  });
+
+  it("bb thread show prints how long the running provisioning has taken against the usual time", async () => {
+    const startedAt = 1_778_000_000_000;
+    vi.useFakeTimers({ now: startedAt + 19_000, toFake: ["Date"] });
+    try {
+      const thread: domain.Thread = fixtures.makeThread({
+        id: "thread-provisioning",
+        projectId: "proj-1",
+        providerId: "codex",
+        status: "starting",
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      const provisioning: serverContract.TimelineThreadProvisioningSystemRow =
+        {
+          id: "thread-provisioning:op:thread-provisioning:tpv_1",
+          threadId: "thread-provisioning",
+          turnId: null,
+          sourceSeqStart: 1,
+          sourceSeqEnd: 4,
+          startedAt,
+          createdAt: startedAt,
+          kind: "system",
+          systemKind: "operation",
+          operationKind: "thread-provisioning",
+          provisioningId: "tpv_1",
+          title: "Provisioning thread",
+          detail: null,
+          status: "pending",
+          completedAt: null,
+          steps: [
+            {
+              label: "Running .bb-env-setup.sh",
+              status: "pending",
+              startedAt: startedAt + 4_000,
+              completedAt: null,
+              output: "Progress: resolved 1094",
+            },
+          ],
+          estimate: {
+            p50Ms: 31_000,
+            p90Ms: 40_000,
+            runCount: 20,
+            scope: "project",
+          },
+        };
+      stubServerApi({
+        "v1.threads.:id.$get": vi.fn(async () => thread),
+        "v1.threads.:id.timeline.$get": vi.fn(async () =>
+          fixtures.makeTimelineResponse([provisioning]),
+        ),
+      });
+
+      await runCommand(["thread", "show", "thread-provisioning"], register);
+
+      expect(collectLogLines(vi.mocked(console.log))).toEqual(
+        expect.arrayContaining([
+          "  Provisioning: 19s · ~12s left (usually ~31s, p90 40s, last 20 runs in this project)",
+          "    Running .bb-env-setup.sh (15s)",
+        ]),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("bb thread show --json prints the thread in status payload format", async () => {
@@ -482,6 +548,7 @@ describe("bb thread show command output", () => {
       thread,
       environment: null,
       pendingTodos: null,
+      provisioning: null,
     });
   });
 });

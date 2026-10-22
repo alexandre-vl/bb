@@ -315,6 +315,8 @@ export {
   getLatestCompletedThreadContextClearSequence,
   getLatestThreadSystemErrorEventRow,
   getLatestThreadSequence,
+  getStoredEventCreatedAt,
+  getTerminalThreadProvisioningStatus,
   insertEvents,
   listActiveBackgroundTaskCountsByThreadIds,
   listContextWindowUsageRows,
@@ -537,3 +539,12 @@ export type {
   DiffViewedFileRecord,
   DiffViewedFileScope,
 } from "./diff-viewed-files.js";
+export {
+  insertThreadProvisioningRun,
+  listRecentProvisioningDurations,
+} from "./thread-provisioning-runs.js";
+export type {
+  ListRecentProvisioningDurationsArgs,
+  ThreadProvisioningRun,
+  ThreadProvisioningRunScope,
+} from "./thread-provisioning-runs.js";
