@@ -385,3 +385,78 @@ it("puts back a fork column a database lost outside the fork's migrations, but n
   expect(columns(db, "projects")).toContain("fork_flag");
   expect(columns(db, "projects")).not.toContain("fork_scratch");
 });
+
+it("leaves no table behind when upstream adopts a fork migration that rebuilds a fork table", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  const createSql =
+    "CREATE TABLE `fork_widgets` (\n\t`id` text PRIMARY KEY NOT NULL\n);\n";
+  const rebuildSql = [
+    "CREATE TABLE `__new_fork_widgets` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`size` integer\n);\n",
+    'INSERT INTO `__new_fork_widgets`("id") SELECT "id" FROM `fork_widgets`;',
+    "DROP TABLE `fork_widgets`;",
+    "ALTER TABLE `__new_fork_widgets` RENAME TO `fork_widgets`;",
+  ].join("--> statement-breakpoint\n");
+  writeForkJournal(folder, [
+    { tag: "9001_test_fork_widgets", when: 1, sql: createSql },
+    { tag: "9002_test_fork_widgets_size", when: 2, sql: rebuildSql },
+  ]);
+  migrateWith(db, folder);
+
+  appendUpstreamMigration(folder, "0147_merged_widgets", createSql);
+  appendUpstreamMigration(folder, "0148_merged_widgets_size", rebuildSql);
+  writeForkJournal(folder, []);
+  migrateWith(db, folder);
+
+  expect(
+    db.$client
+      .prepare("SELECT name FROM sqlite_master WHERE name LIKE '__new_%'")
+      .all(),
+  ).toEqual([]);
+  expect(columns(db, "fork_widgets")).toEqual(["id", "size"]);
+});
+
+it("runs an upstream migration whose string literals differ from a fork migration's", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  writeForkJournal(folder, [
+    {
+      tag: "9001_test_fork_state",
+      when: 1,
+      sql: "ALTER TABLE `projects` ADD `fork_state` text DEFAULT 'Open' NOT NULL;",
+    },
+  ]);
+  migrateWith(db, folder);
+
+  appendUpstreamMigration(
+    folder,
+    "0147_upstream_state",
+    "ALTER TABLE `projects` ADD `fork_state` text DEFAULT 'open' NOT NULL;",
+  );
+
+  expect(() => migrateWith(db, folder)).toThrow(
+    /Failed to run the query 'ALTER TABLE `projects` ADD `fork_state`/,
+  );
+});
+
+it("does not put back a fork column a later fork migration renames", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  writeForkJournal(folder, [
+    {
+      tag: "9001_test_fork_flag",
+      when: 1,
+      sql: "ALTER TABLE `projects` ADD `fork_flag` integer;",
+    },
+    {
+      tag: "9002_test_fork_flag_rename",
+      when: 2,
+      sql: "ALTER TABLE `projects` RENAME COLUMN `fork_flag` TO `fork_flag_2`;",
+    },
+  ]);
+  migrateWith(db, folder);
+  migrateWith(db, folder);
+
+  expect(columns(db, "projects")).toContain("fork_flag_2");
+  expect(columns(db, "projects")).not.toContain("fork_flag");
+});

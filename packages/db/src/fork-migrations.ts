@@ -57,6 +57,14 @@ const renameTablePattern = new RegExp(
   String.raw`\bALTER\s+TABLE\s+${identifier}\s+RENAME\s+TO\b`,
   "gi",
 );
+const dropIndexPattern = new RegExp(
+  String.raw`\bDROP\s+INDEX\s+(?:IF\s+EXISTS\s+)?${identifier}`,
+  "gi",
+);
+const renameColumnPattern = new RegExp(
+  String.raw`\bALTER\s+TABLE\s+${identifier}\s+RENAME\s+(?:COLUMN\s+)?${identifier}\s+TO\b`,
+  "gi",
+);
 const dropColumnPattern = new RegExp(
   String.raw`\bALTER\s+TABLE\s+${identifier}\s+DROP\s+(?:COLUMN\s+)?${identifier}`,
   "gi",
@@ -70,19 +78,28 @@ function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
+function normalizeStatement(statement: string): string {
+  return statement
+    .split(/('(?:[^']|'')*')/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part
+            .replace(/--[^\n]*/g, " ")
+            .replace(/[`"[\]]/g, "")
+            .replace(/\bif\s+(?:not\s+)?exists\b/gi, " ")
+            .replace(/\s+/g, " ")
+            .toLowerCase(),
+    )
+    .join("")
+    .replace(/[\s;]+$/, "")
+    .trim();
+}
+
 export function migrationShape(statements: string[]): string {
   return sha256(
     statements
-      .map((statement) =>
-        statement
-          .replace(/--[^\n]*/g, " ")
-          .replace(/[`"[\]]/g, "")
-          .replace(/\bif\s+(?:not\s+)?exists\b/gi, " ")
-          .replace(/\s+/g, " ")
-          .replace(/[\s;]+$/, "")
-          .trim()
-          .toLowerCase(),
-      )
+      .map(normalizeStatement)
       .filter((statement) => statement.length > 0)
       .join("\n"),
   );
@@ -241,12 +258,21 @@ function tablesRemovedBy(statements: string[]): Set<string> {
   );
 }
 
-function columnsDroppedBy(statements: string[]): Set<string> {
+function columnsRemovedBy(statements: string[]): Set<string> {
   return new Set(
     statements.flatMap((statement) =>
-      [...statement.matchAll(dropColumnPattern)].map(
-        (match) => `${match[1]}.${match[2]}`,
-      ),
+      [
+        ...statement.matchAll(dropColumnPattern),
+        ...statement.matchAll(renameColumnPattern),
+      ].map((match) => `${match[1]}.${match[2]}`),
+    ),
+  );
+}
+
+function indexesDroppedBy(statements: string[]): Set<string> {
+  return new Set(
+    statements.flatMap((statement) =>
+      [...statement.matchAll(dropIndexPattern)].map((match) => match[1]),
     ),
   );
 }
@@ -332,9 +358,10 @@ function putIndexBack(db: DbConnection, index: CreatedIndex): void {
 }
 
 function ensureEffects(db: DbConnection, statements: string[]): void {
+  const removed = tablesRemovedBy(statements);
   for (const statement of statements) {
     const table = createTablePattern.exec(statement);
-    if (table && !tableExists(db, table[1])) {
+    if (table && !removed.has(table[1]) && !tableExists(db, table[1])) {
       db.$client.exec(statement);
     }
   }
@@ -425,28 +452,38 @@ export function prepareForkMigrations(
 
 function repairForkSchema(db: DbConnection, run: ForkMigrationRun): void {
   const recorded = readRecordedForkMigrations(db);
-  const statements = run.migrations
-    .filter((migration) => recorded.has(migration.tag))
-    .flatMap((migration) => migration.statements);
-  const forkStatements = run.migrations.flatMap(
-    (migration) => migration.statements,
+  const appliedUpstream = readAppliedUpstreamMigrations(db, run);
+  const adoptedHashes = new Set(
+    appliedUpstream.map((migration) => migration.hash),
   );
-  const removedByFork = tablesRemovedBy(forkStatements);
-  const droppedColumns = new Set([
-    ...columnsDroppedBy(forkStatements),
-    ...columnsDroppedBy(
-      readMigrationFiles({ migrationsFolder: run.migrationsFolder }).flatMap(
-        (migration) => migration.sql,
-      ),
-    ),
-  ]);
+  const adoptedShapes = new Set(
+    appliedUpstream.map((migration) => migrationShape(migration.sql)),
+  );
+  const statements = run.migrations
+    .filter(
+      (migration) =>
+        recorded.has(migration.tag) &&
+        !adoptedHashes.has(migration.hash) &&
+        !adoptedShapes.has(migration.shape),
+    )
+    .flatMap((migration) => migration.statements);
+  const allStatements = [
+    ...run.migrations.flatMap((migration) => migration.statements),
+    ...appliedUpstream.flatMap((migration) => migration.sql),
+  ];
+  const removedTables = tablesRemovedBy(
+    run.migrations.flatMap((migration) => migration.statements),
+  );
+  const removedColumns = columnsRemovedBy(allStatements);
+  const droppedIndexes = indexesDroppedBy(allStatements);
   const columns = addedColumns(statements).filter(
     (column) =>
-      !removedByFork.has(column.table) &&
-      !droppedColumns.has(`${column.table}.${column.column}`),
+      !removedTables.has(column.table) &&
+      !removedColumns.has(`${column.table}.${column.column}`),
   );
   const indexes = createdIndexes(statements).filter(
-    (index) => !removedByFork.has(index.table),
+    (index) =>
+      !removedTables.has(index.table) && !droppedIndexes.has(index.index),
   );
   db.$client.transaction(() => {
     for (const column of columns) {
@@ -459,6 +496,23 @@ function repairForkSchema(db: DbConnection, run: ForkMigrationRun): void {
   })();
 }
 
+function readAppliedUpstreamMigrations(
+  db: DbConnection,
+  run: ForkMigrationRun,
+): MigrationMeta[] {
+  const applied = new Set(
+    db.$client
+      .prepare<[], { createdAt: number | null }>(
+        "SELECT created_at AS createdAt FROM __drizzle_migrations",
+      )
+      .all()
+      .map((row) => Number(row.createdAt)),
+  );
+  return readMigrationFiles({ migrationsFolder: run.migrationsFolder }).filter(
+    (migration) => applied.has(migration.folderMillis),
+  );
+}
+
 export function applyForkMigrations(
   db: DbConnection,
   run: ForkMigrationRun,
@@ -469,17 +523,7 @@ export function applyForkMigrations(
   ensureForkLedger(db);
   repairForkSchema(db, run);
   const recorded = readRecordedForkMigrations(db);
-  const appliedUpstream = new Set(
-    db.$client
-      .prepare<[], { createdAt: number | null }>(
-        "SELECT created_at AS createdAt FROM __drizzle_migrations",
-      )
-      .all()
-      .map((row) => Number(row.createdAt)),
-  );
-  const upstream = readMigrationFiles({
-    migrationsFolder: run.migrationsFolder,
-  }).filter((migration) => appliedUpstream.has(migration.folderMillis));
+  const upstream = readAppliedUpstreamMigrations(db, run);
   const knownHashes = new Set([
     ...[...recorded.values()].map((row) => row.hash),
     ...upstream.map((migration) => migration.hash),
