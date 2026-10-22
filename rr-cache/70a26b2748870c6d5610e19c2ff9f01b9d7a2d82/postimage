@@ -1,0 +1,650 @@
+import { execFile } from "node:child_process";
+import { mkdirSync, rmSync } from "node:fs";
+import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  deleteInstalledPlugin,
+  getInstalledPluginRegistration,
+  getPluginKvValue,
+  listPluginStateSnapshots,
+  setPluginKvValue,
+  setPluginStateSnapshotRollbackPending,
+  type DbConnection,
+  type PluginStateSnapshotRow,
+} from "@bb/db";
+import { createMigratedConnection } from "@bb/db/testing";
+import type { Logger } from "@bb/logger";
+import { createAiServiceRegistry } from "../../../src/services/ai/ai-service-registry.js";
+import {
+  createPluginService,
+  type PluginService,
+  type PluginServiceDeps,
+} from "../../../src/services/plugins/plugin-service.js";
+import { withPluginUpdateProgress } from "../../../src/services/plugins/plugin-update-progress.js";
+import { createNoopTelemetryService } from "../../../src/services/system/telemetry.js";
+import { testLogger } from "../../helpers/test-app.js";
+
+const logger = testLogger as unknown as Logger;
+const run = promisify(execFile);
+const PLUGIN_ID = "recovering";
+const BYSTANDER_ID = "bystander";
+const HELD = `held until bb finishes undoing its update: Path is a directory`;
+
+async function git(cwd: string, args: string[]): Promise<string> {
+  return (await run("git", args, { cwd })).stdout.trim();
+}
+
+describe("plugin update recovery", () => {
+  let db: DbConnection;
+  let workDir: string;
+  let repo: string;
+  let dataDir: string;
+  let service: PluginService;
+
+  function createService(overrides: Partial<PluginServiceDeps> = {}) {
+    return createPluginService({
+      aiServices: createAiServiceRegistry(),
+      telemetry: createNoopTelemetryService(),
+      db,
+      hub: {
+        getDaemonSessionIdForHost: () => null,
+        notifyPluginChanged: () => {},
+        notifyPluginSignal: () => 0,
+        notifySystem: () => {},
+      },
+      logger,
+      dataDir,
+      appVersion: "1.0.0",
+      loadTimeoutMs: 2000,
+      stabilizationWindowMs: 0,
+      ...overrides,
+    });
+  }
+
+  async function restart(overrides: Partial<PluginServiceDeps> = {}) {
+    await service.stop();
+    service = createService(overrides);
+    await service.start();
+  }
+
+  async function release(version: string): Promise<string> {
+    await writeFile(
+      join(repo, "package.json"),
+      JSON.stringify({
+        name: `bb-plugin-${PLUGIN_ID}`,
+        version,
+        bb: {
+          name: "Recovery fixture",
+          description: "Plugin recovery fixture.",
+          branding: { icon: "Zap" },
+          server: "./server.ts",
+        },
+      }),
+    );
+    await writeFile(
+      join(repo, "server.ts"),
+      `export default function plugin() {
+        if (((globalThis as any).__bbFailingReleases ?? []).includes(${JSON.stringify(version)})) {
+          throw new Error(${JSON.stringify(`release ${version} failed to start`)});
+        }
+      }`,
+    );
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", version]);
+    await git(repo, ["tag", `v${version}`]);
+    return git(repo, ["rev-parse", "HEAD"]);
+  }
+
+  function failReleases(...versions: string[]) {
+    vi.stubGlobal("__bbFailingReleases", versions);
+  }
+
+  function listed(id: string) {
+    return service.list().find((plugin) => plugin.id === id);
+  }
+
+  async function offered(version: string): Promise<string> {
+    const commit = await release(version);
+    expect(await service.checkForUpdates(PLUGIN_ID)).toMatchObject([
+      { outcome: "update-available", candidate: { version: commit } },
+    ]);
+    return commit;
+  }
+
+  function cursor(): unknown {
+    const value = getPluginKvValue(db, PLUGIN_ID, "cursor");
+    return value === undefined ? undefined : JSON.parse(value);
+  }
+
+  function setCursor(value: string) {
+    setPluginKvValue(db, PLUGIN_ID, "cursor", JSON.stringify(value));
+  }
+
+  function pluginDatabasePath(): string {
+    return join(dataDir, "plugins", PLUGIN_ID, "data.db");
+  }
+
+  async function holdFailedUpdate(
+    version = "1.1.0",
+  ): Promise<PluginStateSnapshotRow> {
+    const commit = await offered(version);
+    failReleases(version);
+    await expect(
+      withPluginUpdateProgress(
+        (phase) => {
+          if (phase === "rolling-back") {
+            mkdirSync(pluginDatabasePath(), { recursive: true });
+          }
+        },
+        () => service.applyUpdate(PLUGIN_ID, { expectedVersion: commit }),
+      ),
+    ).rejects.toThrow(`plugin "${PLUGIN_ID}" is ${HELD}`);
+    vi.unstubAllGlobals();
+    const snapshot = listPluginStateSnapshots(db, PLUGIN_ID).at(-1);
+    expect(snapshot).toMatchObject({
+      status: "restoring",
+      failureDetail: expect.stringContaining("Path is a directory"),
+    });
+    if (snapshot === undefined) throw new Error("missing snapshot");
+    return snapshot;
+  }
+
+  async function clearWriteFailure() {
+    await rm(pluginDatabasePath(), { recursive: true, force: true });
+  }
+
+  function expectHeld() {
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      status: "error",
+      statusDetail: expect.stringContaining(HELD),
+    });
+    expect(service.getApi(PLUGIN_ID)).toBeUndefined();
+  }
+
+  beforeEach(async () => {
+    db = createMigratedConnection();
+    workDir = await mkdtemp(join(tmpdir(), "bb-plugin-update-recovery-"));
+    dataDir = join(workDir, "data");
+    repo = join(workDir, "repo");
+    await mkdir(repo, { recursive: true });
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await git(repo, ["config", "user.email", "test@example.com"]);
+    await git(repo, ["config", "user.name", "Test"]);
+    await release("1.0.0");
+    const bystander = join(workDir, BYSTANDER_ID);
+    await mkdir(bystander, { recursive: true });
+    await writeFile(
+      join(bystander, "package.json"),
+      JSON.stringify({
+        name: `bb-plugin-${BYSTANDER_ID}`,
+        version: "1.0.0",
+        bb: {
+          name: "Bystander",
+          description: "A healthy plugin next to the one being restored.",
+          branding: { icon: "Zap" },
+          server: "./server.ts",
+        },
+      }),
+    );
+    await writeFile(
+      join(bystander, "server.ts"),
+      "export default function plugin() {}",
+    );
+    service = createService();
+    await service.install(`git:${repo}@semver:^1.0.0`, { kind: "root" });
+    await service.installPath(bystander);
+    setCursor("v1-data");
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await service.stop();
+    db.$client.close();
+    await rm(workDir, { recursive: true, force: true });
+  });
+
+  it("restores the updated release when it fails to start after a failed rollback, and starts the other plugins", async () => {
+    const previousCommit =
+      getInstalledPluginRegistration(db, PLUGIN_ID)?.gitResolvedCommit ?? "";
+    const nextCommit = await offered("1.1.0");
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: nextCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
+    failReleases("1.0.0", "1.1.0");
+
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: previousCommit }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        applied: false,
+        outcome: "rolled-back",
+        from: { version: nextCommit },
+        to: { version: previousCommit },
+        detail:
+          "rolling back to 1.0.0 failed, so bb restored 1.1.0 and the data it had before the rollback: release 1.0.0 failed to start; the restored 1.1.0 failed to start as well: release 1.1.0 failed to start",
+      },
+    });
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+      gitResolvedCommit: nextCommit,
+    });
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      status: "error",
+      statusDetail: "release 1.1.0 failed to start",
+    });
+    expect(
+      listPluginStateSnapshots(db, PLUGIN_ID).map(({ operation, status }) => ({
+        operation,
+        status,
+      })),
+    ).toEqual([
+      { operation: "update", status: "ready" },
+      { operation: "rollback", status: "restored" },
+    ]);
+
+    await restart();
+
+    expect(listed(BYSTANDER_ID)).toMatchObject({ status: "running" });
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+      status: "error",
+    });
+    expect(listed(PLUGIN_ID)?.updateState.rollback).toMatchObject({
+      version: previousCommit,
+    });
+  }, 60_000);
+
+  it("restores the previous release when it fails to start after a failed update", async () => {
+    const previousCommit =
+      getInstalledPluginRegistration(db, PLUGIN_ID)?.gitResolvedCommit ?? "";
+    const nextCommit = await offered("1.1.0");
+    failReleases("1.0.0", "1.1.0");
+
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: nextCommit }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        applied: false,
+        outcome: "rolled-back",
+        detail:
+          "activation of 1.1.0 failed and was rolled back: release 1.1.0 failed to start; the restored 1.0.0 failed to start as well: release 1.0.0 failed to start; run apply update again to retry explicitly",
+      },
+    });
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+      gitResolvedCommit: previousCommit,
+      lastFailureVersion: nextCommit,
+      lastFailureDetail: "release 1.1.0 failed to start",
+    });
+    expect(
+      listPluginStateSnapshots(db, PLUGIN_ID).map(({ status }) => status),
+    ).toEqual(["restored"]);
+
+    await restart();
+
+    expect(listed(BYSTANDER_ID)).toMatchObject({ status: "running" });
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+      status: "error",
+    });
+  }, 60_000);
+
+  it("names a restored release whose files are gone as a failed start", async () => {
+    const previousRoot =
+      getInstalledPluginRegistration(db, PLUGIN_ID)?.rootDir ?? "";
+    const nextCommit = await offered("1.1.0");
+    failReleases("1.1.0");
+
+    await expect(
+      withPluginUpdateProgress(
+        (phase) => {
+          if (phase === "activating") {
+            rmSync(previousRoot, { recursive: true, force: true });
+          }
+        },
+        () => service.applyUpdate(PLUGIN_ID, { expectedVersion: nextCommit }),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        outcome: "rolled-back",
+        detail: `activation of 1.1.0 failed and was rolled back: release 1.1.0 failed to start; the restored 1.0.0 failed to start as well: plugin directory not found: ${previousRoot} (reinstall); run apply update again to retry explicitly`,
+      },
+    });
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+      status: "missing",
+    });
+  }, 60_000);
+
+  it("keeps the update failure recorded before a rollback that fails", async () => {
+    const firstCommit =
+      getInstalledPluginRegistration(db, PLUGIN_ID)?.gitResolvedCommit ?? "";
+    const secondCommit = await offered("1.1.0");
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: secondCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
+    const thirdCommit = await offered("1.2.0");
+    failReleases("1.2.0");
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: thirdCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "rolled-back" } });
+    const failure = listed(PLUGIN_ID)?.updateState.lastFailure;
+    expect(failure).toEqual({
+      version: thirdCommit,
+      at: expect.any(Number),
+      detail: "release 1.2.0 failed to start",
+    });
+    failReleases("1.0.0", "1.2.0");
+
+    await expect(
+      service.rollbackUpdate(PLUGIN_ID, { expectedVersion: firstCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "rolled-back" } });
+
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+      gitResolvedCommit: secondCommit,
+    });
+    expect(listed(PLUGIN_ID)).toMatchObject({ status: "running" });
+    expect(listed(PLUGIN_ID)?.updateState.lastFailure).toEqual(failure);
+  }, 90_000);
+
+  it("holds a plugin whose restore cannot write, starts the other plugins, and finishes the restore at a later start", async () => {
+    const snapshot = await holdFailedUpdate();
+    setCursor("written-by-1.1.0");
+    expectHeld();
+
+    await restart();
+
+    expect(listed(BYSTANDER_ID)).toMatchObject({ status: "running" });
+    expectHeld();
+    expect(listPluginStateSnapshots(db, PLUGIN_ID)).toMatchObject([
+      { id: snapshot.id, status: "restoring" },
+    ]);
+
+    await clearWriteFailure();
+    await restart();
+
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+    });
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+      status: "running",
+    });
+    expect(cursor()).toBe("v1-data");
+    expect(listPluginStateSnapshots(db, PLUGIN_ID)).toMatchObject([
+      { id: snapshot.id, status: "restored" },
+    ]);
+  }, 60_000);
+
+  it("keeps a held plugin stopped when it is reloaded, enabled, or safe mode turns off", async () => {
+    await holdFailedUpdate();
+
+    await expect(service.reload(PLUGIN_ID)).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining(
+        `plugin "${PLUGIN_ID}" reload failed: ${HELD}`,
+      ),
+    });
+    expectHeld();
+
+    await expect(service.setEnabled(PLUGIN_ID, false)).resolves.toMatchObject({
+      status: "disabled",
+    });
+    await expect(service.setEnabled(PLUGIN_ID, true)).resolves.toMatchObject({
+      status: "error",
+      statusDetail: expect.stringContaining(HELD),
+    });
+    expect(service.getApi(PLUGIN_ID)).toBeUndefined();
+
+    await service.setSafeMode(true);
+    await expect(service.setSafeMode(false)).resolves.toMatchObject({
+      enabled: false,
+      problems: [
+        expect.stringContaining(`plugin "${PLUGIN_ID}" did not start: ${HELD}`),
+      ],
+    });
+    expectHeld();
+    expect(listed(BYSTANDER_ID)).toMatchObject({ status: "running" });
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+    });
+    expect(
+      listPluginStateSnapshots(db, PLUGIN_ID).map(({ status }) => status),
+    ).toEqual(["restoring"]);
+  }, 60_000);
+
+  it("retries a held restore on reload and starts the plugin once the write succeeds", async () => {
+    const snapshot = await holdFailedUpdate();
+    setCursor("written-by-1.1.0");
+    await clearWriteFailure();
+
+    await expect(service.reload(PLUGIN_ID)).resolves.toMatchObject({
+      ok: true,
+    });
+
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+      status: "running",
+    });
+    expect(service.getApi(PLUGIN_ID)).toBeDefined();
+    expect(cursor()).toBe("v1-data");
+    expect(listPluginStateSnapshots(db, PLUGIN_ID)).toMatchObject([
+      { id: snapshot.id, status: "restored" },
+    ]);
+  }, 60_000);
+
+  it("keeps a plugin disabled while it was held when its restore finishes", async () => {
+    await holdFailedUpdate();
+    await service.setEnabled(PLUGIN_ID, false);
+    await clearWriteFailure();
+
+    await expect(service.reload(PLUGIN_ID)).resolves.toMatchObject({
+      ok: true,
+    });
+
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+      enabled: false,
+    });
+    expect(listed(PLUGIN_ID)).toMatchObject({ status: "disabled" });
+    expect(service.getApi(PLUGIN_ID)).toBeUndefined();
+  }, 60_000);
+
+  it("refuses to update, change the range of, or roll back a held plugin", async () => {
+    await holdFailedUpdate();
+    await clearWriteFailure();
+    const refused = (action: string) =>
+      `${action} refused: plugin "${PLUGIN_ID}" is ${HELD}`;
+    const nextCommit = await offered("1.2.0");
+
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: nextCommit }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining(refused("update")),
+    });
+    await expect(
+      service.setTrackingRange(PLUGIN_ID, { range: "^1.1.0" }),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "refused",
+      error: expect.stringContaining(refused("range change")),
+    });
+    await expect(service.rollbackUpdate(PLUGIN_ID)).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining(refused("rollback")),
+    });
+
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+      sourceGitRange: "^1.0.0",
+    });
+    expect(
+      listPluginStateSnapshots(db, PLUGIN_ID).map(({ status }) => status),
+    ).toEqual(["restoring"]);
+    expectHeld();
+  }, 60_000);
+
+  it.each([
+    {
+      saved: "a missing host state file",
+      damage: (snapshot: PluginStateSnapshotRow) => rm(snapshot.statePath),
+      reason: "its saved host state is missing",
+    },
+    {
+      saved: "a corrupt registration",
+      damage: (snapshot: PluginStateSnapshotRow) =>
+        writeFile(snapshot.registrationPath ?? "", "{ not json"),
+      reason: "its saved registration is not valid JSON",
+    },
+    {
+      saved: "no registration, from before restart-safe rollback",
+      damage: async (snapshot: PluginStateSnapshotRow) => {
+        db.$client
+          .prepare(
+            "UPDATE plugin_state_snapshots SET registration_path = NULL WHERE id = ?",
+          )
+          .run(snapshot.id);
+      },
+      reason: "it predates restart-safe rollback metadata",
+    },
+  ])(
+    "keeps the current release and data of a plugin whose restore has $saved",
+    async ({ damage, reason }) => {
+      const snapshot = await holdFailedUpdate();
+      const failedCommit =
+        getInstalledPluginRegistration(db, PLUGIN_ID)?.gitResolvedCommit ?? "";
+      setCursor("written-by-1.1.0");
+      await damage(snapshot);
+      await clearWriteFailure();
+
+      await restart();
+
+      expect(listPluginStateSnapshots(db, PLUGIN_ID)).toMatchObject([
+        { id: snapshot.id, status: "failed", failureDetail: reason },
+      ]);
+      expect(listed(PLUGIN_ID)).toMatchObject({
+        version: "1.1.0",
+        status: "running",
+      });
+      expect(service.getApi(PLUGIN_ID)).toBeDefined();
+      expect(cursor()).toBe("written-by-1.1.0");
+      expect(listed(PLUGIN_ID)?.updateState.lastFailure).toEqual({
+        version: failedCommit,
+        at: expect.any(Number),
+        detail: `release 1.1.0 failed to start; bb could not undo the update to ${failedCommit.slice(0, 12)}: its saved state is unusable (${reason}); the plugin keeps its current release and data`,
+      });
+      expect(listed(BYSTANDER_ID)).toMatchObject({ status: "running" });
+    },
+    60_000,
+  );
+
+  async function twoUnfinishedRestores() {
+    const firstCommit = await offered("1.1.0");
+    await expect(
+      service.applyUpdate(PLUGIN_ID, { expectedVersion: firstCommit }),
+    ).resolves.toMatchObject({ ok: true, result: { outcome: "updated" } });
+    setCursor("v1.1-data");
+    const [older] = listPluginStateSnapshots(db, PLUGIN_ID);
+    if (older === undefined) throw new Error("missing snapshot");
+    const newer = await holdFailedUpdate("1.2.0");
+    expect(
+      setPluginStateSnapshotRollbackPending(db, older.id, {
+        candidateVersion: firstCommit,
+        sourceFingerprint: "older-unfinished-restore",
+        bbVersion: "1.0.0",
+        sdkVersion: "0.0.0",
+        detail: "release 1.1.0 failed to start",
+        updatedAt: Date.now(),
+      }),
+    ).toBe(true);
+    await clearWriteFailure();
+    return { older, newer };
+  }
+
+  it("restores the older of two unfinished restores and discards the newer one", async () => {
+    const { older, newer } = await twoUnfinishedRestores();
+    await writeFile(newer.registrationPath ?? "", "{ not json");
+
+    await restart();
+
+    expect(
+      listPluginStateSnapshots(db, PLUGIN_ID).map(({ id, status }) => ({
+        id,
+        status,
+      })),
+    ).toEqual([
+      { id: older.id, status: "restored" },
+      { id: newer.id, status: "discarded" },
+    ]);
+    await expect(stat(newer.snapshotPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.0.0",
+      status: "running",
+    });
+    expect(cursor()).toBe("v1-data");
+  }, 90_000);
+
+  it("restores the newer of two unfinished restores when the older one is unusable", async () => {
+    const { older, newer } = await twoUnfinishedRestores();
+    await rm(older.statePath);
+
+    await restart();
+
+    expect(
+      listPluginStateSnapshots(db, PLUGIN_ID).map(({ id, status }) => ({
+        id,
+        status,
+      })),
+    ).toEqual([
+      { id: older.id, status: "failed" },
+      { id: newer.id, status: "restored" },
+    ]);
+    expect(listed(PLUGIN_ID)).toMatchObject({
+      version: "1.1.0",
+      status: "running",
+    });
+    expect(cursor()).toBe("v1.1-data");
+  }, 90_000);
+
+  it("keeps a plugin removed while its restore was unfinished removed after a restart", async () => {
+    const snapshot = await holdFailedUpdate();
+
+    await expect(service.remove(PLUGIN_ID)).resolves.toBe(true);
+    expect(listPluginStateSnapshots(db, PLUGIN_ID)).toEqual([]);
+    await expect(stat(snapshot.snapshotPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await restart();
+
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toBeUndefined();
+    expect(listed(PLUGIN_ID)).toBeUndefined();
+    expect(listed(BYSTANDER_ID)).toMatchObject({ status: "running" });
+  }, 60_000);
+
+  it("deletes instead of restoring an unfinished restore whose plugin is gone", async () => {
+    const snapshot = await holdFailedUpdate();
+    await service.stop();
+    deleteInstalledPlugin(db, PLUGIN_ID);
+
+    service = createService();
+    await service.start();
+
+    expect(getInstalledPluginRegistration(db, PLUGIN_ID)).toBeUndefined();
+    expect(listed(PLUGIN_ID)).toBeUndefined();
+    expect(listPluginStateSnapshots(db, PLUGIN_ID)).toEqual([]);
+    await expect(stat(snapshot.snapshotPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(listed(BYSTANDER_ID)).toMatchObject({ status: "running" });
+  }, 60_000);
+});
