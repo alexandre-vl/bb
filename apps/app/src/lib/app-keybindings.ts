@@ -26,13 +26,24 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   );
 }
 
+export function isTextEntryShortcut(shortcut: AppShortcut): boolean {
+  return (
+    !shortcut.mod &&
+    !shortcut.meta &&
+    !shortcut.control &&
+    !shortcut.alt &&
+    (shortcut.key.length === 1 || shortcut.key === "Space")
+  );
+}
+
 export function matchesAppCommandContext(
   binding: AppKeybinding,
   context: AppCommandContext,
 ): boolean {
   return (
     binding.when.all.every((key) => context[key]) &&
-    binding.when.none.every((key) => !context[key])
+    binding.when.none.every((key) => !context[key]) &&
+    !(context.editableFocus && isTextEntryShortcut(binding.shortcut))
   );
 }
 

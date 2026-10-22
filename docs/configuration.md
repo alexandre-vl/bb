@@ -413,6 +413,18 @@ chat-pane focus). These start unassigned on Windows/Linux to preserve native
 Control-arrow editing. `pane.focus.previous` / `pane.focus.next` and
 `panel.fullScreen.toggle` start unassigned.
 
+In the sidebar thread list, `E` (`thread.archive`), `F2` (`thread.rename`) and
+`U` (`thread.toggleRead`) act on the focused row, and `Alt+ArrowUp` /
+`Alt+ArrowDown` (`thread.previousAttention` / `thread.nextAttention`) move to
+the previous or next thread that needs you, failed, or has a new result. These
+keys apply only while keyboard focus is in the list (the `sidebarListFocus`
+context), never from a text field such as the inline rename field, and not
+while a dialog is open. `Mod+Shift+L` (`sidebar.focus`) moves focus to the list
+at the open thread. `thread.archive` and `thread.rename` also keep a global
+slot that starts unassigned; one override sets both, so a shortcut bound to
+`thread.archive` works everywhere and replaces `E` in the list. A key that
+types a character never runs a command from a text field.
+
 | Area      | Command                                      | Default                     | Availability             |
 | --------- | -------------------------------------------- | --------------------------- | ------------------------ |
 | Palette   | Quick palette                                | `Mod+Shift+P`               | All clients              |
@@ -421,6 +433,8 @@ Control-arrow editing. `pane.focus.previous` / `pane.focus.next` and
 | Threads   | Search threads                               | `Mod+K`                     | All clients              |
 | Threads   | Rename focused thread                        | Unassigned                  | Thread view              |
 | Threads   | Archive focused thread                       | Unassigned                  | Thread view              |
+| Threads   | Archive / rename / toggle read on list row   | `E` / `F2` / `U`            | Thread list focus        |
+| Threads   | Previous / next thread needing attention     | `Alt+ArrowUp/Down`          | Thread list focus        |
 | Threads   | Previous / next thread                       | Surface defaults above      | Desktop / web            |
 | Threads   | Open visible thread 1–9                      | Platform defaults above     | Web / desktop            |
 | Layout    | Previous / next chat pane                    | Unassigned                  | While split              |
@@ -428,6 +442,7 @@ Control-arrow editing. `pane.focus.previous` / `pane.focus.next` and
 | Layout    | Maximize / restore chat pane                 | `Mod+Shift+E`               | While split              |
 | Layout    | Close focused chat pane                      | `Mod+Shift+X`               | While split              |
 | Layout    | Toggle sidebar                               | `Mod+\`                     | All clients              |
+| Layout    | Focus thread list                            | `Mod+Shift+L`               | All clients              |
 | Window    | New window                                   | `Mod+Shift+N`               | Desktop                  |
 | Window    | Find in window                               | `Mod+F`                     | Desktop                  |
 | Window    | Settings                                     | `Mod+,`                     | All clients              |

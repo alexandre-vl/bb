@@ -50,6 +50,15 @@ function commandPair(left: string, right: string): string {
   return [left, right].sort().join("+");
 }
 
+function plainShortcut(key: string, alt = false) {
+  return { key, mod: false, meta: false, control: false, alt, shift: false };
+}
+
+const SIDEBAR_LIST_WHEN = {
+  all: ["mainSurface", "sidebarListFocus"],
+  none: ["modalOpen", "editableFocus"],
+};
+
 describe("app keybindings", () => {
   it.each(DEFAULT_KEYBINDING_CLIENTS)(
     "offers local logs only to desktop clients: $name",
@@ -256,10 +265,12 @@ describe("app keybindings", () => {
           shortcut: null,
           when: { all: ["mainSurface"], none: ["modalOpen"] },
         });
-        expect(
-          config.keybindings.some((binding) => binding.command === command),
-        ).toBe(false);
       }
+      expect(
+        config.keybindings.some(
+          (binding) => binding.command === "panel.fullScreen.toggle",
+        ),
+      ).toBe(false);
       for (const command of [
         "pane.focus.previous",
         "pane.focus.next",
@@ -572,6 +583,8 @@ describe("app keybindings", () => {
         { command: "modelPicker.cycleProviderBackward", shift: true },
         { command: "modelPicker.cycleReasoning", shift: false },
         { command: "modelPicker.cycleReasoningBackward", shift: true },
+        { command: "thread.previousAttention", shift: false },
+        { command: "thread.nextAttention", shift: false },
       ]);
       expect(
         assignedDefaultKeybindings
@@ -741,7 +754,9 @@ describe("app keybindings", () => {
       const response = await harness.app.request("/api/v1/settings/keyboard", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify([{ command: "thread.rename", shortcut }]),
+        body: JSON.stringify([
+          { command: "panel.fullScreen.toggle", shortcut },
+        ]),
       });
       expect(response.status).toBe(200);
 
@@ -751,17 +766,189 @@ describe("app keybindings", () => {
       );
       expect(
         config.keybindings.filter(
-          (binding) => binding.command === "thread.rename",
+          (binding) => binding.command === "panel.fullScreen.toggle",
         ),
       ).toEqual([
         {
-          command: "thread.rename",
+          command: "panel.fullScreen.toggle",
           desktopOnly: false,
           shortcut,
           when: { all: ["mainSurface"], none: ["modalOpen"] },
         },
       ]);
     });
+  });
+
+  it.each(DEFAULT_KEYBINDING_CLIENTS)(
+    "assigns the thread-list keys and the list focus chord: $name",
+    (client) => {
+      const available = applyAppKeybindingOverrides(
+        DEFAULT_APP_KEYBINDINGS,
+        [],
+      ).filter((binding) => isAppKeybindingAvailableForClient(binding, client));
+      const resolve = (command: string) =>
+        available
+          .filter((binding) => binding.command === command)
+          .map(({ shortcut, when }) => ({ shortcut, when }));
+      for (const [command, shortcut] of [
+        ["thread.archive", plainShortcut("e")],
+        ["thread.rename", plainShortcut("F2")],
+        ["thread.toggleRead", plainShortcut("u")],
+        ["thread.previousAttention", plainShortcut("ArrowUp", true)],
+        ["thread.nextAttention", plainShortcut("ArrowDown", true)],
+      ] as const) {
+        expect(resolve(command)).toEqual([
+          { shortcut, when: SIDEBAR_LIST_WHEN },
+        ]);
+      }
+      expect(resolve("sidebar.focus")).toEqual([
+        {
+          shortcut: { ...plainShortcut("l"), mod: true, shift: true },
+          when: { all: ["mainSurface"], none: ["modalOpen"] },
+        },
+      ]);
+      const commandsFor = (input: {
+        key: string;
+        code: string;
+        altKey?: boolean;
+        ctrlKey?: boolean;
+        metaKey?: boolean;
+        shiftKey?: boolean;
+      }) =>
+        available
+          .filter((binding) =>
+            matchesAppShortcut(
+              {
+                altKey: false,
+                ctrlKey: false,
+                metaKey: false,
+                shiftKey: false,
+                ...input,
+              },
+              binding.shortcut,
+              client.isMac,
+            ),
+          )
+          .map((binding) => binding.command);
+      expect(
+        commandsFor({
+          key: "L",
+          code: "KeyL",
+          metaKey: client.isMac,
+          ctrlKey: !client.isMac,
+          shiftKey: true,
+        }),
+      ).toEqual(["sidebar.focus"]);
+      expect(
+        commandsFor({ key: "ArrowDown", code: "ArrowDown", altKey: true }),
+      ).toEqual(["thread.nextAttention"]);
+      expect(commandsFor({ key: "E", code: "KeyE", shiftKey: true })).toEqual(
+        [],
+      );
+    },
+  );
+
+  it("keeps the global rename and archive slots ahead of their list keys, which Settings shows as the default", () => {
+    expect(
+      DEFAULT_APP_KEYBINDINGS.filter((binding) =>
+        ["thread.archive", "thread.rename"].includes(binding.command),
+      ).map((binding) => [binding.command, binding.shortcut?.key ?? null]),
+    ).toEqual([
+      ["thread.rename", null],
+      ["thread.archive", null],
+      ["thread.archive", "e"],
+      ["thread.rename", "F2"],
+    ]);
+  });
+
+  it("applies an archive override to its list key and its global slot alike", () => {
+    const shortcut = { ...plainShortcut("Backspace"), mod: true };
+    const archiveBindings = (overrides: unknown) =>
+      applyAppKeybindingOverrides(
+        DEFAULT_APP_KEYBINDINGS,
+        appKeybindingOverridesSchema.parse(overrides),
+      )
+        .filter((binding) => binding.command === "thread.archive")
+        .map(({ shortcut, when }) => ({ key: shortcut.key, when }));
+    const globalWhen = { all: ["mainSurface"], none: ["modalOpen"] };
+
+    expect(archiveBindings([])).toEqual([
+      { key: "e", when: SIDEBAR_LIST_WHEN },
+    ]);
+    expect(archiveBindings([{ command: "thread.archive", shortcut }])).toEqual([
+      { key: "Backspace", when: globalWhen },
+      { key: "Backspace", when: SIDEBAR_LIST_WHEN },
+    ]);
+    expect(
+      archiveBindings([{ command: "thread.archive", shortcut: null }]),
+    ).toEqual([]);
+    expect(
+      archiveBindings([
+        { command: "thread.archive", platform: "mac", shortcut },
+      ]),
+    ).toEqual([
+      {
+        key: "Backspace",
+        when: { ...globalWhen, all: [...globalWhen.all, "macPlatform"] },
+      },
+      {
+        key: "Backspace",
+        when: {
+          ...SIDEBAR_LIST_WHEN,
+          all: [...SIDEBAR_LIST_WHEN.all, "macPlatform"],
+        },
+      },
+      {
+        key: "e",
+        when: {
+          ...SIDEBAR_LIST_WHEN,
+          all: [...SIDEBAR_LIST_WHEN.all, "windowsPlatform"],
+        },
+      },
+      {
+        key: "e",
+        when: {
+          ...SIDEBAR_LIST_WHEN,
+          all: [...SIDEBAR_LIST_WHEN.all, "linuxPlatform"],
+        },
+      },
+    ]);
+  });
+
+  it("lets a thread-list key win inside the list over a user's global binding on the same chord", () => {
+    const bindings = applyAppKeybindingOverrides(
+      DEFAULT_APP_KEYBINDINGS,
+      appKeybindingOverridesSchema.parse([
+        {
+          command: "panel.nextNewTabItem",
+          shortcut: plainShortcut("ArrowDown", true),
+        },
+      ]),
+    );
+    const input = {
+      key: "ArrowDown",
+      code: "ArrowDown",
+      altKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+    };
+    const firstMatch = (context: readonly string[]) =>
+      [...bindings]
+        .reverse()
+        .find(
+          (binding) =>
+            matchesAppShortcut(input, binding.shortcut, false) &&
+            binding.when.all.every((key) => context.includes(key)) &&
+            binding.when.none.every((key) => !context.includes(key)),
+        )?.command;
+
+    expect(
+      firstMatch(["mainSurface", "sidebarListFocus", "linuxPlatform"]),
+    ).toBe("thread.nextAttention");
+    expect(firstMatch(["mainSurface", "linuxPlatform"])).toBe(
+      "panel.nextNewTabItem",
+    );
   });
 
   it("uses null overrides to disable a command", async () => {
