@@ -76,7 +76,12 @@ import {
   SIDEBAR_HOVER_ACTIONS_ROW_CLASS,
 } from "@/components/ui/sidebar-hover-actions";
 import type { ConsumeDragClickSuppression } from "@/components/ui/use-drag-click-suppression";
-import { SubThreadCount, SubThreadToggle } from "./SubThreadToggle.js";
+import {
+  SubThreadCount,
+  SubThreadDisclosureSlot,
+  SubThreadToggle,
+  getSubThreadGuideLeft,
+} from "./SubThreadToggle.js";
 import { useSidebarRename } from "./SidebarInlineRename.js";
 import { SidebarRowControls } from "./SidebarRowControls.js";
 import {
@@ -139,6 +144,7 @@ export function resetSidebarTitleDoubleClickForTest(): void {
 interface ThreadRowBaseOptions {
   depth: number;
   isCompact: boolean;
+  isSubThread: boolean;
   consumeClickSuppression?: ConsumeDragClickSuppression;
   dragBindings?: SidebarSortableDragBindings;
   nestDrop?: ThreadRowNestDrop;
@@ -469,8 +475,9 @@ function ThreadRowComponent({
   const childActivity =
     parentOptions?.childActivity ?? NO_COLLAPSED_CHILD_ACTIVITY;
   const hasChildren = childCount > 0;
-  const reserveActionSpace = crossProjectLabel !== null;
   const showSubThreadToggle = isParentRow && hasChildren;
+  const reserveActionSpace =
+    crossProjectLabel !== null || (showSubThreadToggle && !showProviderIcons);
   const hasHiddenChildren = isParentRow && isParentCollapsed && hasChildren;
   const hiddenChildrenHaveDraft = useThreadsHaveDraft(
     hasHiddenChildren ? childActivity.threadIds : NO_THREAD_IDS,
@@ -541,7 +548,11 @@ function ThreadRowComponent({
   );
   const rowStyle = getThreadRowStyle(options.depth);
   const parentGuideLeft =
-    options.depth > 0 ? getSidebarThreadGroupLineLeft(options.depth - 1) : null;
+    options.depth === 0
+      ? null
+      : options.isSubThread
+        ? getSubThreadGuideLeft(options.depth - 1, showProviderIcons)
+        : getSidebarThreadGroupLineLeft(options.depth - 1);
   const handleRowClickCapture = useCallback<ThreadRowClickCaptureHandler>(
     (event) => {
       if (!options.consumeClickSuppression?.()) {
@@ -652,6 +663,7 @@ function ThreadRowComponent({
               isCollapsed={isParentCollapsed}
               expandLabel={`Expand ${labelTitle} threads`}
               collapseLabel={`Collapse ${labelTitle} threads`}
+              slot={showProviderIcons ? "provider-icon" : "disclosure"}
               icon={
                 provider ? (
                   <ProviderIcon
@@ -687,7 +699,9 @@ function ThreadRowComponent({
               </TooltipTrigger>
               <TooltipContent side="top">{provider.displayName}</TooltipContent>
             </Tooltip>
-          ) : null}
+          ) : showProviderIcons ? null : (
+            <SubThreadDisclosureSlot />
+          )}
           {isEditing ? (
             <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
               {editor}

@@ -63,6 +63,7 @@ const DEFAULT_OPTIONS: ThreadRowOptions = {
   kind: "default",
   depth: 1,
   isCompact: false,
+  isSubThread: false,
 };
 
 function createThread(
@@ -91,6 +92,7 @@ function parentOptions(
     kind: "parent",
     depth: 1,
     isCompact: false,
+    isSubThread: false,
     isCollapsed: true,
     childCount: 1,
     childActivity: NO_COLLAPSED_CHILD_ACTIVITY,
@@ -1134,7 +1136,7 @@ describe("ThreadRow", () => {
   });
 
   it.each([true, false])(
-    "lays out a parent row like a leaf, its disclosure ahead of Archive and the menu (collapsed: %s)",
+    "lays out a parent row with a provider icon like a leaf, its disclosure ahead of Archive and the menu (collapsed: %s)",
     (isCollapsed) => {
       getDefaultStore().set(preferenceValueAtom("rowActions"), [
         "bb--core/archive",
@@ -1153,11 +1155,14 @@ describe("ThreadRow", () => {
           archive: screen.getByRole("button", { name: "Archive" }).className,
         };
       };
-      const leaf = renderThreadRow();
+      const leaf = renderThreadRow({ providers: [TEST_PROVIDER] });
       const leafLayout = layout();
       leaf.unmount();
 
-      renderThreadRow({ options: parentOptions({ isCollapsed }) });
+      renderThreadRow({
+        providers: [TEST_PROVIDER],
+        options: parentOptions({ isCollapsed }),
+      });
       expect(layout()).toEqual(leafLayout);
       const row = screen
         .getByRole("link", { name: /^Open / })
@@ -1256,20 +1261,60 @@ describe("ThreadRow", () => {
     },
   );
 
-  it("shows a parent's chevron at rest when the row has no provider icon", () => {
-    renderThreadRow({ thread: PARENT_THREAD, options: parentOptions() });
+  it.each([true, false])(
+    "leads a parent's title with its disclosure, in the slot every leaf keeps, without provider icons (collapsed: %s)",
+    (isCollapsed) => {
+      getDefaultStore().set(preferenceValueAtom("showProviderIcons"), false);
+      getDefaultStore().set(preferenceValueAtom("rowActions"), [
+        "bb--core/archive",
+      ]);
+      const leading = (title: string) => {
+        const element = screen.getByTitle(title).previousElementSibling;
+        expect(element).not.toBeNull();
+        expect(element?.previousElementSibling).toBeNull();
+        return element;
+      };
+      const leaf = renderThreadRow({ providers: [TEST_PROVIDER] });
+      const leafSlot = leading("Thread");
+      expect(leafSlot?.getAttribute("aria-hidden")).toBe("true");
+      const leafSlotStyle = leafSlot?.getAttribute("style");
+      expect(leafSlotStyle).toBeTruthy();
+      leaf.unmount();
 
-    const toggle = screen.getByRole("button", {
-      name: "Expand Parent thread threads",
-      description: "1 thread",
-    });
-    expect(toggle.querySelector("[data-provider-logo]")).toBeNull();
-    expect(
-      toggle
-        .querySelector('[data-icon="ChevronRight"]')
-        ?.classList.contains("hidden"),
-    ).toBe(false);
-  });
+      const onToggleCollapsed = vi.fn();
+      renderThreadRow({
+        thread: PARENT_THREAD,
+        providers: [TEST_PROVIDER],
+        options: parentOptions({ isCollapsed, onToggleCollapsed }),
+      });
+      const toggle = screen.getByRole("button", {
+        name: `${isCollapsed ? "Expand" : "Collapse"} Parent thread threads`,
+        description: "1 thread",
+      });
+      expect(leading("Parent thread")).toBe(toggle);
+      expect(toggle.getAttribute("style")).toBe(leafSlotStyle);
+      expect(toggle.querySelector("[data-provider-logo]")).toBeNull();
+      expect(
+        toggle
+          .querySelector('[data-icon="ChevronRight"]')
+          ?.classList.contains("hidden"),
+      ).toBe(false);
+      expect(
+        Array.from(
+          toggle
+            .closest("[data-sidebar-rename-row]")
+            ?.querySelectorAll("button") ?? [],
+          (button) => button.getAttribute("aria-label"),
+        ),
+      ).toEqual([
+        toggle.getAttribute("aria-label"),
+        "Archive",
+        "Thread actions",
+      ]);
+      fireEvent.click(toggle);
+      expect(onToggleCollapsed).toHaveBeenCalledWith("thr_test");
+    },
+  );
 
   it.each([
     { childCount: 3, workingCount: 0, text: "3", description: "3 threads" },
@@ -1303,8 +1348,9 @@ describe("ThreadRow", () => {
 
       const count = subThreadCount();
       expect(
-        count?.previousElementSibling?.classList.contains("bb-thread-title"),
-      ).toBe(true);
+        screen.getByTitle("Parent thread").compareDocumentPosition(count!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
       expect(count?.textContent).toBe(text);
       expect(count?.getAttribute("aria-hidden")).toBe("true");
       expect(renderedIndicators()).toEqual(workingCount > 0 ? ["runtime"] : []);
@@ -1333,6 +1379,7 @@ describe("ThreadRow", () => {
         kind: "parent",
         depth: 2,
         isCompact: false,
+        isSubThread: true,
         isCollapsed: false,
         childCount: 1,
         childActivity: NO_COLLAPSED_CHILD_ACTIVITY,

@@ -1,8 +1,24 @@
-import { useId, type ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { LIST_HOVER_TRANSITION } from "@/components/ui/motion";
-import { SIDEBAR_CONTROL_STATE_CLASS } from "@/components/ui/sidebar-row-classes";
+import {
+  SIDEBAR_CONTROL_STATE_CLASS,
+  getSidebarThreadGroupLineLeft,
+  getSidebarThreadRowPaddingLeft,
+} from "@/components/ui/sidebar-row-classes";
 import { cn } from "@/lib/utils";
+
+const DISCLOSURE_SIZE_PX = 16;
+const DISCLOSURE_CLEARANCE_PX = 2;
+const DISCLOSURE_ROW_PADDING_OVERLAP_PX =
+  getSidebarThreadRowPaddingLeft(0) - DISCLOSURE_CLEARANCE_PX;
+
+const DISCLOSURE_SLOT_STYLE = {
+  width: DISCLOSURE_SIZE_PX,
+  height: DISCLOSURE_SIZE_PX,
+  marginLeft: -DISCLOSURE_ROW_PADDING_OVERLAP_PX,
+  marginRight: DISCLOSURE_CLEARANCE_PX,
+} satisfies CSSProperties;
 
 interface SubThreadToggleProps {
   count: number;
@@ -10,9 +26,32 @@ interface SubThreadToggleProps {
   isCollapsed: boolean;
   expandLabel: string;
   collapseLabel: string;
+  slot: "provider-icon" | "disclosure";
   icon: ReactNode;
   iconLabel: string | null;
   onToggle: () => void;
+}
+
+export function getSubThreadGuideLeft(
+  parentDepth: number,
+  showProviderIcons: boolean,
+): number {
+  return showProviderIcons
+    ? getSidebarThreadGroupLineLeft(parentDepth)
+    : getSidebarThreadRowPaddingLeft(parentDepth) -
+        DISCLOSURE_ROW_PADDING_OVERLAP_PX +
+        DISCLOSURE_SIZE_PX / 2;
+}
+
+export function SubThreadDisclosureSlot() {
+  return (
+    <span
+      aria-hidden="true"
+      data-sidebar-sub-thread-slot=""
+      className="shrink-0"
+      style={DISCLOSURE_SLOT_STYLE}
+    />
+  );
 }
 
 function formatSubThreadCount(count: number): string {
@@ -39,11 +78,13 @@ export function SubThreadToggle({
   isCollapsed,
   expandLabel,
   collapseLabel,
+  slot,
   icon,
   iconLabel,
   onToggle,
 }: SubThreadToggleProps) {
   const descriptionId = useId();
+  const inDisclosureSlot = slot === "disclosure";
   const hasIcon = icon !== null;
   return (
     <button
@@ -58,10 +99,13 @@ export function SubThreadToggle({
         event.stopPropagation();
         onToggle();
       }}
+      style={inDisclosureSlot ? DISCLOSURE_SLOT_STYLE : undefined}
       className={cn(
-        "pointer-events-auto relative z-[31] -my-0.5 flex h-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] outline-none ring-sidebar-ring focus-visible:ring-2 focus-visible:ring-inset",
-        "after:absolute after:-inset-1 after:content-[''] max-md:pointer-coarse:after:-inset-2",
-        hasIcon ? "-ml-0.5 mr-1 w-5" : "-ml-4 mr-0.5 w-3.5",
+        "pointer-events-auto relative z-[31] flex shrink-0 cursor-pointer items-center justify-center rounded-[5px] outline-none ring-sidebar-ring focus-visible:ring-2 focus-visible:ring-inset",
+        "after:absolute after:content-['']",
+        inDisclosureSlot
+          ? "after:-inset-x-0.5 after:-inset-y-1 max-md:pointer-coarse:after:-inset-y-2.5 max-md:pointer-coarse:after:-right-2.5"
+          : "-my-0.5 -ml-0.5 mr-1 size-5 after:-inset-1 max-md:pointer-coarse:after:-inset-2",
         SIDEBAR_CONTROL_STATE_CLASS,
         LIST_HOVER_TRANSITION,
       )}
@@ -74,7 +118,8 @@ export function SubThreadToggle({
       <Icon
         name="ChevronRight"
         className={cn(
-          "size-3.5 transition-transform duration-150",
+          inDisclosureSlot ? "size-3" : "size-3.5",
+          "transition-transform duration-150",
           !isCollapsed && "rotate-90",
           hasIcon &&
             "hidden group-hover/thread-row:block group-has-[:focus-visible]/thread-row:block [@media(hover:none)]:block",

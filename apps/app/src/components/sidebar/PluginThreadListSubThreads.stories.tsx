@@ -367,15 +367,22 @@ function SubThreadStory({ showProviderIcons }: { showProviderIcons: boolean }) {
         <main className="flex gap-6 p-6">
           <SubThreadSidebar />
           <section className="grid max-w-xs content-start gap-3 text-sm text-muted-foreground">
-            <p>
-              Hover a parent row: its icon turns into the chevron that expands
-              its sub-threads, and Archive sits where it does on every other
-              row.
-            </p>
+            {showProviderIcons ? (
+              <p>
+                Hover a parent row: its icon turns into the chevron that expands
+                its sub-threads, and Archive sits where it does on every other
+                row.
+              </p>
+            ) : (
+              <p>
+                Without provider icons, a parent's chevron leads its title
+                inside the row, and every other row keeps the same slot, so
+                titles line up. Sub-thread guides run down from the chevron.
+              </p>
+            )}
             <p>
               The number after a title counts sub-threads, or shows busy/total
-              while some run. Without provider icons the chevron sits in the
-              left margin.
+              while some run.
             </p>
           </section>
         </main>
