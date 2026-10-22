@@ -5,13 +5,14 @@ import type { ThreadComparator } from "../model/project-thread-groups.js";
 import {
   buildSubtreeAttentionRungs,
   compareOrderVersions,
+  heldAttentionRung,
   orderComparatorByAttention,
+  rememberHeldOpenRung,
+  resolveHeldOpenRung,
+  restoreHeldOpenRung,
+  type HeldOpenRung,
 } from "../model/attention-ordering.js";
 import type { SidebarThreadVersionOf } from "./stability/SidebarOrderStability.js";
-import {
-  threadAttentionRung,
-  type ThreadListRung,
-} from "../model/thread-activity.js";
 import {
   collapsedParentIds,
   toggleThreadId,
@@ -23,34 +24,14 @@ import {
   sidebarParentsStartCollapsedAtom,
 } from "../preferences/atoms.js";
 
-interface HeldOpenRung {
-  threadId: string;
-  rung: ThreadListRung;
-}
-
-let lastHeldOpenRung: HeldOpenRung | null = null;
-
-function rememberHeldOpenRung(held: HeldOpenRung | null): void {
-  lastHeldOpenRung = held;
-}
-
 function useHeldOpenRung(
   threads: readonly SidebarThread[],
   selectedThreadId: string | undefined,
 ): HeldOpenRung | null {
   const [held, setHeld] = useState<HeldOpenRung | null>(() =>
-    lastHeldOpenRung?.threadId === selectedThreadId ? lastHeldOpenRung : null,
+    restoreHeldOpenRung(selectedThreadId),
   );
-  let next = held;
-  if (held?.threadId !== selectedThreadId) {
-    const thread =
-      selectedThreadId === undefined
-        ? undefined
-        : threads.find((candidate) => candidate.id === selectedThreadId);
-    next = thread
-      ? { threadId: thread.id, rung: threadAttentionRung(thread) }
-      : null;
-  }
+  const next = resolveHeldOpenRung(held, threads, selectedThreadId);
   if (next !== held) {
     setHeld(next);
   }
@@ -83,10 +64,9 @@ export function useAttentionOrdering({
   const subtreeRungs = useMemo(
     () =>
       attentionFirst
-        ? buildSubtreeAttentionRungs(threads, (thread) =>
-            heldOpenRung?.threadId === thread.id
-              ? heldOpenRung.rung
-              : threadAttentionRung(versionOf(thread)),
+        ? buildSubtreeAttentionRungs(
+            threads,
+            heldAttentionRung(heldOpenRung, versionOf),
           )
         : null,
     [attentionFirst, heldOpenRung, threads, versionOf],

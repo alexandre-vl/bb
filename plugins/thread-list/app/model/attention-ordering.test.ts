@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildSubtreeAttentionRungs,
+  heldAttentionRung,
   orderComparatorByAttention,
+  rememberHeldOpenRung,
+  resolveHeldOpenRung,
+  restoreHeldOpenRung,
 } from "./attention-ordering.js";
 import {
   buildProjectThreadGroups,
@@ -159,5 +163,80 @@ describe("orderComparatorByAttention", () => {
       "env:worktree-failed+worktree-settled",
       "loose",
     ]);
+  });
+});
+
+describe("heldAttentionRung", () => {
+  const running = {
+    status: "active" as const,
+    runtimeStatus: "active" as const,
+  };
+  const live = (entry: SidebarThread) => entry;
+
+  afterEach(() => {
+    rememberHeldOpenRung(null);
+  });
+
+  it("keeps the open thread at the rung it opened with while its turn runs", () => {
+    const opened = resolveHeldOpenRung(
+      null,
+      [thread("opened", freshUnread)],
+      "opened",
+    );
+    const held = resolveHeldOpenRung(
+      opened,
+      [thread("opened", running)],
+      "opened",
+    );
+    const rungOf = heldAttentionRung(held, (entry) =>
+      entry.id === "other" ? thread("other", failedUnread) : entry,
+    );
+
+    expect(rungOf(thread("opened", running))).toBe(3);
+    expect(rungOf(thread("opened"))).toBe(3);
+    expect(rungOf(thread("other"))).toBe(4);
+  });
+
+  it("keeps a thread opened mid-turn unlifted until another thread opens", () => {
+    const opened = resolveHeldOpenRung(
+      null,
+      [thread("opened", running)],
+      "opened",
+    );
+    const held = resolveHeldOpenRung(
+      opened,
+      [thread("opened", freshUnread)],
+      "opened",
+    );
+    expect(heldAttentionRung(held, live)(thread("opened", freshUnread))).toBe(
+      0,
+    );
+
+    const afterSwitch = resolveHeldOpenRung(
+      held,
+      [thread("opened", freshUnread), thread("other")],
+      "other",
+    );
+    expect(
+      heldAttentionRung(afterSwitch, live)(thread("opened", freshUnread)),
+    ).toBe(3);
+  });
+
+  it("keeps the held rung when the sidebar remounts", () => {
+    rememberHeldOpenRung(
+      resolveHeldOpenRung(
+        null,
+        [thread("remounted", freshUnread)],
+        "remounted",
+      ),
+    );
+
+    const remounted = resolveHeldOpenRung(
+      restoreHeldOpenRung("remounted"),
+      [thread("remounted")],
+      "remounted",
+    );
+    expect(heldAttentionRung(remounted, live)(thread("remounted"))).toBe(3);
+    expect(restoreHeldOpenRung("other")).toBeNull();
   });
 });

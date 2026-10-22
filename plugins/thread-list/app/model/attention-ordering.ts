@@ -9,6 +9,52 @@ export type ThreadAttentionRungResolver = (
   thread: SidebarThread,
 ) => ThreadListRung;
 
+export interface HeldOpenRung {
+  threadId: string;
+  rung: ThreadListRung;
+}
+
+let lastHeldOpenRung: HeldOpenRung | null = null;
+
+export function rememberHeldOpenRung(held: HeldOpenRung | null): void {
+  lastHeldOpenRung = held;
+}
+
+export function restoreHeldOpenRung(
+  selectedThreadId: string | undefined,
+): HeldOpenRung | null {
+  return lastHeldOpenRung?.threadId === selectedThreadId
+    ? lastHeldOpenRung
+    : null;
+}
+
+export function resolveHeldOpenRung(
+  held: HeldOpenRung | null,
+  threads: readonly SidebarThread[],
+  selectedThreadId: string | undefined,
+): HeldOpenRung | null {
+  if (held?.threadId === selectedThreadId) {
+    return held;
+  }
+  const thread =
+    selectedThreadId === undefined
+      ? undefined
+      : threads.find((candidate) => candidate.id === selectedThreadId);
+  return thread
+    ? { threadId: thread.id, rung: threadAttentionRung(thread) }
+    : null;
+}
+
+export function heldAttentionRung(
+  held: HeldOpenRung | null,
+  versionOf: (thread: SidebarThread) => SidebarThread,
+): ThreadAttentionRungResolver {
+  return (thread) =>
+    held?.threadId === thread.id
+      ? held.rung
+      : threadAttentionRung(versionOf(thread));
+}
+
 export function buildSubtreeAttentionRungs(
   threads: readonly SidebarThread[],
   ownRung: (thread: SidebarThread) => ThreadListRung = threadAttentionRung,
