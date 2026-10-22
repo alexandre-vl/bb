@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NO_COLLAPSED_CHILD_ACTIVITY } from "../model/thread-activity.js";
+import {
+  EMPTY_THREAD_ROLLUP,
+  rollUpThreads,
+} from "../model/thread-activity.js";
+import { makeSidebarThread } from "../model/fixtures.js";
 import type {
   PluginSidebarSplitLayout,
   PluginSidebarThreadRowStatus,
@@ -11,10 +15,6 @@ import {
   installTestPluginRuntime,
   renderSlot,
 } from "@get-bb/plugin-sdk/testing/app";
-import {
-  SIDEBAR_CONTROL_STATE_CLASS,
-  SIDEBAR_GROUP_TEXT_CLASS,
-} from "@/components/ui/sidebar-row-classes";
 
 installTestPluginRuntime();
 const { SidebarSectionRow } = await import("./SidebarSectionRow.js");
@@ -34,7 +34,7 @@ function renderSectionRow(
       name: "Nested work",
       label: "Nested work",
       depth: 1,
-      activity: NO_COLLAPSED_CHILD_ACTIVITY,
+      rollup: EMPTY_THREAD_ROLLUP,
       isCollapsed: false,
       onToggleCollapsed: vi.fn(),
       ...props,
@@ -51,29 +51,34 @@ afterEach(() => {
 });
 
 describe("SidebarSectionRow", () => {
-  it("renders the section name before the disclosure without a sidebar icon", () => {
-    const result = renderSectionRow({});
+  it("leads with the disclosure and toggles from the whole row", () => {
+    const onToggleCollapsed = vi.fn();
+    renderSectionRow({
+      onToggleCollapsed,
+      rollup: rollUpThreads([
+        makeSidebarThread({ id: "one", hasPendingInteraction: true }),
+        makeSidebarThread({ id: "two", lastReadAt: 1 }),
+      ]),
+    });
 
     const disclosure = screen.getByRole("button", {
       name: "Collapse Nested work section",
     });
-    const icon = result.container.querySelector('[data-icon="ListView"]');
-    const label = screen.getByText("Nested work");
-    const row = label.parentElement?.parentElement as HTMLElement | null;
-
-    expect(icon).toBeNull();
+    const item = screen.getByRole("treeitem");
     expect(
-      label.compareDocumentPosition(disclosure) &
+      disclosure.compareDocumentPosition(item) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
-    expect(row?.style.paddingLeft).toBe("32px");
-    expect(row?.classList.contains(SIDEBAR_GROUP_TEXT_CLASS)).toBe(true);
-    for (const token of SIDEBAR_CONTROL_STATE_CLASS.split(" ")) {
-      expect(disclosure.classList.contains(token)).toBe(true);
-    }
-    expect(disclosure.classList.contains("hover:bg-sidebar-accent")).toBe(
-      false,
+    expect(disclosure.tabIndex).toBe(-1);
+    expect(item.getAttribute("aria-level")).toBe("3");
+    expect(item.textContent).toBe(
+      "Nested work, section, 2 threads: 1 needs your input",
     );
+
+    fireEvent.click(screen.getByText("Nested work"));
+    expect(onToggleCollapsed).toHaveBeenCalledOnce();
+    fireEvent.click(disclosure);
+    expect(onToggleCollapsed).toHaveBeenCalledTimes(2);
   });
 
   it("rolls hidden split threads up to the collapsed section row", () => {
@@ -81,7 +86,9 @@ describe("SidebarSectionRow", () => {
       {
         name: "Build",
         label: "Work / Build",
-        activity: { ...NO_COLLAPSED_CHILD_ACTIVITY, pending: true },
+        rollup: rollUpThreads([
+          makeSidebarThread({ id: "thread-one", hasPendingInteraction: true }),
+        ]),
         collapsedThreads: [{ id: "thread-one" }, { id: "thread-two" }],
         isCollapsed: true,
       },

@@ -7,7 +7,7 @@ import {
   type ProjectThreadItem,
   type ThreadComparator,
 } from "../model/project-thread-groups.js";
-import { NO_COLLAPSED_CHILD_ACTIVITY } from "../model/thread-activity.js";
+import { EMPTY_THREAD_ROLLUP } from "../model/thread-activity.js";
 import {
   makeSidebarEnvironment,
   makeSidebarThread,
@@ -42,7 +42,7 @@ function threadNode(entry: SidebarThread): ProjectThreadNode {
     depth: 0,
     stats: {
       childCount: 0,
-      childActivity: NO_COLLAPSED_CHILD_ACTIVITY,
+      rollup: EMPTY_THREAD_ROLLUP,
     },
   };
 }
@@ -63,7 +63,7 @@ function environmentItem(
       nodes: [threadNode(representative), threadNode(sibling)],
       stats: {
         childCount: 0,
-        childActivity: NO_COLLAPSED_CHILD_ACTIVITY,
+        rollup: EMPTY_THREAD_ROLLUP,
       },
     },
   };
@@ -78,7 +78,7 @@ function sectionItem(name: string): ProjectThreadItem {
       name,
       items: [],
       threadCount: 0,
-      activity: NO_COLLAPSED_CHILD_ACTIVITY,
+      rollup: EMPTY_THREAD_ROLLUP,
     },
   };
 }

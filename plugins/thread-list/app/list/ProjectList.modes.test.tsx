@@ -252,6 +252,22 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+function sectionLabel(label: string): HTMLElement {
+  const element = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-sidebar-section-label]"),
+  ).find((candidate) => candidate.textContent === label);
+  if (!element) {
+    throw new Error(`Expected a section header labelled ${label}`);
+  }
+  return element;
+}
+
+function sectionExpanded(label: string): string | null | undefined {
+  return sectionLabel(label)
+    .closest('[role="treeitem"]')
+    ?.getAttribute("aria-expanded");
+}
+
 describe("sidebar organization mode sections", () => {
   it("does not mount inactive ordering or machine-grouping work", async () => {
     const store = createStore();
@@ -324,14 +340,12 @@ describe("sidebar organization mode sections", () => {
     renderMachineMode(store);
 
     expect(screen.getByText("No threads")).not.toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Collapse Threads section" }),
-    );
+    expect(sectionExpanded("Threads")).toBe("true");
+    fireEvent.click(sectionLabel("Threads"));
     expect(screen.queryByText("No threads")).toBeNull();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Expand Threads section" }),
-    );
+    expect(sectionExpanded("Threads")).toBe("false");
+    fireEvent.click(sectionLabel("Threads"));
     expect(screen.getByText("No threads")).not.toBeNull();
     expect(mockBuildMachineThreadGroups).toHaveBeenCalledWith([], []);
   });
@@ -350,7 +364,7 @@ describe("sidebar organization mode sections", () => {
       },
     );
 
-    fireEvent.doubleClick(screen.getByTitle("Work laptop"));
+    fireEvent.doubleClick(sectionLabel("Work laptop"));
     const input = await screen.findByRole("textbox", { name: "Machine name" });
     expect(input.closest('[aria-disabled="true"]')).toBeNull();
     fireEvent.change(input, { target: { value: "Studio" } });
@@ -369,7 +383,7 @@ describe("sidebar organization mode sections", () => {
     store.set(sidebarMachineSectionOrderAtom, ["machine:no-machine"]);
     store.set(sidebarCollapsedMachinesAtom, ["no-machine"]);
     const { sdkCalls } = renderMachineMode(store, [makeThread()]);
-    fireEvent.doubleClick(screen.getByTitle("No machine"));
+    fireEvent.doubleClick(sectionLabel("No machine"));
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(sdkCalls).toEqual([]);
   });
@@ -453,9 +467,7 @@ describe("sidebar organization mode sections", () => {
         screen.queryByRole("button", { name: "More machines" }),
       ).toBeNull(),
     );
-    expect(
-      screen.getByRole("button", { name: "Expand No machine section" }),
-    ).not.toBeNull();
+    expect(sectionExpanded("No machine")).toBe("false");
     expect(screen.queryByText("Machine activity")).toBeNull();
     expect(store.get(sidebarHiddenGroupsAtom)).toEqual([]);
     expect(store.get(sidebarCollapsedMachinesAtom)).toEqual(["no-machine"]);

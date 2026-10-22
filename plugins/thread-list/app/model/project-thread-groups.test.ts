@@ -450,7 +450,7 @@ describe("buildProjectThreadGroups", () => {
     ]);
   });
 
-  it("rolls collapsed child activity up from all descendants", () => {
+  it("rolls every descendant's state up onto each ancestor", () => {
     const rootItems = buildProjectThreadGroups([
       createThread({
         id: "parent",
@@ -458,6 +458,7 @@ describe("buildProjectThreadGroups", () => {
       createThread({
         id: "quiet-child",
         parentThreadId: "parent",
+        lastReadAt: 2,
       }),
       createThread({
         id: "busy-grandchild",
@@ -470,46 +471,37 @@ describe("buildProjectThreadGroups", () => {
         parentThreadId: "quiet-child",
         hasPendingInteraction: true,
       }),
+      createThread({
+        id: "failed-grandchild",
+        parentThreadId: "quiet-child",
+        status: "error",
+      }),
     ]);
 
     expect(findNode(rootItems, "parent")?.stats).toEqual({
-      childActivity: {
+      childCount: 4,
+      rollup: {
         threadIds: expect.arrayContaining([
           "quiet-child",
           "busy-grandchild",
           "pending-grandchild",
+          "failed-grandchild",
         ]),
-        pending: true,
-        working: true,
-        runtimeWorking: true,
-        workflow: false,
-        backgroundAgent: false,
-        backgroundCommand: false,
-        planMode: false,
-        goal: false,
-        unread: false,
-        unreadError: false,
+        kind: "waiting-for-input",
+        counts: { needsYou: 1, failed: 1, fresh: 0, working: 1, queued: 0 },
       },
-      childCount: 3,
     });
     expect(findNode(rootItems, "quiet-child")?.stats).toEqual({
-      childActivity: {
+      childCount: 3,
+      rollup: {
         threadIds: expect.arrayContaining([
           "busy-grandchild",
           "pending-grandchild",
+          "failed-grandchild",
         ]),
-        pending: true,
-        working: true,
-        runtimeWorking: true,
-        workflow: false,
-        backgroundAgent: false,
-        backgroundCommand: false,
-        planMode: false,
-        goal: false,
-        unread: false,
-        unreadError: false,
+        kind: "waiting-for-input",
+        counts: { needsYou: 1, failed: 1, fresh: 0, working: 1, queued: 0 },
       },
-      childCount: 2,
     });
   });
 
@@ -818,7 +810,7 @@ describe("section bucketing", () => {
     ]);
   });
 
-  it("rolls descendant count + activity up onto the section group", () => {
+  it("rolls descendant count and states up onto the section group", () => {
     const items = buildSectionThreadList(
       [
         createThread({
@@ -839,7 +831,8 @@ describe("section bucketing", () => {
       throw new Error("expected a section item");
     }
     expect(section.group.threadCount).toBe(2);
-    expect(section.group.activity.pending).toBe(true);
+    expect(section.group.rollup.counts.needsYou).toBe(1);
+    expect(section.group.rollup.kind).toBe("waiting-for-input");
   });
 
   it("combines threads from different projects that share the same section id", () => {

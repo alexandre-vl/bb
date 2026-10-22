@@ -4,7 +4,7 @@ import { cleanup, fireEvent, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NO_COLLAPSED_CHILD_ACTIVITY } from "../model/thread-activity.js";
+import { rollUpThreads } from "../model/thread-activity.js";
 import type {
   PluginSidebarSplitLayout,
   PluginSidebarThreadRowStatus,
@@ -126,43 +126,71 @@ describe("SidebarControlButton", () => {
 });
 
 describe("TopLevelSidebarSection", () => {
-  it("lets shortcuts escape a focused disclosure while keeping activation local", () => {
-    const onShortcut = vi.fn();
+  it("toggles from anywhere on the header except its controls", () => {
     const onToggleCollapsed = vi.fn();
     renderTree(
-      <div onKeyDown={onShortcut}>
-        <TopLevelSidebarSection
-          label="Pinned"
-          collapseControl={{ isCollapsed: false, onToggleCollapsed }}
-        >
-          <div>Pinned thread</div>
-        </TopLevelSidebarSection>
-      </div>,
+      <TopLevelSidebarSection
+        label="Pinned"
+        actions={<button type="button">Pinned actions</button>}
+        collapseControl={{ isCollapsed: false, onToggleCollapsed }}
+      >
+        <div>Pinned thread</div>
+      </TopLevelSidebarSection>,
     );
-    const disclosure = screen.getByRole("button", {
-      name: "Collapse Pinned section",
-    });
-    disclosure.focus();
-    fireEvent.click(disclosure);
-    expect(onToggleCollapsed).toHaveBeenCalledOnce();
-    expect(document.activeElement).toBe(disclosure);
 
-    for (const shortcut of [
-      { key: "2", ctrlKey: true },
-      { key: "2", metaKey: true },
-      { key: "[", ctrlKey: true, shiftKey: true },
-      { key: "]", ctrlKey: true, shiftKey: true },
-    ]) {
-      onShortcut.mockClear();
-      fireEvent.keyDown(disclosure, shortcut);
-      expect(onShortcut).toHaveBeenCalledOnce();
-    }
-
-    onShortcut.mockClear();
-    expect(fireEvent.keyDown(disclosure, { key: "Enter" })).toBe(true);
-    expect(fireEvent.keyDown(disclosure, { key: " " })).toBe(true);
-    expect(onShortcut).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Pinned"));
     expect(onToggleCollapsed).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned actions" }));
+    expect(onToggleCollapsed).toHaveBeenCalledOnce();
+  });
+
+  it("names the header with its thread summary instead of a visible count", () => {
+    renderTree(
+      <TopLevelSidebarSection
+        label="kops-discordbot"
+        rollup={rollUpThreads([
+          makeSidebarThread({ id: "one", status: "error", latestAttentionAt: 5 }),
+          makeSidebarThread({ id: "two", lastReadAt: 1 }),
+          makeSidebarThread({ id: "three", lastReadAt: 1 }),
+          makeSidebarThread({ id: "four", lastReadAt: 1 }),
+        ])}
+        collapseControl={{ isCollapsed: false, onToggleCollapsed: vi.fn() }}
+      >
+        <div>Thread</div>
+      </TopLevelSidebarSection>,
+    );
+
+    const header = screen.getByRole("treeitem");
+    expect(header.getAttribute("aria-level")).toBe("1");
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(header.textContent).toBe("kops-discordbot, 4 threads: 1 failed");
+    expect(
+      header
+        .closest("[data-sidebar-tree-row]")
+        ?.getAttribute("data-sidebar-row-tooltip"),
+    ).toBe("kops-discordbot · 4 threads: 1 failed");
+    expect(document.querySelector("[data-thread-status-glyph]")).toBeNull();
+  });
+
+  it("renders an empty project as a bare header", () => {
+    const onToggleCollapsed = vi.fn();
+    renderTree(
+      <TopLevelSidebarSection
+        label="berth"
+        isEmpty
+        collapseControl={{ isCollapsed: false, onToggleCollapsed }}
+      >
+        <div>No threads</div>
+      </TopLevelSidebarSection>,
+    );
+
+    const header = screen.getByRole("treeitem");
+    expect(header.hasAttribute("aria-expanded")).toBe(false);
+    expect(document.querySelector("[data-sidebar-section-caret]")).toBeNull();
+    expect(screen.queryByText("No threads")).toBeNull();
+    fireEvent.click(screen.getByText("berth"));
+    expect(onToggleCollapsed).not.toHaveBeenCalled();
   });
 
   it("highlights the whole section only while it is the resolved drop parent", () => {
@@ -204,51 +232,44 @@ describe("TopLevelSidebarSection", () => {
     ).toBeNull();
   });
 
-  it("keeps collapsed activity inside the trailing controls slot", () => {
-    renderTree(
+  it("shows the hidden threads' highest state in the trailing controls only while collapsed", () => {
+    const renderSection = (isCollapsed: boolean) => (
       <TopLevelSidebarSection
         label="TODO"
-        actions={
-          <>
-            <button type="button">Display</button>
-            <button type="button">Actions</button>
-            <button type="button">New thread</button>
-          </>
-        }
-        actionsAlwaysVisible
-        actionsMobileAlways
-        collapsedActivity={{
-          ...NO_COLLAPSED_CHILD_ACTIVITY,
-          working: true,
-          runtimeWorking: true,
-        }}
-        collapseControl={{ isCollapsed: true, onToggleCollapsed: vi.fn() }}
+        actions={<button type="button">Actions</button>}
+        rollup={rollUpThreads([
+          makeSidebarThread({
+            id: "busy",
+            status: "active",
+            runtimeStatus: "active",
+          }),
+        ])}
+        collapseControl={{ isCollapsed, onToggleCollapsed: vi.fn() }}
       >
         <div>Active thread</div>
-      </TopLevelSidebarSection>,
+      </TopLevelSidebarSection>
     );
+    const result = renderTree(renderSection(true));
 
     const indicator = document.querySelector(
       '[data-thread-status-glyph="runtime"]',
     );
-    const activitySlot = indicator?.closest(
-      "[data-sidebar-collapsed-activity-edge]",
+    const trailingControls = indicator?.closest(
+      "[data-sidebar-trailing-controls]",
     );
-    const trailingControls = activitySlot?.parentElement;
-
-    expect(
-      trailingControls?.hasAttribute("data-sidebar-trailing-controls"),
-    ).toBe(true);
-    expect(trailingControls?.className).toContain("relative");
-    expect(activitySlot?.className).toContain("max-md:static");
+    expect(trailingControls).not.toBeNull();
     expect(screen.queryByText("Active thread")).toBeNull();
+
+    result.rerender(<Slot>{renderSection(false)}</Slot>);
+
+    expect(document.querySelector("[data-thread-status-glyph]")).toBeNull();
+    expect(screen.getByText("Active thread")).not.toBeNull();
   });
 
   it("rolls a hidden split thread up to a collapsed top-level section", () => {
     renderTree(
       <TopLevelSidebarSection
         label="Pinned"
-        collapsedActivity={NO_COLLAPSED_CHILD_ACTIVITY}
         collapsedThreads={[{ id: "thread-one" }]}
         collapseControl={{ isCollapsed: true, onToggleCollapsed: vi.fn() }}
       >

@@ -32,7 +32,7 @@ describe("createThreadUnreadPredicate", () => {
     expect(isUnread(thread("root"))).toBe(true);
     expect(isUnread(thread("error", { status: "error" }))).toBe(true);
     expect(isUnread(thread("read", read))).toBe(false);
-    expect(isUnread(thread("child", { parentThreadId: "root" }))).toBe(false);
+    expect(isUnread(thread("child", { parentThreadId: "root" }))).toBe(true);
     expect(isUnread(thread("running", { status: "active" }))).toBe(false);
   });
 });

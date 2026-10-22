@@ -20,7 +20,6 @@ import {
 import {
   SIDEBAR_CONTROL_BUTTON_CLASS,
   SIDEBAR_CONTROL_PAIR_SIZE_CLASS,
-  SIDEBAR_GROUP_TEXT_CLASS,
 } from "@/components/ui/sidebar-row-classes";
 import {
   Fragment,
@@ -50,7 +49,6 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import {
   findEnvironmentDisplayProvider,
-  getEnvironmentLabelIconName,
   resolveEnvironmentDisplayName,
   UNNAMED_ENVIRONMENT_LABEL,
 } from "../ui/environment-workspace-display.js";
@@ -83,10 +81,8 @@ import {
   ProjectActionsMenuItems,
 } from "./ProjectActionsMenu.js";
 import {
-  COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
-  COARSE_POINTER_GLYPH_BOX_CLASS,
   COARSE_POINTER_ICON_SIZE_CLASS,
-  COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
+  COARSE_POINTER_ROW_HEIGHT_CLASS,
 } from "@/components/ui/coarse-pointer-sizing";
 import {
   SIDEBAR_HOVER_ACTIONS_CLASS,
@@ -99,15 +95,17 @@ import type {
   SidebarSectionId,
 } from "../model/sidebar-section-id.js";
 import {
-  getCollapsedChildActivity,
-  NO_COLLAPSED_CHILD_ACTIVITY,
-  type CollapsedChildActivity,
+  describeThreadRollup,
+  EMPTY_THREAD_ROLLUP,
+  rollUpThreads,
+  type ThreadRollup,
 } from "../model/thread-activity.js";
 import { cn } from "@/lib/utils";
 import {
   CollapsedThreadStatusGlyph,
   REORDER_PLACEMENT_CLASS,
   ThreadRow,
+  useRollupIndicatorKind,
   type ThreadRowOptions,
 } from "../rows/ThreadRow.js";
 import {
@@ -137,10 +135,15 @@ import {
   sidebarGroupThreadsByEnvironmentAtom,
 } from "../preferences/atoms.js";
 import {
-  SIDEBAR_ROW_BASE_CLASS,
-  getSidebarThreadGroupLineLeft,
-  getSidebarThreadRowPaddingLeft,
-} from "@/components/ui/sidebar-row-classes";
+  getTreeContainerPaddingLeft,
+  getTreeGuideLeft,
+  getTreeLeafPaddingLeft,
+} from "../ui/tree-geometry.js";
+import {
+  SIDEBAR_TREE_ROW_BASE_CLASS,
+  SIDEBAR_TREE_ROW_HOVER_CLASS,
+  SIDEBAR_TREE_STATUS_BOX_CLASS,
+} from "../ui/tree-row.js";
 import {
   resolveSectionDropTargetState,
   SectionDropTargetOverlay,
@@ -151,7 +154,7 @@ import {
 } from "@/components/ui/sortable-motion";
 import type { ConsumeDragClickSuppression } from "@/components/ui/use-drag-click-suppression";
 import type { NeighborReorderRequest } from "../model/neighbor-reorder.js";
-import { SidebarChildToggleChevron } from "../rows/SidebarChildToggleChevron.js";
+import { SidebarTreeChevron } from "../rows/SidebarTreeChevron.js";
 import { SidebarSectionOrderList } from "./SidebarSectionOrderList.js";
 import {
   useSectionThreadDnd,
@@ -163,7 +166,6 @@ import {
 } from "../rows/sidebarThreadRowDroppable.js";
 import { getSidebarItemKey } from "../rows/sidebarItemKeys.js";
 import { useNestDropPreview } from "../dnd/useNestDropPreview.js";
-import { NO_THREAD_IDS, useThreadsHaveDraft } from "./sidebarDraftPresence.js";
 import { useChronologicalSectionThreadDnd } from "../dnd/SectionThreadDndContext.js";
 import {
   renderBuiltInSidebarSection,
@@ -176,7 +178,7 @@ import {
   SidebarThreadDragChip,
 } from "../dnd/sidebarThreadDragChip.js";
 
-const SIDEBAR_STICKY_PARENT_DEPTH_CAP = 4;
+const SIDEBAR_STICKY_PARENT_DEPTH_CAP = 1;
 
 export type ProjectThreadListState =
   | {
@@ -278,7 +280,6 @@ interface ThreadTreeNodeRowProps {
   projectId: string;
   node: ProjectThreadNode;
   depthOffset: number;
-  isEnvGrouped: boolean;
   selectedThreadId?: string;
   collapsedThreadIds: Set<string>;
   collapsedEnvironmentIds: Set<string>;
@@ -293,7 +294,6 @@ interface ThreadTreeNodeRowProps {
 }
 
 interface ThreadTreeItemRowProps {
-  isEnvGrouped?: boolean;
   projectId: string | null;
   item: ProjectThreadItem;
   depthOffset: number;
@@ -383,7 +383,7 @@ interface EnvironmentThreadGroupHeaderProps {
   rowDepth: number;
   stickyLevel?: number;
   parentLineDepth?: number;
-  childActivity: CollapsedChildActivity;
+  rollup: ThreadRollup;
   isCollapsed: boolean;
   archiveThreadsPending: boolean;
   onArchiveThreads: () => void;
@@ -417,13 +417,12 @@ function getThreadRowDepth({
 }
 
 function getThreadRowOptions({
-  childActivity,
+  rollup,
   childCount,
   consumeClickSuppression,
   dragBindings,
   depthOffset,
   isCollapsed,
-  isEnvGrouped,
   isParent,
   nestDrop,
   nodeDepth,
@@ -433,7 +432,6 @@ function getThreadRowOptions({
   const depth = getThreadRowDepth({ depthOffset, nodeDepth });
   const baseOptions = {
     depth,
-    isCompact: nodeDepth > 0 || isEnvGrouped,
     ...(consumeClickSuppression ? { consumeClickSuppression } : {}),
     ...(dragBindings ? { dragBindings } : {}),
     ...(nestDrop ? { nestDrop } : {}),
@@ -451,19 +449,18 @@ function getThreadRowOptions({
     kind: "parent",
     isCollapsed,
     childCount,
-    childActivity,
+    rollup,
     ...(stickyLevel !== undefined ? { stickyLevel } : {}),
     onToggleCollapsed: onToggleThreadCollapsed,
   };
 }
 
 interface GetThreadRowOptionsArgs {
-  childActivity: CollapsedChildActivity;
+  rollup: ThreadRollup;
   childCount: number;
   consumeClickSuppression?: ConsumeDragClickSuppression;
   dragBindings?: SidebarSortableDragBindings;
   isCollapsed: boolean;
-  isEnvGrouped: boolean;
   isParent: boolean;
   depthOffset: number;
   nestDrop?: ThreadRowNestDrop;
@@ -488,8 +485,9 @@ function getThreadNodeStickyLevel({
 function ThreadTreeGroupLine({ parentRowDepth }: ThreadTreeGroupLineProps) {
   return (
     <span
-      className="pointer-events-none absolute bottom-0 top-0 z-30 w-px bg-border-hairline opacity-70"
-      style={{ left: getSidebarThreadGroupLineLeft(parentRowDepth) }}
+      data-sidebar-tree-guide=""
+      className="pointer-events-none absolute -top-2 bottom-1 z-30 w-px bg-sidebar-guide max-md:pointer-coarse:-top-[13px]"
+      style={{ left: getTreeGuideLeft(parentRowDepth) }}
       aria-hidden="true"
     />
   );
@@ -500,8 +498,8 @@ function ThreadTreeLineContinuation({
 }: ThreadTreeLineContinuationProps) {
   return (
     <span
-      className="pointer-events-none absolute -bottom-0.5 top-0 z-[1] w-px bg-border-hairline opacity-70"
-      style={{ left: getSidebarThreadGroupLineLeft(parentRowDepth) }}
+      className="pointer-events-none absolute -bottom-0.5 top-0 z-[1] w-px bg-sidebar-guide"
+      style={{ left: getTreeGuideLeft(parentRowDepth) }}
       aria-hidden="true"
     />
   );
@@ -731,7 +729,7 @@ function EnvironmentThreadGroupHeader({
   rowDepth,
   stickyLevel,
   parentLineDepth,
-  childActivity,
+  rollup,
   isCollapsed,
   archiveThreadsPending,
   onArchiveThreads,
@@ -784,50 +782,58 @@ function EnvironmentThreadGroupHeader({
         ? () => updateEnvironment(null)
         : undefined,
   });
-  const iconName = getEnvironmentLabelIconName(providerLookup);
-  const hiddenThreadsHaveDraft = useThreadsHaveDraft(
-    isCollapsed ? childActivity.threadIds : NO_THREAD_IDS,
+  const rollupKind = useRollupIndicatorKind(
+    isCollapsed ? rollup : EMPTY_THREAD_ROLLUP,
   );
-  const showRollupGlyph =
-    isCollapsed &&
-    (childActivity.pending ||
-      childActivity.working ||
-      hiddenThreadsHaveDraft ||
-      childActivity.unread ||
-      childActivity.unreadError);
+  const showRollupGlyph = rollupKind !== "none";
+  const threadSummary = describeThreadRollup(rollup, "thread", "threads");
+  const groupSummary = `worktree, ${threadSummary}`;
+  const groupTooltip = rename.isEditing
+    ? undefined
+    : `${displayName} · worktree · ${threadSummary}`;
   const className = cn(
     SIDEBAR_HOVER_ACTIONS_ROW_CLASS,
+    "group/environment-row cursor-pointer",
     stickyLevel === undefined && "relative",
-    SIDEBAR_ROW_BASE_CLASS,
-    COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
+    SIDEBAR_TREE_ROW_BASE_CLASS,
+    SIDEBAR_TREE_ROW_HOVER_CLASS,
+    COARSE_POINTER_ROW_HEIGHT_CLASS,
   );
   const style = {
-    paddingLeft: getSidebarThreadRowPaddingLeft(rowDepth),
+    paddingLeft: getTreeContainerPaddingLeft(rowDepth),
+  };
+  const handleRowClick: MouseEventHandler<HTMLDivElement> = (event) => {
+    if (rename.isEditing) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, input, [data-sidebar-row-controls]")
+    ) {
+      return;
+    }
+    onToggleCollapsed(environmentId);
   };
   const content = (
     <>
       {parentLineDepth === undefined ? null : (
         <ThreadTreeLineContinuation parentRowDepth={parentLineDepth} />
       )}
+      <SidebarTreeChevron
+        disabled={rename.isEditing}
+        className={rename.isEditing ? "invisible" : undefined}
+        isCollapsed={isCollapsed}
+        expandLabel={`Expand ${displayName} threads`}
+        collapseLabel={`Collapse ${displayName} threads`}
+        onToggle={() => onToggleCollapsed(environmentId)}
+      />
       <span
-        className={cn(
-          "pointer-events-none relative z-10 inline-flex shrink-0 items-center justify-center",
-          SIDEBAR_GROUP_TEXT_CLASS,
-          COARSE_POINTER_GLYPH_BOX_CLASS,
-        )}
-        aria-hidden="true"
-      >
-        <Icon
-          name={iconName}
-          className={COARSE_POINTER_ICON_SIZE_CLASS}
-          aria-hidden="true"
-        />
-      </span>
-      <span
-        className={cn(
-          "relative z-10 flex min-w-0 flex-1 items-center gap-1.5 text-left",
-          SIDEBAR_GROUP_TEXT_CLASS,
-        )}
+        role="treeitem"
+        tabIndex={-1}
+        data-sidebar-tree-item=""
+        data-sidebar-rename-anchor=""
+        aria-level={rowDepth + 2}
+        aria-expanded={!isCollapsed}
+        className="relative z-10 flex min-w-0 flex-1 items-center text-left font-mono text-xs text-sidebar-foreground-quiet outline-none"
+        style={{ marginRight: showRollupGlyph ? 32 : 8 }}
       >
         {rename.editor ?? (
           <span
@@ -841,19 +847,11 @@ function EnvironmentThreadGroupHeader({
             {displayName}
           </span>
         )}
-        <SidebarChildToggleChevron
-          disabled={rename.isEditing}
-          className={rename.isEditing ? "hidden" : undefined}
-          isCollapsed={isCollapsed}
-          expandLabel={`Expand ${displayName} threads`}
-          collapseLabel={`Collapse ${displayName} threads`}
-          onToggle={() => onToggleCollapsed(environmentId)}
-          revealOnHover={!isCollapsed}
-        />
+        <span className="sr-only">{`, ${groupSummary}`}</span>
       </span>
       <span
         className={cn(
-          "relative z-10 inline-flex shrink-0 items-center",
+          "absolute inset-y-0 right-0 z-10 flex items-center",
           rename.isEditing && "hidden",
         )}
       >
@@ -862,11 +860,11 @@ function EnvironmentThreadGroupHeader({
             data-sidebar-hover-actions-open={isActionsOpen ? "true" : undefined}
             className={cn(
               SIDEBAR_HOVER_ACTIONS_FADE_CLASS,
-              COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
-              "pointer-events-none absolute right-0 flex items-center justify-center text-subtle-foreground [@media(hover:none)]:static [@media(hover:none)]:shrink-0",
+              SIDEBAR_TREE_STATUS_BOX_CLASS,
+              "pointer-events-none",
             )}
           >
-            <CollapsedThreadStatusGlyph activity={childActivity} />
+            <CollapsedThreadStatusGlyph rollup={rollup} />
           </span>
         ) : null}
         <div
@@ -877,8 +875,7 @@ function EnvironmentThreadGroupHeader({
           className={cn(
             SIDEBAR_HOVER_ACTIONS_CLASS,
             SIDEBAR_CONTROL_PAIR_SIZE_CLASS,
-            "relative flex items-center justify-end",
-            rename.isEditing && "hidden",
+            "absolute inset-y-0 right-0 flex items-center justify-end",
             isCollapsed && "[@media(hover:none)]:hidden",
           )}
         >
@@ -898,14 +895,17 @@ function EnvironmentThreadGroupHeader({
   if (stickyLevel !== undefined) {
     return (
       <SidebarStickyTier
-        {...dragBindings?.attributes}
         {...dragBindings?.listeners}
         ref={dragBindings?.setActivatorNodeRef}
         tier="parent"
         data-sidebar-rename-row=""
+        data-sidebar-environment-row={environmentId}
+        data-sidebar-tree-row=""
+        data-sidebar-row-tooltip={groupTooltip}
         level={stickyLevel}
         className={className}
         style={style}
+        onClick={handleRowClick}
       >
         {content}
       </SidebarStickyTier>
@@ -914,12 +914,15 @@ function EnvironmentThreadGroupHeader({
 
   return (
     <div
-      {...dragBindings?.attributes}
       {...dragBindings?.listeners}
       ref={dragBindings?.setActivatorNodeRef}
       data-sidebar-rename-row=""
+      data-sidebar-environment-row={environmentId}
+      data-sidebar-tree-row=""
+      data-sidebar-row-tooltip={groupTooltip}
       className={className}
       style={style}
+      onClick={handleRowClick}
     >
       {content}
     </div>
@@ -1006,7 +1009,7 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
             node: representativeNode,
           })}
           parentLineDepth={parentLineDepth}
-          childActivity={stats.childActivity}
+          rollup={stats.rollup}
           isCollapsed={isCollapsed}
           archiveThreadsPending={archiveThreadsPending}
           onArchiveThreads={onArchiveThreads}
@@ -1014,7 +1017,7 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
           onToggleCollapsed={onToggleEnvironmentCollapsed}
         />
         {!isCollapsed ? (
-          <div className="relative space-y-px">
+          <div className="relative space-y-0.5">
             <ThreadTreeGroupLine parentRowDepth={rowDepth} />
             <SidebarWindowedItems
               itemKeys={itemKeys}
@@ -1033,7 +1036,6 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
                     item={nodeItems[index]}
                     sectionDnd={sectionDnd}
                     depthOffset={depthOffset + 1}
-                    isEnvGrouped
                     selectedThreadId={selectedThreadId}
                     collapsedThreadIds={collapsedThreadIds}
                     collapsedEnvironmentIds={collapsedEnvironmentIds}
@@ -1104,7 +1106,6 @@ export const PinnedEnvironmentThreadGroupRow = memo(
 );
 
 const ThreadTreeItemRow = memo(function ThreadTreeItemRow({
-  isEnvGrouped = false,
   projectId,
   item,
   depthOffset,
@@ -1152,7 +1153,6 @@ const ThreadTreeItemRow = memo(function ThreadTreeItemRow({
         projectId={projectId ?? item.node.thread.projectId}
         node={item.node}
         depthOffset={depthOffset}
-        isEnvGrouped={isEnvGrouped}
         selectedThreadId={selectedThreadId}
         collapsedThreadIds={collapsedThreadIds}
         collapsedEnvironmentIds={collapsedEnvironmentIds}
@@ -1189,12 +1189,14 @@ const ThreadTreeItemRow = memo(function ThreadTreeItemRow({
 });
 
 function getNestDropPreviewRowStyle(depth: number): CSSProperties {
-  const indent =
-    getSidebarThreadRowPaddingLeft(depth) - getSidebarThreadRowPaddingLeft(0);
+  if (depth <= 0) {
+    return { paddingLeft: getTreeLeafPaddingLeft(0) };
+  }
+  const indent = getTreeContainerPaddingLeft(depth);
   return {
-    paddingLeft: getSidebarThreadRowPaddingLeft(0),
-    marginLeft: indent > 0 ? indent : undefined,
-    width: indent > 0 ? `calc(100% - ${indent}px)` : undefined,
+    paddingLeft: getTreeLeafPaddingLeft(0),
+    marginLeft: indent,
+    width: `calc(100% - ${indent})`,
   };
 }
 
@@ -1211,8 +1213,8 @@ export function NestDropPreviewRow({
       data-sidebar-nest-drop-preview="true"
       style={getNestDropPreviewRowStyle(depth)}
       className={cn(
-        SIDEBAR_ROW_BASE_CLASS,
-        COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
+        SIDEBAR_TREE_ROW_BASE_CLASS,
+        COARSE_POINTER_ROW_HEIGHT_CLASS,
         "pointer-events-none overflow-hidden text-sidebar-foreground opacity-50",
       )}
     >
@@ -1309,7 +1311,7 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
     });
 
   const childrenArea = showChildren ? (
-    <div className="relative space-y-px">
+    <div className="relative space-y-0.5">
       {depthOffset > 0 ? (
         <ThreadTreeGroupLine parentRowDepth={headerDepth} />
       ) : null}
@@ -1385,7 +1387,7 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
           isCollapsed,
           onToggleCollapsed: handleToggleCollapsed,
         }}
-        collapsedActivity={section.activity}
+        rollup={section.rollup}
         collapsedThreads={sectionThreads}
         consumeClickSuppression={consumeClickSuppression}
         dragBindings={rename.isEditing ? undefined : dragBindings}
@@ -1420,7 +1422,7 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
         onRenameFromMenu={rename.startEditingFromMenu}
         depth={headerDepth}
         onCloseAutoFocus={rename.onCloseAutoFocus}
-        activity={section.activity}
+        rollup={section.rollup}
         collapsedThreads={sectionThreads}
         consumeClickSuppression={consumeClickSuppression}
         dragBindings={rename.isEditing ? undefined : dragBindings}
@@ -1445,7 +1447,6 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
   projectId,
   node,
   depthOffset,
-  isEnvGrouped,
   selectedThreadId,
   collapsedThreadIds,
   collapsedEnvironmentIds,
@@ -1512,13 +1513,12 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
   const options = useMemo<ThreadRowOptions>(
     () =>
       getThreadRowOptions({
-        childActivity: node.stats.childActivity,
+        rollup: node.stats.rollup,
         childCount: node.stats.childCount,
         consumeClickSuppression,
         dragBindings,
         depthOffset,
         isCollapsed,
-        isEnvGrouped,
         isParent,
         nestDrop,
         nodeDepth: node.depth,
@@ -1532,7 +1532,6 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
       depthOffset,
       dragBindings,
       isCollapsed,
-      isEnvGrouped,
       isParent,
       hasChildren,
       nestDrop,
@@ -1573,7 +1572,7 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
     >
       {row}
       {showChildren || nestPreviewThread !== null ? (
-        <div className="relative space-y-px">
+        <div className="relative space-y-0.5">
           <ThreadTreeGroupLine parentRowDepth={parentRowDepth} />
           {showChildren ? (
             <SidebarWindowedItems
@@ -2008,7 +2007,7 @@ export const ChronologicalSectionThreadSections = memo(
       pinned: builtInSections.pinned,
       threads: {
         ...builtInSections.threads,
-        activity: getCollapsedChildActivity(looseThreads),
+        rollup: rollUpThreads(looseThreads),
         collapsedThreads: looseThreads,
         content: threadsContent,
       },
@@ -2161,10 +2160,10 @@ function ProjectRowComponent({
   const isActionsOpen = isDropdownActionsOpen || isContextActionsOpen;
   const projectThreads = useMemo(
     () =>
-      isCollapsed && threadListState.status === "ready"
+      threadListState.status === "ready"
         ? threadListState.threads.filter(isSidebarProjectThread)
         : EMPTY_PROJECT_THREADS,
-    [isCollapsed, threadListState],
+    [threadListState],
   );
   const handleProjectRowToggle = useCallback(() => {
     onToggleProjectCollapsed(project.id);
@@ -2188,12 +2187,12 @@ function ProjectRowComponent({
       })
       .finally(() => setIsRemovePending(false));
   }, [project.id, sdk]);
-  const projectActivity = useMemo<CollapsedChildActivity>(() => {
-    if (!isCollapsed || threadListState.status !== "ready") {
-      return NO_COLLAPSED_CHILD_ACTIVITY;
-    }
-    return getCollapsedChildActivity(projectThreads);
-  }, [isCollapsed, projectThreads, threadListState.status]);
+  const projectRollup = useMemo<ThreadRollup>(
+    () => rollUpThreads(projectThreads),
+    [projectThreads],
+  );
+  const isProjectEmpty =
+    threadListState.status === "ready" && projectThreads.length === 0;
   const projectActions = (
     <SidebarHeaderControls
       label={project.name}
@@ -2243,8 +2242,9 @@ function ProjectRowComponent({
               isCollapsed,
               onToggleCollapsed: handleProjectRowToggle,
             }}
-            collapsedActivity={projectActivity}
-            collapsedThreads={projectThreads}
+            rollup={projectRollup}
+            isEmpty={isProjectEmpty}
+            collapsedThreads={isCollapsed ? projectThreads : undefined}
             consumeClickSuppression={consumeProjectClickSuppression}
             dragBindings={rename.isEditing ? undefined : projectDragBindings}
             sectionRef={projectRowRef}

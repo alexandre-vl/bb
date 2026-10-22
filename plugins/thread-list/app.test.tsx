@@ -135,9 +135,22 @@ function renderList(
 
 function sectionHeaders(): string[] {
   return Array.from(
-    document.querySelectorAll('[data-sidebar-sticky-tier="label"] [title]'),
-    (element) => element.getAttribute("title") ?? "",
+    document.querySelectorAll(
+      '[data-sidebar-sticky-tier="label"] [data-sidebar-section-label]',
+    ),
+    (element) => element.textContent ?? "",
   );
+}
+
+function sectionGroup(label: string): HTMLElement {
+  const header = Array.from(
+    document.querySelectorAll("[data-sidebar-section-label]"),
+  ).find((element) => element.textContent === label);
+  const group = header?.closest<HTMLElement>("[data-sidebar-sticky-group]");
+  if (!group) {
+    throw new Error(`Expected a section group labelled ${label}`);
+  }
+  return group;
 }
 
 function threadIds(): string[] {
@@ -248,16 +261,12 @@ describe("thread-list plugin", () => {
 
     await screen.findByText("Pinned thread");
     expect(sectionHeaders()).toEqual(["Pinned", "Laptop", "No machine"]);
-    const laptop = screen
-      .getByTitle("Laptop")
-      .closest("[data-sidebar-sticky-group]");
+    const laptop = sectionGroup("Laptop");
     expect(laptop).not.toBeNull();
     expect(
       within(laptop as HTMLElement).getByText("Later thread"),
     ).not.toBeNull();
-    const noMachine = screen
-      .getByTitle("No machine")
-      .closest("[data-sidebar-sticky-group]");
+    const noMachine = sectionGroup("No machine");
     expect(
       within(noMachine as HTMLElement).getByText("Personal thread"),
     ).not.toBeNull();
@@ -314,18 +323,12 @@ describe("thread-list plugin", () => {
 
     await screen.findByText("Pinned thread");
     expect(sectionHeaders()).toEqual(["Pinned", "App", "Web", "Threads"]);
-    const appGroup = screen
-      .getByTitle("App")
-      .closest("[data-sidebar-sticky-group]") as HTMLElement;
+    const appGroup = sectionGroup("App");
     expect(within(appGroup).getByText("Parent thread")).not.toBeNull();
     expect(within(appGroup).getByText("Child thread")).not.toBeNull();
-    const webGroup = screen
-      .getByTitle("Web")
-      .closest("[data-sidebar-sticky-group]") as HTMLElement;
+    const webGroup = sectionGroup("Web");
     expect(within(webGroup).getByText("Later thread")).not.toBeNull();
-    const threadsGroup = screen
-      .getByTitle("Threads")
-      .closest("[data-sidebar-sticky-group]") as HTMLElement;
+    const threadsGroup = sectionGroup("Threads");
     expect(within(threadsGroup).getByText("Personal thread")).not.toBeNull();
   });
 
@@ -362,7 +365,7 @@ describe("thread-list plugin", () => {
         },
       );
 
-      await screen.findByTitle("Threads");
+      await screen.findByRole("treeitem", { name: /^Threads/ });
       expect(threadIds()).toEqual(["thr_personal"]);
       expect(sectionHeaders()).toEqual(
         includeStandardProjects ? ["App", "Web", "Threads"] : ["Threads"],
@@ -388,8 +391,8 @@ describe("thread-list plugin", () => {
         }),
       },
     });
-    const link = await screen.findByRole("link", {
-      name: "Open Personal thread",
+    const link = await screen.findByRole("treeitem", {
+      name: /^Personal thread/,
     });
     link.click();
     await waitFor(() => expect(listProps.onNavigate).toHaveBeenCalledOnce());

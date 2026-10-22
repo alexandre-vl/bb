@@ -12,7 +12,7 @@ import {
 import { useAtom } from "jotai";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import type { SidebarSectionId } from "../model/sidebar-section-id.js";
-import { getCollapsedChildActivity } from "../model/thread-activity.js";
+import { rollUpThreads } from "../model/thread-activity.js";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
@@ -272,11 +272,9 @@ export function ThreadListVisibilityMenuItems({
 
 function GroupActivity({ threads }: { threads: readonly SidebarThread[] }) {
   const pluginStatus = usePluginThreadRowStatusForThreads(threads);
+  const rollup = useMemo(() => rollUpThreads(threads), [threads]);
   return (
-    <CollapsedThreadStatusGlyph
-      activity={getCollapsedChildActivity(threads)}
-      pluginStatus={pluginStatus}
-    />
+    <CollapsedThreadStatusGlyph rollup={rollup} pluginStatus={pluginStatus} />
   );
 }
 
