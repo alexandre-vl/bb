@@ -176,19 +176,18 @@ if [[ -n $have && $min_hours != 0 ]]; then
 fi
 
 mkdir -p "$root/versions" "$root/failed"
-stage=$(mktemp -d "$root/.stage.XXXXXX")
-trap 'rm -rf "$stage"' EXIT
-for asset in bb-app.tgz version.txt SHA256SUMS; do
-  curl -fsSL -o "$stage/$asset" "$base/$asset"
-done
-(cd "$stage" && sha256sum --quiet -c SHA256SUMS)
-if [[ $(cat "$stage/version.txt") != "$want" ]]; then
-  echo "A newer release appeared during the download; the next run takes it."
-  exit 0
-fi
-
 prefix=$root/versions/$want
 if [[ ! -e $prefix/bin/bb-app ]]; then
+  stage=$(mktemp -d "$root/.stage.XXXXXX")
+  trap 'rm -rf "$stage"' EXIT
+  for asset in bb-app.tgz version.txt SHA256SUMS; do
+    curl -fsSL -o "$stage/$asset" "$base/$asset"
+  done
+  (cd "$stage" && sha256sum --quiet -c SHA256SUMS)
+  if [[ $(cat "$stage/version.txt") != "$want" ]]; then
+    echo "A newer release appeared during the download; the next run takes it."
+    exit 0
+  fi
   rm -rf "$prefix.partial"
   "$node" "$npm_cli" install --global --prefix "$prefix.partial" --no-fund --no-audit \
     --allow-scripts=better-sqlite3,node-pty,@parcel/watcher "$stage/bb-app.tgz"
