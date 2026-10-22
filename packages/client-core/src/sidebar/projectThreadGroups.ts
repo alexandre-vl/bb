@@ -1,12 +1,14 @@
 import type { ThreadListEntry } from "@bb/domain";
+import { threadListIndicatorStateForThread } from "../thread/thread-activity.js";
 import {
-  getCollapsedChildActivity,
-  type CollapsedChildActivity,
-} from "../thread/thread-activity.js";
+  resolveThreadListIndicator,
+  rollUpThreadListIndicators,
+  type ThreadListIndicatorKind,
+} from "../thread/thread-list-indicator.js";
 
 interface ProjectThreadNodeStats {
   childCount: number;
-  childActivity: CollapsedChildActivity;
+  descendantIndicator: ThreadListIndicatorKind;
 }
 
 export interface ProjectThreadNode {
@@ -63,7 +65,16 @@ function buildStatsForHiddenThreads(
 ): ProjectThreadNodeStats {
   return {
     childCount: threads.length,
-    childActivity: getCollapsedChildActivity(threads, draftThreadIds),
+    descendantIndicator: rollUpThreadListIndicators(
+      threads.map((thread) =>
+        resolveThreadListIndicator(
+          threadListIndicatorStateForThread(
+            thread,
+            draftThreadIds.has(thread.id),
+          ),
+        ),
+      ),
+    ),
   };
 }
 

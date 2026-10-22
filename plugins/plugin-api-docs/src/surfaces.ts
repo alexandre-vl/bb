@@ -120,7 +120,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         summary:
           "Add a small status icon to a thread's row in the sidebar. With this, a plugin can:",
         bullets: [
-          "Show that the plugin is working on a thread, with a shimmering icon",
+          "Show that the plugin is working on a thread whenever bb has nothing more urgent on the row",
           "Settle the icon to succeeded or failed when the work ends",
           "Set it from an [app-wide script](content-scripts), which bb cleans up after",
         ],
@@ -176,6 +176,14 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginThreadTitleProps",
           "experimental_ThreadStatusGlyph",
           "PluginThreadStatusGlyphProps",
+          "PluginSidebarThreadIndicator",
+          "PluginSidebarThread.experimental_attention",
+          "ExperimentalThreadAttention",
+          "experimental_resolveThreadListIndicator",
+          "ExperimentalThreadListIndicatorState",
+          "experimental_rollUpThreadIndicators",
+          "experimental_threadIndicatorRung",
+          "ExperimentalThreadIndicatorRung",
           "useEnvironmentProviders",
           "PluginEnvironmentProvidersState",
           "useSdk",

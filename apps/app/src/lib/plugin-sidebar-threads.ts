@@ -3,6 +3,7 @@ import type { PluginSidebarThread } from "@get-bb/plugin-sdk";
 import {
   getThreadListIndicatorLabel,
   resolveThreadListIndicator,
+  threadListIndicatorAttention,
   threadListIndicatorStateForThread,
 } from "@bb/client-core";
 import { isThreadRead } from "@bb/client-core";
@@ -52,13 +53,17 @@ export function toPluginSidebarThread(
     },
     indicator,
     indicatorLabel: getThreadListIndicatorLabel(indicator),
+    experimental_attention: threadListIndicatorAttention(indicator),
     isUnread: !isThreadRead(entry),
     isPinned: entry.pinnedAt !== null,
     pinnedAt: entry.pinnedAt,
     pinSortKey: entry.pinSortKey,
     isArchived: entry.archivedAt !== null,
     archivedAt: entry.archivedAt,
-    href: getThreadRoutePath({ projectId: entry.projectId, threadId: entry.id }),
+    href: getThreadRoutePath({
+      projectId: entry.projectId,
+      threadId: entry.id,
+    }),
     isHidden: entry.visibility === "hidden",
     environment:
       entry.environmentId === null

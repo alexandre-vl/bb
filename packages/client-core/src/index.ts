@@ -2,6 +2,7 @@ export * from "./api-types.js";
 
 export * from "./thread/thread-read-state.js";
 export * from "./thread/thread-activity.js";
+export * from "./thread/thread-list-indicator.js";
 
 export * from "./codepoint-compare.js";
 export * from "./environment-providers.js";
