@@ -5,7 +5,6 @@ bb/project-default-source-host
 plugin-range-docs
 bb/sidebar-scrollbar-lane-thr_nmb7f8qghv
 bb/reproduce-inconsistent-thread-sorting-bug-thr_x7bw7zb69v
-thread-list-sub-thread-rows
 open-menus-without-enter-animation
 proposal/provisioning-time
 highlight-provider-errors
