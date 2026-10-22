@@ -81,6 +81,19 @@ describe("child creation execution defaults", () => {
       },
     },
     {
+      name: "honors an explicit service tier ahead of the parent",
+      parentProviderId: "codex",
+      hasParentExecution: true,
+      disabledProviderIds: [],
+      request: { serviceTier: "ultrafast" },
+      expected: {
+        providerId: "codex",
+        model: "parent-model",
+        reasoningLevel: "low",
+        serviceTier: "ultrafast",
+      },
+    },
+    {
       name: "falls back to project defaults without parent execution",
       parentProviderId: "claude-code",
       hasParentExecution: false,
@@ -131,7 +144,11 @@ describe("child creation execution defaults", () => {
     disabledProviderIds: string[];
     request: Pick<
       ThreadCreateServiceRequestInput,
-      "providerId" | "model" | "reasoningLevel" | "executionInputSources"
+      | "providerId"
+      | "model"
+      | "reasoningLevel"
+      | "serviceTier"
+      | "executionInputSources"
     >;
     expected: {
       providerId: string;
