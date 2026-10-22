@@ -21,6 +21,7 @@ interface RecordedForkMigration {
   tag: string;
   hash: string;
   shape: string;
+  upstreamCreatedAt: number | null;
 }
 
 interface AddedColumn {
@@ -189,7 +190,7 @@ export function readForkMigrations(migrationsFolder: string): ForkMigration[] {
 
 function ensureForkLedger(db: DbConnection): void {
   db.$client.exec(
-    "CREATE TABLE IF NOT EXISTS __fork_migrations (tag TEXT PRIMARY KEY NOT NULL, hash TEXT NOT NULL, shape TEXT NOT NULL, applied_at INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS __fork_migrations (tag TEXT PRIMARY KEY NOT NULL, hash TEXT NOT NULL, shape TEXT NOT NULL, upstream_created_at INTEGER, applied_at INTEGER NOT NULL)",
   );
 }
 
@@ -198,7 +199,7 @@ function readRecordedForkMigrations(
 ): Map<string, RecordedForkMigration> {
   const rows = db.$client
     .prepare<[], RecordedForkMigration>(
-      "SELECT tag, hash, shape FROM __fork_migrations",
+      "SELECT tag, hash, shape, upstream_created_at AS upstreamCreatedAt FROM __fork_migrations",
     )
     .all();
   return new Map(rows.map((row) => [row.tag, row]));
@@ -459,32 +460,48 @@ function repairForkSchema(db: DbConnection, run: ForkMigrationRun): void {
   const adoptedShapes = new Set(
     appliedUpstream.map((migration) => migrationShape(migration.sql)),
   );
-  const statements = run.migrations
-    .filter(
-      (migration) =>
-        recorded.has(migration.tag) &&
-        !adoptedHashes.has(migration.hash) &&
-        !adoptedShapes.has(migration.shape),
-    )
-    .flatMap((migration) => migration.statements);
-  const allStatements = [
-    ...run.migrations.flatMap((migration) => migration.statements),
-    ...appliedUpstream.flatMap((migration) => migration.sql),
-  ];
   const removedTables = tablesRemovedBy(
     run.migrations.flatMap((migration) => migration.statements),
   );
-  const removedColumns = columnsRemovedBy(allStatements);
-  const droppedIndexes = indexesDroppedBy(allStatements);
-  const columns = addedColumns(statements).filter(
-    (column) =>
-      !removedTables.has(column.table) &&
-      !removedColumns.has(`${column.table}.${column.column}`),
-  );
-  const indexes = createdIndexes(statements).filter(
-    (index) =>
-      !removedTables.has(index.table) && !droppedIndexes.has(index.index),
-  );
+  const columns: AddedColumn[] = [];
+  const indexes: CreatedIndex[] = [];
+  for (const migration of run.migrations) {
+    const row = recorded.get(migration.tag);
+    if (
+      row === undefined ||
+      adoptedHashes.has(migration.hash) ||
+      adoptedShapes.has(migration.shape)
+    ) {
+      continue;
+    }
+    const later = [
+      ...run.migrations
+        .filter((other) => other.when > migration.when)
+        .flatMap((other) => other.statements),
+      ...appliedUpstream
+        .filter(
+          (upstream) =>
+            row.upstreamCreatedAt === null ||
+            upstream.folderMillis > row.upstreamCreatedAt,
+        )
+        .flatMap((upstream) => upstream.sql),
+    ];
+    const removedColumns = columnsRemovedBy(later);
+    const droppedIndexes = indexesDroppedBy(later);
+    columns.push(
+      ...addedColumns(migration.statements).filter(
+        (column) =>
+          !removedTables.has(column.table) &&
+          !removedColumns.has(`${column.table}.${column.column}`),
+      ),
+    );
+    indexes.push(
+      ...createdIndexes(migration.statements).filter(
+        (index) =>
+          !removedTables.has(index.table) && !droppedIndexes.has(index.index),
+      ),
+    );
+  }
   db.$client.transaction(() => {
     for (const column of columns) {
       putColumnBack(db, column);
@@ -532,8 +549,16 @@ export function applyForkMigrations(
     ...[...recorded.values()].map((row) => row.shape),
     ...upstream.map((migration) => migrationShape(migration.sql)),
   ]);
-  const record = db.$client.prepare<[string, string, string, number]>(
-    "INSERT INTO __fork_migrations (tag, hash, shape, applied_at) VALUES (?, ?, ?, ?)",
+  const upstreamCreatedAt =
+    db.$client
+      .prepare<[], { createdAt: number | null }>(
+        "SELECT MAX(created_at) AS createdAt FROM __drizzle_migrations",
+      )
+      .get()?.createdAt ?? null;
+  const record = db.$client.prepare<
+    [string, string, string, number | null, number]
+  >(
+    "INSERT INTO __fork_migrations (tag, hash, shape, upstream_created_at, applied_at) VALUES (?, ?, ?, ?, ?)",
   );
   db.$client.transaction(() => {
     for (const migration of run.migrations) {
@@ -549,7 +574,13 @@ export function applyForkMigrations(
       }
       knownHashes.add(migration.hash);
       knownShapes.add(migration.shape);
-      record.run(migration.tag, migration.hash, migration.shape, Date.now());
+      record.run(
+        migration.tag,
+        migration.hash,
+        migration.shape,
+        upstreamCreatedAt === null ? null : Number(upstreamCreatedAt),
+        Date.now(),
+      );
     }
   })();
 }

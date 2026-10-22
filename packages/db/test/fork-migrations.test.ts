@@ -460,3 +460,45 @@ it("does not put back a fork column a later fork migration renames", () => {
   expect(columns(db, "projects")).toContain("fork_flag_2");
   expect(columns(db, "projects")).not.toContain("fork_flag");
 });
+
+it("puts back a fork column that an upstream migration dropped before the fork added it again", () => {
+  const db = openDatabase();
+  const folder = copyMigrations();
+  appendUpstreamMigration(
+    folder,
+    "0147_upstream_gadgets",
+    "CREATE TABLE `upstream_gadgets` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`note` text\n);\n",
+  );
+  appendUpstreamMigration(
+    folder,
+    "0148_upstream_gadgets_drop_note",
+    "ALTER TABLE `upstream_gadgets` DROP COLUMN `note`;",
+  );
+  writeForkJournal(folder, [
+    {
+      tag: "9001_test_fork_gadget_note",
+      when: 1,
+      sql: "ALTER TABLE `upstream_gadgets` ADD `note` text;",
+    },
+  ]);
+  migrateWith(db, folder);
+  db.$client.exec(
+    "INSERT INTO upstream_gadgets (id, note) VALUES ('a', 'kept')",
+  );
+
+  appendUpstreamMigration(
+    folder,
+    "0149_upstream_gadgets_rebuild",
+    [
+      "CREATE TABLE `__new_upstream_gadgets` (\n\t`id` text PRIMARY KEY NOT NULL\n);\n",
+      'INSERT INTO `__new_upstream_gadgets`("id") SELECT "id" FROM `upstream_gadgets`;',
+      "DROP TABLE `upstream_gadgets`;",
+      "ALTER TABLE `__new_upstream_gadgets` RENAME TO `upstream_gadgets`;",
+    ].join("--> statement-breakpoint\n"),
+  );
+  migrateWith(db, folder);
+
+  expect(
+    db.$client.prepare("SELECT id, note FROM upstream_gadgets").all(),
+  ).toEqual([{ id: "a", note: "kept" }]);
+});
