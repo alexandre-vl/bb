@@ -347,7 +347,7 @@ describe("thread-list plugin", () => {
   });
 
   it.each([true, false])(
-    "renders personal rows once with standard projects: %s",
+    "renders personal rows once, after any empty project, with standard projects: %s",
     async (includeStandardProjects) => {
       setPreferencesMirrorStorageForTest(null);
       renderList(
@@ -368,8 +368,15 @@ describe("thread-list plugin", () => {
       await screen.findByRole("treeitem", { name: /^Threads/ });
       expect(threadIds()).toEqual(["thr_personal"]);
       expect(sectionHeaders()).toEqual(
-        includeStandardProjects ? ["App", "Web", "Threads"] : ["Threads"],
+        includeStandardProjects ? ["Threads", "App", "Web"] : ["Threads"],
       );
+      if (includeStandardProjects) {
+        expect(
+          screen
+            .getByRole("treeitem", { name: "App" })
+            .hasAttribute("aria-expanded"),
+        ).toBe(false);
+      }
     },
   );
 

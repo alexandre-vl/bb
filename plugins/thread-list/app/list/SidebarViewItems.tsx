@@ -21,7 +21,9 @@ import {
   sidebarSortDirectionAtom,
   sidebarGroupThreadsByEnvironmentAtom,
   sidebarEnvironmentGroupingAtom,
-  sidebarGroupByReadStatusAtom,
+  sidebarAttentionFirstAtom,
+  sidebarFoldSettledAtom,
+  sidebarParentsStartCollapsedAtom,
   sidebarShowProviderIconsAtom,
 } from "../preferences/atoms.js";
 
@@ -133,6 +135,32 @@ export function SidebarHeaderMenuContents({
   );
 }
 
+function SidebarViewToggleItem({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      onSelect={(event) => {
+        event.preventDefault();
+        onToggle();
+      }}
+    >
+      {label}
+      <span className="ml-auto inline-flex size-4 shrink-0 items-center justify-center">
+        {checked && <Icon name="Check" className="size-4" />}
+      </span>
+    </DropdownMenuItem>
+  );
+}
+
 function SidebarViewItems({ page }: { page: SidebarViewPage }) {
   const [lifecycles, setLifecycles] = useAtom(sidebarThreadLifecyclesAtom);
   const [organization, setOrganization] = useAtom(sidebarOrganizationModeAtom);
@@ -140,8 +168,12 @@ function SidebarViewItems({ page }: { page: SidebarViewPage }) {
   const [savedDirection, setDirection] = useAtom(sidebarSortDirectionAtom);
   const setEnvironmentGrouping = useSetAtom(sidebarEnvironmentGroupingAtom);
   const groupByEnvironment = useAtomValue(sidebarGroupThreadsByEnvironmentAtom);
-  const [groupByReadStatus, setGroupByReadStatus] = useAtom(
-    sidebarGroupByReadStatusAtom,
+  const [attentionFirst, setAttentionFirst] = useAtom(
+    sidebarAttentionFirstAtom,
+  );
+  const [foldSettled, setFoldSettled] = useAtom(sidebarFoldSettledAtom);
+  const [parentsStartCollapsed, setParentsStartCollapsed] = useAtom(
+    sidebarParentsStartCollapsedAtom,
   );
   const [showProviderIcons, setShowProviderIcons] = useAtom(
     sidebarShowProviderIconsAtom,
@@ -212,7 +244,6 @@ function SidebarViewItems({ page }: { page: SidebarViewPage }) {
             onSelect={(event) => {
               event.preventDefault();
               setEnvironmentGrouping(!groupByEnvironment);
-              if (!groupByEnvironment) setGroupByReadStatus(false);
             }}
           >
             By environment
@@ -220,19 +251,25 @@ function SidebarViewItems({ page }: { page: SidebarViewPage }) {
               {groupByEnvironment && <Icon name="Check" className="size-4" />}
             </span>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            role="menuitemcheckbox"
-            aria-checked={groupByReadStatus}
-            onSelect={(event) => {
-              event.preventDefault();
-              setGroupByReadStatus(!groupByReadStatus);
-            }}
-          >
-            By read status
-            <span className="ml-auto inline-flex size-4 shrink-0 items-center justify-center">
-              {groupByReadStatus && <Icon name="Check" className="size-4" />}
-            </span>
-          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup aria-label="Order">
+          <DropdownMenuLabel>Order</DropdownMenuLabel>
+          <SidebarViewToggleItem
+            label="Attention first"
+            checked={attentionFirst}
+            onToggle={() => setAttentionFirst(!attentionFirst)}
+          />
+          <SidebarViewToggleItem
+            label="Fold settled threads"
+            checked={foldSettled}
+            onToggle={() => setFoldSettled(!foldSettled)}
+          />
+          <SidebarViewToggleItem
+            label="Collapse new parents"
+            checked={parentsStartCollapsed}
+            onToggle={() => setParentsStartCollapsed(!parentsStartCollapsed)}
+          />
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup aria-label="Rows">

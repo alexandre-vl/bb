@@ -21,7 +21,7 @@ import {
   sidebarOrganizationModeAtom,
 } from "../preferences/atoms.js";
 import { usePreferencesReady } from "../preferences/PreferencesSync.js";
-import { useExpandThreadAncestors } from "./useReadStatusGrouping.js";
+import { useExpandThreadAncestors } from "./useAttentionOrdering.js";
 
 interface ThreadSidebarExpansionArgs {
   organizationMode: SidebarOrganizationMode;

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getSidebarThreadComparator } from "./ProjectList.js";
+import {
+  getSidebarThreadComparator,
+  listEmptyProjectsLast,
+} from "./ProjectList.js";
 import { getThreadSidebarExpansion } from "./useSidebarThreadReveal.js";
 import {
   CHRONOLOGICAL_CONTAINER_ID,
@@ -412,5 +415,31 @@ describe("getThreadSidebarExpansion", () => {
         thread: thread({ sectionId: null, projectId: "proj_app" }),
       }),
     ).toEqual({ sidebarSectionId: "pinned" });
+  });
+});
+
+describe("listEmptyProjectsLast", () => {
+  it("moves empty projects after every other section in stored order", () => {
+    const empty = new Set(["project:empty-a", "project:empty-b"]);
+    expect(
+      listEmptyProjectsLast(
+        [
+          "pinned",
+          "project:empty-a",
+          "project:app",
+          "threads",
+          "project:empty-b",
+          "project:web",
+        ],
+        (sectionId) => empty.has(sectionId),
+      ),
+    ).toEqual([
+      "pinned",
+      "project:app",
+      "threads",
+      "project:web",
+      "project:empty-a",
+      "project:empty-b",
+    ]);
   });
 });

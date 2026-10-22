@@ -119,7 +119,7 @@ import {
 } from "./BuiltInSidebarSection.js";
 import { ReorderableSidebarSectionOrderList } from "./ReorderableSidebarSectionOrderList.js";
 import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder.js";
-import { useReadStatusGrouping } from "./useReadStatusGrouping.js";
+import { useAttentionOrdering } from "./useAttentionOrdering.js";
 import { haveSameOrder } from "../model/stored-order.js";
 import {
   SidebarProjectsContext,
@@ -291,6 +291,18 @@ function compareProjectThreadItemsByTitleAscending(
   return left.kind === "section" && right.kind === "section"
     ? left.group.key.localeCompare(right.group.key)
     : 0;
+}
+
+export function listEmptyProjectsLast(
+  order: readonly SidebarSectionId[],
+  isEmptyProject: (sectionId: SidebarSectionId) => boolean,
+): SidebarSectionId[] {
+  const filled: SidebarSectionId[] = [];
+  const empty: SidebarSectionId[] = [];
+  for (const sectionId of order) {
+    (isEmptyProject(sectionId) ? empty : filled).push(sectionId);
+  }
+  return empty.length === 0 ? [...order] : [...filled, ...empty];
 }
 
 export function getSidebarThreadComparator(
@@ -609,12 +621,27 @@ function ProjectModeSections({
       EMPTY_THREAD_LIST
     );
   }, [personalProjectId, threadsByProject]);
-  const { onOrderChange, order, persistedOrder } = useSidebarModeSectionOrder({
+  const {
+    onOrderChange,
+    order: storedOrder,
+    persistedOrder,
+  } = useSidebarModeSectionOrder({
     mode: "project",
     entitySectionIds: projectSectionIds,
     hasThreadsSection: personalThreads.length > 0 || projectRows.length === 0,
     showPinnedSection,
   });
+  const order = useMemo(
+    () =>
+      listEmptyProjectsLast(storedOrder, (sectionId) => {
+        const row = projectRowsBySectionId.get(sectionId);
+        return (
+          row?.threadListState.status === "ready" &&
+          row.threadListState.threads.length === 0
+        );
+      }),
+    [projectRowsBySectionId, storedOrder],
+  );
   const reorderDisabled = order.length < 2;
   const personalItems = useMemo(
     () =>
@@ -1556,7 +1583,7 @@ function ProjectListComponent({
     comparator: sidebarThreadComparator,
     collapsedThreadIds,
     toggleThreadCollapsed,
-  } = useReadStatusGrouping({
+  } = useAttentionOrdering({
     threads,
     selectedThreadId,
     comparator: baseThreadComparator,
