@@ -2172,7 +2172,7 @@ use. `plugin-url-claims.test.tsx` covers resolution, and
 Markdown link and the GitHub PR Status plugin's pull request segment and Info
 row, rendered through the plugin runtime.
 
-Docs: `frontend-core-slots.md`.
+Docs: `frontend-core-slots.md`, `frontend-hooks-and-ui.md`.
 
 **Audit before stabilizing.**
 

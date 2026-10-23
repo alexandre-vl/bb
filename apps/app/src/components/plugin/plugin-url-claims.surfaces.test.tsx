@@ -124,7 +124,7 @@ const surfaces: readonly Surface[] = [
     },
   },
   {
-    name: "the pull request context segment",
+    name: "the prompt banner's pull request",
     callerPluginId: PR_STATUS_PLUGIN_ID,
     mount: (openClaimedUrl) =>
       mountPullRequestStatusLink(
