@@ -1,0 +1,93 @@
+name: Fork CI
+
+on:
+  push:
+    branches:
+      - alex
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22.x"
+  PNPM_VERSION: "9.15.0"
+
+jobs:
+  checks:
+    name: Check what the layers change
+    if: github.repository == 'alexandre-vl/bb'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Setup workspace tools
+        uses: ./.github/actions/setup-workspace-tools
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          pnpm-version: ${{ env.PNPM_VERSION }}
+      - name: Restore workspace caches
+        id: cache
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: ./.github/actions/cache-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache-prefix: fork-ci
+          turbo-cache: "true"
+      - name: Install dependencies
+        timeout-minutes: 10
+        env:
+          TURBO_CACHE_RESTORE_OUTCOME: ${{ steps.cache.outcome }}
+        run: bash .github/actions/setup-workspace/install-dependencies.sh --filter '!@bb/mobile'
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+        with:
+          version: "1.3.14"
+      - name: Lint and typecheck
+        run: pnpm exec turbo run lint typecheck --filter='...[origin/main]' --filter='!@bb/mobile' --output-logs=new-only --concurrency=4 --continue
+      - name: Test
+        env:
+          VITEST_MAX_WORKERS: "2"
+        run: pnpm exec turbo run test --filter='...[origin/main]' --filter='!@bb/desktop' --filter='!@bb/mobile' --output-logs=new-only --concurrency=2 --continue
+      - name: Set the fork version
+        id: version
+        run: |
+          v=$(node --input-type=module -e '
+            import { readMaxTargetVersion } from "./scripts/bump-version.mjs";
+            const core = (await readMaxTargetVersion({ repoRoot: process.cwd() })).split("-")[0];
+            const [major, minor, patch] = core.split(".").map(Number);
+            console.log(`${major}.${minor}.${patch + 1}-alex.${process.env.GITHUB_RUN_ID}.${process.env.GITHUB_RUN_ATTEMPT}`);
+          ')
+          node scripts/bump-version.mjs "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Smoke the bb-app tarball
+        run: pnpm exec turbo run smoke:tarball --filter=bb-app --output-logs=new-only
+      - name: Pack the tested tarball
+        working-directory: packages/bb-app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          out="$RUNNER_TEMP/bb-app-release"
+          mkdir -p "$out"
+          npm pack --pack-destination "$out"
+          mv "$out/bb-app-$VERSION.tgz" "$out/bb-app.tgz"
+          printf '%s\n' "$VERSION" > "$out/version.txt"
+          (cd "$out" && sha256sum bb-app.tgz version.txt > SHA256SUMS)
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bb-app-release
+          path: ${{ runner.temp }}/bb-app-release/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Bound saved Turbo cache
+        if: ${{ !cancelled() }}
+        run: node scripts/prune-turbo-cache.mjs --dir .turbo/cache --max-size-mb 1024
