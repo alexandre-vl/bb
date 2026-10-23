@@ -198,6 +198,21 @@ const testState = vi.hoisted(() => ({
       },
     },
     {
+      command: "thread.toggleRead" as const,
+      desktopOnly: false,
+      shortcut: {
+        key: "u",
+        mod: false,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      },
+      when: { all: ["mainSurface" as const], none: [] },
+    },
+  ],
+  defaultKeybindings: [
+    {
       command: "thread.archive" as const,
       desktopOnly: false,
       shortcut: {
@@ -213,19 +228,6 @@ const testState = vi.hoisted(() => ({
         none: ["modalOpen" as const, "editableFocus" as const],
       },
     },
-    {
-      command: "thread.toggleRead" as const,
-      desktopOnly: false,
-      shortcut: {
-        key: "u",
-        mod: false,
-        meta: false,
-        control: false,
-        alt: false,
-        shift: false,
-      },
-      when: { all: ["mainSurface" as const], none: [] },
-    },
   ],
 }));
 
@@ -237,6 +239,7 @@ vi.mock("@/hooks/queries/system-queries", () => ({
         showKeyboardHints: testState.showKeyboardHints,
       },
       keybindings: testState.keybindings,
+      defaultKeybindings: testState.defaultKeybindings,
     },
   }),
 }));

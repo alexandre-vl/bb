@@ -7,6 +7,8 @@ import {
   appKeybindingOverridesSchema,
   isAppKeybindingAvailableForClient,
   matchesAppShortcut,
+  sidebarListKeybindings,
+  withoutSidebarListKeybindings,
 } from "@bb/domain";
 import { systemConfigResponseSchema } from "@bb/server-contract";
 import { DEFAULT_APP_KEYBINDINGS } from "../../src/services/system/app-keybindings.js";
@@ -250,7 +252,9 @@ describe("app keybindings", () => {
         [],
       );
       expect(config.keybindingOverrides).toEqual([]);
-      expect(assignedDefaultKeybindings).toEqual(config.keybindings);
+      expect(withoutSidebarListKeybindings(assignedDefaultKeybindings)).toEqual(
+        config.keybindings,
+      );
       for (const command of [
         "thread.rename",
         "thread.archive",
@@ -915,6 +919,52 @@ describe("app keybindings", () => {
     ]);
   });
 
+  it("serves the list keys only through the defaults, since released desktop builds reject sidebarListFocus in keybindings", async () => {
+    await withTestHarness(async (harness) => {
+      const shortcut = { ...plainShortcut("Backspace"), mod: true };
+      const response = await harness.app.request("/api/v1/settings/keyboard", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify([{ command: "thread.archive", shortcut }]),
+      });
+      expect(response.status).toBe(200);
+
+      const config = systemConfigResponseSchema.parse(
+        await readJson(await harness.app.request("/api/v1/system/config")),
+      );
+      expect(
+        config.keybindings.flatMap((binding) => [
+          ...binding.when.all,
+          ...binding.when.none,
+        ]),
+      ).not.toContain("sidebarListFocus");
+      expect(
+        config.keybindings
+          .filter((binding) => binding.command === "thread.archive")
+          .map(({ shortcut, when }) => ({ key: shortcut.key, when })),
+      ).toEqual([
+        {
+          key: "Backspace",
+          when: { all: ["mainSurface"], none: ["modalOpen"] },
+        },
+      ]);
+      expect(
+        sidebarListKeybindings(
+          applyAppKeybindingOverrides(
+            config.defaultKeybindings,
+            config.keybindingOverrides,
+          ),
+        ).map(({ command, shortcut, when }) => [command, shortcut.key, when]),
+      ).toEqual([
+        ["thread.archive", "Backspace", SIDEBAR_LIST_WHEN],
+        ["thread.rename", "F2", SIDEBAR_LIST_WHEN],
+        ["thread.toggleRead", "u", SIDEBAR_LIST_WHEN],
+        ["thread.previousAttention", "ArrowUp", SIDEBAR_LIST_WHEN],
+        ["thread.nextAttention", "ArrowDown", SIDEBAR_LIST_WHEN],
+      ]);
+    });
+  });
+
   it("lets a thread-list key win inside the list over a user's global binding on the same chord", () => {
     const bindings = applyAppKeybindingOverrides(
       DEFAULT_APP_KEYBINDINGS,
@@ -1014,7 +1064,9 @@ describe("app keybindings", () => {
       const config = systemConfigResponseSchema.parse(await readJson(response));
       expect(config.keybindingOverrides).toEqual([]);
       expect(config.keybindings).toEqual(
-        applyAppKeybindingOverrides(config.defaultKeybindings, []),
+        withoutSidebarListKeybindings(
+          applyAppKeybindingOverrides(config.defaultKeybindings, []),
+        ),
       );
     });
   });

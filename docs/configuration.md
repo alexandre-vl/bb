@@ -423,7 +423,11 @@ while a dialog is open. `Mod+Shift+L` (`sidebar.focus`) moves focus to the list
 at the open thread. `thread.archive` and `thread.rename` also keep a global
 slot that starts unassigned; one override sets both, so a shortcut bound to
 `thread.archive` works everywhere and replaces `E` in the list. A key that
-types a character never runs a command from a text field.
+types a character never runs a command from a text field. Released bb Desktop
+builds reject the whole `keybindings` array of `GET /api/v1/system/config` when
+one binding names `sidebarListFocus`, so the server leaves the thread-list keys
+out of it; the app and `bb settings keyboard list` rebuild them from
+`defaultKeybindings` and `keybindingOverrides`.
 
 | Area      | Command                                      | Default                     | Availability             |
 | --------- | -------------------------------------------- | --------------------------- | ------------------------ |

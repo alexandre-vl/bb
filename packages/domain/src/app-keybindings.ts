@@ -397,3 +397,22 @@ export function applyAppKeybindingOverrides(
     });
   });
 }
+
+function namesSidebarListFocus(binding: AppKeybinding): boolean {
+  return (
+    binding.when.all.includes("sidebarListFocus") ||
+    binding.when.none.includes("sidebarListFocus")
+  );
+}
+
+export function withoutSidebarListKeybindings(
+  keybindings: AppKeybindings,
+): AppKeybindings {
+  return keybindings.filter((binding) => !namesSidebarListFocus(binding));
+}
+
+export function sidebarListKeybindings(
+  keybindings: AppKeybindings,
+): AppKeybindings {
+  return keybindings.filter(namesSidebarListFocus);
+}
