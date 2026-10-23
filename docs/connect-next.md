@@ -52,11 +52,10 @@ The server fetches gate public keys from `https://getbb.app/.well-known/bb-conne
 `GATE_PUBLIC_KEYS` is public and lives in `apps/web/wrangler.jsonc` `vars`, not the dashboard (a
 deploy replaces dashboard vars). Staging (`bb-web-staging`, served at
 `https://vibecodethis.site/.well-known/bb-connect-gate-keys.json`) holds the staging gate's key,
-`kid` `staging-2026-10-20`. Production (`env.production.vars`) is deliberately unset, so getbb.app
-answers 404 and no server trusts any gate yet: the production key pair is generated with
-`generateGateKeyPair(kid)` when the production gate is set up, its private JWK goes to the gate's
-`GATE_SIGNING_KEY` Fly secret and its public half into `env.production.vars.GATE_PUBLIC_KEYS`, which
-must be deployed before the gate signs with it.
+`kid` `staging-2026-10-20`. Production (`env.production.vars`, served at
+`https://getbb.app/.well-known/bb-connect-gate-keys.json`) holds `kid` `prod-2026-10-21`, made with
+`generateGateKeyPair(kid)`; its private JWK is the `GATE_SIGNING_KEY` Fly secret of `bb-connect-next`.
+A new key's public half must be deployed here before the gate signs with it.
 
 ## Account API
 
@@ -173,9 +172,10 @@ is unchanged and still trusts local callers.
 
 ## Plugin
 
-`plugins/connect-next` ships as a builtin plugin that is disabled by default. Once enabled, it does
-nothing until its `enabled` setting ("Reach this bb at its next address (beta)", default `false`)
-is on and bb account is signed in.
+`plugins/connect-next` ships as a builtin plugin that is disabled by default. Enabling it is the
+opt-in: its `enabled` setting ("Reach this bb at its next address (beta)") defaults to `true`, so the
+tunnel starts as soon as bb account is signed in. The setting (or `bb connect-next off`) turns the
+next address off without disabling the plugin.
 
 - **Identity.** It follows bb account (`bb-account.v1.status` / `waitForStatusChange`) for
   `serverId`, `serverLabel` and `baseUrl`, and reads the link credential with `bb-account.v1.connectCredential`,
@@ -379,8 +379,10 @@ Fly certificates for `*.next.getbb.app` and `tunnel.next.getbb.app`, and the `_a
 
 Deploy: run the `Deploy Connect Next` workflow by hand (`workflow_dispatch`); it typechecks, runs the
 tests, and calls `flyctl deploy --config apps/connect-next/fly.toml --dockerfile apps/connect-next/Dockerfile
---ignorefile apps/connect-next/Dockerfile.dockerignore` from the repository root with the repository
-secret `FLY_API_TOKEN`. The image bundles the gate with esbuild and installs `frps` 0.71.0 checked
+--ignorefile apps/connect-next/Dockerfile.dockerignore --remote-only --ha=false` from the repository root
+with the repository secret `FLY_API_TOKEN`, a deploy token for this app only (`fly tokens create deploy
+-a bb-connect-next`). It is also the first deploy: once the app, its secrets and certificates exist, the
+workflow creates the first machine, and `--ha=false` keeps Fly from adding a standby. The image bundles the gate with esbuild and installs `frps` 0.71.0 checked
 against its SHA-256. A deploy replaces machines one at a time (Fly's rolling strategy); clients on a
 replaced machine redial on their own and may land in another region, which the others learn by
 announcement.
@@ -485,8 +487,8 @@ prints one `PASS`/`FAIL` line per check (exit status 1 on any failure; results a
 4. Starts a bb server from source in development mode on a data dir in the work dir, signs it in
    with `bb account login --code` (the real redeem), then restarts it in production mode so it serves
    `apps/app/dist`, with `BB_CONNECT_GATE_KEYS_URL` at local bb-web, `BB_CONNECT_NEXT_SERVER` at the
-   gate and `BB_CONNECT_FRPC` at the cached frpc. It enables `bb--connect-next` and runs
-   `bb connect-next on`. No host daemon runs on the server machine, so host-backed API calls for it
+   gate and `BB_CONNECT_FRPC` at the cached frpc. It enables `bb--connect-next`, which turns
+   the next address on (`bb connect-next on` is then a no-op the script still checks). No host daemon runs on the server machine, so host-backed API calls for it
    answer 502; before the production start it writes a host row and `host-id` into the data dir so
    the server has a server machine to share ports from. Other machines' daemons start later (see
    Machines below).
@@ -574,13 +576,14 @@ An address that leaves DNS takes its labels with it. Every peer route requires
 
 Announcements. When a label's first proxy opens or its last one closes on a machine, it posts
 `{label, machineId, region, state, at}` to `POST /__peer/announce` on every peer (fire and forget,
-1 s timeout). A machine that stops posts `{machineId, at}` once to `POST /__peer/goodbye`, and each
+2 s timeout). A machine that stops posts `{machineId, at}` once to `POST /__peer/goodbye`, and each
 peer forgets every label it believed that machine held since before `at`. Each machine keeps label → `{machineId, region, at}`; the newest `at` wins (machine id
 breaks a tie), and a `disconnected` only clears the entry it names. Share subdomains follow their
 label: they live on the same frpc.
 
 Lookup on a miss. A label nobody announced is asked of every peer in parallel
-(`GET /__peer/labels/<label>`, 300 ms timeout); a peer answers only for tunnels it holds itself. A
+(`GET /__peer/labels/<label>`, 1.5 s timeout: a first request over the private network from syd or sin to
+ams or fra takes about 600 ms); a peer answers only for tunnels it holds itself. A
 positive answer stays until an announcement changes it, a negative one for 2 s. A visitor whose label
 is offline everywhere still gets the 15 s wait for a tunnel that dropped on this machine, and that
 wait ends early when another machine announces the label.
@@ -637,12 +640,12 @@ Operator steps (from the repository root, `--config apps/connect-next/fly.toml` 
    and `peer_hello_failed` absent.
 
 `flyctl deploy` replaces existing machines in place (it does not create more), so later deploys keep
-this layout. If the app is ever recreated, deploy with `--ha=false` and scale per region as above
-rather than letting Fly add a standby machine.
+this layout. If the app is ever recreated, run the workflow (it passes `--ha=false`) and scale per
+region as above.
 
 Failure modes:
 
-- A peer is down or slow: lookups wait at most 300 ms for it, announcements to it are dropped, and it
+- A peer is down or slow: lookups wait at most 1.5 s for it, announcements to it are dropped, and it
   leaves the map when it leaves DNS. Labels it held go offline until their frpc redials elsewhere.
 - An announcement is lost: the next visitor for that label looks it up; a stale positive entry is
   corrected the first time a replay reaches a machine that no longer holds the label.
