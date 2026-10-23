@@ -29,7 +29,6 @@ import type {
   PendingInteraction,
   PromptInput,
   ThreadQueuedMessage,
-  ThreadPullRequest,
   ThreadTimelineActivePromptMode,
   ThreadTimelineGoal,
   ThreadTimelineModelFallback,
@@ -39,7 +38,6 @@ import type {
 import type {
   ProviderCommand,
   ThreadTimelineSessionOption,
-  PullRequestMergeMethod,
   SendMessageRequest,
   ThreadTimelineResponse,
   TimelineWorkflowWorkRow,
@@ -62,12 +60,11 @@ import {
   usePublishPluginComposerHost,
 } from "@/components/plugin/plugin-composer-host";
 import {
+  ThreadChildThreadsBanner,
   ThreadPromptContextBanner,
   type ContextBannerMergeBaseConfig,
-  type ThreadPromptContextBannerExpandedSection,
   type ThreadPromptParentThreadSection,
   type ThreadPromptChildThreadsSection,
-  type ThreadPromptPullRequestSection,
 } from "@/components/promptbox/banner/ThreadPromptContextBanner";
 import { ThreadGoalCard } from "@/components/promptbox/banner/ThreadGoalCard";
 import { ThreadTodoCard } from "@/components/promptbox/banner/ThreadTodoCard";
@@ -209,11 +206,6 @@ interface ThreadDetailPromptAreaProps {
   environmentProviderName?: string;
   onCreateNewThreadInEnvironment?: () => void;
   onOpenThreadInfo?: () => void;
-  onPullRequestDraft?: () => void;
-  onPullRequestMerge?: (method: PullRequestMergeMethod) => void;
-  onPullRequestReady?: () => void;
-  pullRequestMergeMethod: PullRequestMergeMethod;
-  isEnvironmentActionPending: boolean;
   pendingInteractions: readonly PendingInteraction[];
   provisioningEstimate: ActiveProvisioningEstimate | null;
   queuedMessageCount: number;
@@ -234,7 +226,7 @@ interface ThreadDetailPromptAreaProps {
   activeBackgroundCommands: TimelineWorkflowWorkRow[];
   parentThreadSection: ThreadPromptParentThreadSection | null;
   childThreadsSection: ThreadPromptChildThreadsSection | null;
-  pullRequest: ThreadPullRequest | null;
+  contextEnvironmentId: string | null;
   sendMessage: SendMessageMutationLike;
   sentMessageEdit?: ThreadDetailSentMessageEdit;
   steerActiveThreadOnEnter: boolean;
@@ -425,11 +417,6 @@ export function ThreadDetailPromptArea({
   environmentProviderName,
   onCreateNewThreadInEnvironment,
   onOpenThreadInfo,
-  onPullRequestDraft,
-  onPullRequestMerge,
-  onPullRequestReady,
-  pullRequestMergeMethod,
-  isEnvironmentActionPending,
   pendingInteractions,
   provisioningEstimate,
   queuedMessageCount,
@@ -450,7 +437,7 @@ export function ThreadDetailPromptArea({
   activeBackgroundCommands,
   parentThreadSection,
   childThreadsSection,
-  pullRequest,
+  contextEnvironmentId,
   sendMessage,
   sentMessageEdit,
   steerActiveThreadOnEnter,
@@ -619,41 +606,10 @@ export function ThreadDetailPromptArea({
       ? `sent-message:${thread.id}:${sentMessageEdit.operationId}`
       : null,
   );
-  const [expandedBannerSection, setExpandedBannerSection] =
-    useState<ThreadPromptContextBannerExpandedSection | null>(null);
-  const pullRequestSection =
-    useMemo<ThreadPromptPullRequestSection | null>(() => {
-      if (!pullRequest) {
-        return null;
-      }
-      const actions =
-        onPullRequestReady ||
-        onPullRequestMerge ||
-        onPullRequestDraft ||
-        isEnvironmentActionPending
-          ? {
-              isPending: isEnvironmentActionPending,
-              ...(onPullRequestReady
-                ? { onMarkReady: onPullRequestReady }
-                : {}),
-              ...(onPullRequestMerge ? { onMerge: onPullRequestMerge } : {}),
-              ...(onPullRequestDraft
-                ? { onConvertToDraft: onPullRequestDraft }
-                : {}),
-              ...(onPullRequestMerge
-                ? { selectedMergeMethod: pullRequestMergeMethod }
-                : {}),
-            }
-          : undefined;
-      return actions ? { pullRequest, actions } : { pullRequest };
-    }, [
-      isEnvironmentActionPending,
-      onPullRequestDraft,
-      onPullRequestMerge,
-      onPullRequestReady,
-      pullRequest,
-      pullRequestMergeMethod,
-    ]);
+  const [expandedBannerSegment, setExpandedBannerSegment] = useState<
+    string | null
+  >(null);
+  const [isChildThreadsExpanded, setIsChildThreadsExpanded] = useState(false);
   const [isGoalExpanded, setIsGoalExpanded] = useState(false);
   const [isTodoExpanded, setIsTodoExpanded] = useState(false);
   const [isPromptModeExpanded, setIsPromptModeExpanded] = useState(false);
@@ -1472,14 +1428,9 @@ export function ThreadDetailPromptArea({
 
   const bottomFocusEndKey = `${composerFocusRequestNonce}:${bottomPluginFocusNonce}`;
 
-  const handleToggleBannerSection = useCallback(
-    (section: ThreadPromptContextBannerExpandedSection | null) => {
-      setExpandedBannerSection((previous) =>
-        previous === section ? null : section,
-      );
-    },
-    [],
-  );
+  const handleToggleBannerSegment = useCallback((key: string) => {
+    setExpandedBannerSegment((previous) => (previous === key ? null : key));
+  }, []);
   const isUnarchiveCurrentThreadPending =
     unarchiveThread.isPending && unarchiveThread.variables?.id === thread.id;
   const handleUnarchiveCurrentThread = useCallback(() => {
@@ -2118,6 +2069,7 @@ export function ThreadDetailPromptArea({
     inlineTypeaheadConfig,
   ]);
   const contextBannerKey = `thread-prompt-context-banner:${thread.id}`;
+  const childThreadsBannerKey = `thread-child-threads-banner:${thread.id}`;
   const promptStack = useMemo(
     () => (
       <>
@@ -2153,6 +2105,16 @@ export function ThreadDetailPromptArea({
         environmentGoneStatus === null ? (
           <ThreadMachineStatus hostId={environmentHostId} />
         ) : null}
+        <ThreadChildThreadsBanner
+          key={childThreadsBannerKey}
+          childThreads={
+            thread.archivedAt === null && environmentGoneStatus === null
+              ? childThreadsSection
+              : null
+          }
+          isExpanded={isChildThreadsExpanded}
+          onExpandedChange={setIsChildThreadsExpanded}
+        />
         <ThreadPromptContextBanner
           key={contextBannerKey}
           archivedSection={
@@ -2177,23 +2139,30 @@ export function ThreadDetailPromptArea({
                     : {}),
                 }
           }
-          parentThreadSection={parentThreadSection}
-          childThreadsSection={childThreadsSection}
-          pullRequestSection={showGitChanges ? pullRequestSection : null}
-          gitSection={
-            workspaceChangedFilesSection && showGitChanges
-              ? {
-                  changedFiles: workspaceChangedFilesSection,
-                  mergeBase: contextBannerMergeBase,
-                  onPromptBannerFileClick: canUseGitUi
-                    ? onChangedFileClick
-                    : ignorePromptBannerFileClick,
-                }
-              : null
-          }
-          gitSectionPending={workspaceStatusPending && showGitChanges}
-          expandedSection={expandedBannerSection}
-          onToggleSection={handleToggleBannerSection}
+          input={{
+            threadId: thread.id,
+            projectId: thread.projectId,
+            environment:
+              contextEnvironmentId === null
+                ? null
+                : { id: contextEnvironmentId },
+          }}
+          core={{
+            parentThread: parentThreadSection,
+            git:
+              workspaceChangedFilesSection && showGitChanges
+                ? {
+                    changedFiles: workspaceChangedFilesSection,
+                    mergeBase: contextBannerMergeBase,
+                    onPromptBannerFileClick: canUseGitUi
+                      ? onChangedFileClick
+                      : ignorePromptBannerFileClick,
+                  }
+                : null,
+            gitPending: workspaceStatusPending && showGitChanges,
+          }}
+          expandedSegment={expandedBannerSegment}
+          onToggleSegment={handleToggleBannerSegment}
         />
         {modelFallback ? (
           <ThreadModelFallbackCard
@@ -2235,17 +2204,21 @@ export function ThreadDetailPromptArea({
       queueExpanded,
       setQueueExpanded,
       canUseGitUi,
+      childThreadsBannerKey,
       contextBannerKey,
       contextBannerMergeBase,
+      isChildThreadsExpanded,
       environmentHostId,
-      expandedBannerSection,
+      expandedBannerSegment,
+      contextEnvironmentId,
+      thread.projectId,
       handleDeleteQueuedMessage,
       beginEditQueuedMessage,
       onChangedFileClick,
       handleReorderQueuedMessage,
       handleSendQueuedMessage,
       handleSetQueuedMessageGroupBoundary,
-      handleToggleBannerSection,
+      handleToggleBannerSegment,
       handleUnarchiveCurrentThread,
       handleRestoreCurrentEnvironment,
       canRestoreEnvironment,
@@ -2267,7 +2240,6 @@ export function ThreadDetailPromptArea({
       modelFallback,
       parentThreadSection,
       childThreadsSection,
-      pullRequestSection,
       pendingTodos,
       displayedProcessingQueuedMessage,
       queuedMessageCount,
@@ -2305,17 +2277,11 @@ export function ThreadDetailPromptArea({
   const pendingInteractionStack = useMemo(
     () => (
       <>
-        <ThreadPromptContextBanner
-          key={contextBannerKey}
-          archivedSection={null}
-          environmentGoneSection={null}
-          parentThreadSection={null}
-          childThreadsSection={childThreadsSection}
-          pullRequestSection={null}
-          gitSection={null}
-          gitSectionPending={false}
-          expandedSection={expandedBannerSection}
-          onToggleSection={handleToggleBannerSection}
+        <ThreadChildThreadsBanner
+          key={childThreadsBannerKey}
+          childThreads={childThreadsSection}
+          isExpanded={isChildThreadsExpanded}
+          onExpandedChange={setIsChildThreadsExpanded}
         />
         {activePromptMode ? activePromptModeCard : null}
         {goal ? activeGoalCard : null}
@@ -2325,11 +2291,10 @@ export function ThreadDetailPromptArea({
       activeGoalCard,
       activePromptMode,
       activePromptModeCard,
+      childThreadsBannerKey,
       childThreadsSection,
-      expandedBannerSection,
+      isChildThreadsExpanded,
       goal,
-      handleToggleBannerSection,
-      contextBannerKey,
     ],
   );
 
