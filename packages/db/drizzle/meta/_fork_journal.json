@@ -1,0 +1,24 @@
+{
+  "entries": [
+    {
+      "tag": "0147_plugin_snapshot_recovery",
+      "when": 1792572831032,
+      "layer": "plugin-update-rollback"
+    },
+    {
+      "tag": "0147_project_default_environments",
+      "when": 1792583328752,
+      "layer": "carry/automation-environment-composer"
+    },
+    {
+      "tag": "0147_thread_provisioning_runs",
+      "when": 1792677933746,
+      "layer": "provisioning-time"
+    },
+    {
+      "tag": "0147_queued_message_compact_first",
+      "when": 1792777660321,
+      "layer": "bb/fix-bb-connect-tunnel-timeout-thr_3zrcprcati"
+    }
+  ]
+}
