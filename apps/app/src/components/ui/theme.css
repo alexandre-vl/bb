@@ -197,14 +197,13 @@
   }
 
   /* The stack's top padding is inside the scrollport, so rows stay visible as
-     they scroll through it. A sticky label hides that strip behind its own top
-     shield; a pinned row with no label above it has nothing to hide it, so the
-     stack caps the strip for every tier. */
+     they scroll through it. The stack caps that strip above every tier, labels
+     included, so no label needs a top shield that would cover the row above. */
   [data-sidebar-sticky-stack]::before {
     content: "";
     position: sticky;
     top: 0;
-    z-index: 55;
+    z-index: 65;
     display: block;
     height: var(--bb-sidebar-sticky-stack-padding-top);
     margin-top: calc(-1 * var(--bb-sidebar-sticky-stack-padding-top));
@@ -410,9 +409,6 @@
     --bb-sidebar-sticky-tier-top: var(--bb-sidebar-sticky-label-top);
     --bb-sidebar-sticky-tier-height: var(--bb-sidebar-sticky-label-height);
     --bb-sidebar-sticky-tier-z-index: 60;
-    --bb-sidebar-sticky-tier-shield-top-height: var(
-      --bb-sidebar-sticky-stack-padding
-    );
     --bb-sidebar-sticky-tier-shield-bottom-height: var(
       --bb-sidebar-sticky-label-gap
     );

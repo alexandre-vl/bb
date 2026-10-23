@@ -96,7 +96,7 @@ describe("ThreadStatusGlyph", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("draws every status without motion", () => {
+  it("spins only the running glyph, and holds it still under reduced motion", () => {
     const { container } = render(
       <>
         {INDICATOR_GLYPHS.map(([indicator]) => (
@@ -109,10 +109,18 @@ describe("ThreadStatusGlyph", () => {
       </>,
     );
 
-    expect(container.querySelectorAll("[data-status-glyph]")).toHaveLength(
-      INDICATOR_GLYPHS.length,
+    const glyphs = [...container.querySelectorAll("[data-status-glyph]")];
+    expect(glyphs).toHaveLength(INDICATOR_GLYPHS.length);
+    for (const glyph of glyphs) {
+      const running = glyph.getAttribute("data-status-glyph") === "running";
+      expect(glyph.classList.contains("animate-spin")).toBe(running);
+      expect(glyph.classList.contains("motion-reduce:animate-none")).toBe(
+        running,
+      );
+    }
+    expect(container.querySelectorAll(".animate-spin").length).toBeGreaterThan(
+      0,
     );
-    expect(container.querySelector('[class*="animate"]')).toBeNull();
   });
 
   it("knocks the question mark out of its own needs-you disc", () => {

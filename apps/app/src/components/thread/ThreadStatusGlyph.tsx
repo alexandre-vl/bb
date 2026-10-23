@@ -52,6 +52,7 @@ function glyphRootProps(
       "pointer-events-none shrink-0",
       sizeClass,
       GLYPH_COLOR_CLASS[shape],
+      shape === "running" && "animate-spin motion-reduce:animate-none",
     ),
     "data-icon-root": "",
     "data-status-glyph": shape,

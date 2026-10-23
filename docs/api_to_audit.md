@@ -3365,10 +3365,11 @@ host owns icons, colors, and labels, and the caller resolves the indicator.
 The SDK test fake exposes the props as `data-*` attributes.
 
 Since 2026-10-22 (sidebar V2) every caller draws the V2 glyphs in the same
-16 px box (14 px compact), with no motion: a filled disc with a knocked-out
+16 px box (14 px compact): a filled disc with a knocked-out
 "?" for needs-you (`--attention-text`), the only filled glyph; a circled ✕
-for both failures (`--destructive-text`); an ink dot for new; one static arc
-on a faint track for every running kind and "working-draft"; an outline clock
+for both failures (`--destructive-text`); an ink dot for new; one arc on a
+faint track for every running kind and "working-draft", the only glyph that
+moves (it spins, and holds still under reduced motion); an outline clock
 for "queued-waiting" and an outline pencil for "draft" (`--sidebar-glyph-faint`).
 A `rowStatus` shows only while the indicator sits on rung 1 or lower.
 

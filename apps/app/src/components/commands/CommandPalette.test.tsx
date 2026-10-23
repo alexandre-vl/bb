@@ -1817,7 +1817,11 @@ describe("CommandPalette", () => {
         );
         expect(status.hasAttribute("tabindex")).toBe(false);
         expect(status.closest('button, [role="button"]')).toBeNull();
-        expect(status.querySelector('[class*="animate"]')).toBeNull();
+        expect(
+          Array.from(status.querySelectorAll('[class*="animate"]'), (element) =>
+            element.getAttribute("data-status-glyph"),
+          ),
+        ).toEqual(glyph === "running" ? ["running"] : []);
         const projectIcon = metadata?.querySelector('[data-icon="Folder"]');
         expectClasses(projectIcon, "size-3.5");
         expect(projectIcon?.getAttribute("aria-hidden")).toBe("true");

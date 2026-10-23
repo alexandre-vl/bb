@@ -167,23 +167,26 @@ describe("theme.css neutral ramp", () => {
     );
   });
 
-  it("keeps the scrollport cap below label controls but above project rows", () => {
+  it("hides a label leaving the top under the scrollport cap, so no label shields the row above it", () => {
     const cap = Number(
       css.match(
         /\[data-sidebar-sticky-stack\]::before\s*\{[^}]*z-index:\s*(\d+)/,
       )?.[1],
     );
-    const tier = (name: string) =>
+    const tierRule = (name: string) =>
+      css.match(
+        new RegExp(`\\[data-sidebar-sticky-tier="${name}"\\]\\s*\\{([^}]*)\\}`),
+      )?.[1] ?? "";
+    const tierZIndex = (name: string) =>
       Number(
-        css.match(
-          new RegExp(
-            `\\[data-sidebar-sticky-tier="${name}"\\]\\s*\\{[^}]*--bb-sidebar-sticky-tier-z-index:\\s*(\\d+)`,
-          ),
-        )?.[1],
+        tierRule(name).match(/--bb-sidebar-sticky-tier-z-index:\s*(\d+)/)?.[1],
       );
 
-    expect(cap).toBeLessThan(tier("label"));
-    expect(cap).toBeGreaterThan(tier("project"));
+    expect(cap).toBeGreaterThan(tierZIndex("label"));
+    expect(cap).toBeGreaterThan(tierZIndex("project"));
+    expect(tierRule("label")).not.toContain(
+      "--bb-sidebar-sticky-tier-shield-top-height",
+    );
   });
 
   it("collapses the label slot when a section header is not sticky", () => {
