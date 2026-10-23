@@ -1720,6 +1720,20 @@ describe("GitHub links opened from a thread", () => {
     expect(tab?.experimental_claimUrl?.(new URL(href))).toEqual(claim);
   });
 
+  it("names each + menu tab after the item it shows, so the two read as one plugin", () => {
+    expect(
+      app.tabs
+        .filter(
+          (entry) =>
+            entry.context.kind === "thread" && entry.availability === "action",
+        )
+        .map((entry) => [entry.id, entry.title]),
+    ).toEqual([
+      ["pull", "GitHub PR"],
+      ["issue", "GitHub issue"],
+    ]);
+  });
+
   it("shows the linked pull request rather than the thread's own, outside its workspace and with no way back", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),

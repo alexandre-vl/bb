@@ -632,7 +632,7 @@ export default definePluginApp((app) => {
     context: { kind: "thread" },
     availability: "action",
     id: "pull",
-    title: "GitHub",
+    title: "GitHub PR",
     icon: "Github",
     component: PullPanelTab,
     experimental_claimUrl: (url) => claimItemUrl("pr", url),

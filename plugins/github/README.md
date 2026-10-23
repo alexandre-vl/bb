@@ -83,7 +83,7 @@ bb plugin install github
   pull request in the prompt banner or the Info tab, opens its tab instead of
   the browser; a second click focuses it. Cmd-, Ctrl-, Shift-, or Alt-click
   opens GitHub, and so do links to a comment, the files, or the commits. From
-  the panel's + menu, GitHub becomes the thread's pull request tab, or offers
+  the panel's + menu, GitHub PR becomes the thread's pull request tab, or offers
   open pull requests when the thread has none, and GitHub issue offers open
   issues; a pick becomes that item's tab. The palette command GitHub: Open
   this thread's pull request opens the same tab. `bb thread tabs set` opens
