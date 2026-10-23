@@ -93,7 +93,7 @@ describe("thread state cache owner", () => {
       const { queryClient } = createQueryClientTestHarness();
       const original = makeThreadListEntry({
         status: "idle",
-        runtime: { displayStatus: "idle" },
+        runtime: { displayStatus: "idle", hostUnavailable: false },
         lastReadAt: 10,
       });
       const listKey = threadListQueryKey({
@@ -670,7 +670,7 @@ function seedConcurrentThreadCaches() {
   });
   const original = makeThreadListEntry({
     status: "idle",
-    runtime: { displayStatus: "idle" },
+    runtime: { displayStatus: "idle", hostUnavailable: false },
     title: "Original",
     sectionId: "old",
     updatedAt: 10,
@@ -704,7 +704,7 @@ it.each(["rename", "reorder", "batch"])(
     const current = makeThreadListEntry({
       ...original,
       status: "active",
-      runtime: { displayStatus: "active" },
+      runtime: { displayStatus: "active", hostUnavailable: false },
       updatedAt: 30,
       sectionId: "new",
       lastReadAt: 25,
@@ -787,7 +787,7 @@ it.each(["single", "batch"])(
         title: "Pending",
         sectionId: "later-edit",
         status: "active",
-        runtime: { displayStatus: "active" },
+        runtime: { displayStatus: "active", hostUnavailable: false },
         updatedAt: 30,
       }),
       [sibling],
@@ -818,13 +818,13 @@ it("preserves concurrent state when an older status event reaches detail and sid
     makeThreadListEntry({
       ...original,
       status: "active",
-      runtime: { displayStatus: "active" },
+      runtime: { displayStatus: "active", hostUnavailable: false },
       updatedAt: 30,
     }),
   );
   const stale = {
     status: "idle" as const,
-    runtime: { displayStatus: "idle" as const },
+    runtime: { displayStatus: "idle" as const, hostUnavailable: false },
     latestAttentionAt: 20,
     activity: original.activity,
     updatedAt: 20,

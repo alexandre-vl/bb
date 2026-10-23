@@ -10,6 +10,7 @@ export interface ThreadListIndicatorState {
   isGoalActive: boolean;
   isPlanModeActive: boolean;
   isRuntimeActive: boolean;
+  isWaitingForHost: boolean;
   isWorkflowActive: boolean;
   queuedWork: ThreadQueuedWork;
 }
@@ -26,6 +27,7 @@ export type ThreadListIndicatorKind =
   | "background-agent"
   | "background-command"
   | "working-draft"
+  | "waiting-for-host"
   | "queued-waiting"
   | "draft"
   | "none";
@@ -46,6 +48,7 @@ export const THREAD_LIST_INDICATOR_PRECEDENCE = [
   "background-agent",
   "background-command",
   "working-draft",
+  "waiting-for-host",
   "queued-waiting",
   "draft",
   "none",
@@ -66,6 +69,7 @@ const THREAD_LIST_INDICATOR_RUNGS: Record<
   "background-agent": 2,
   "background-command": 2,
   "working-draft": 2,
+  "waiting-for-host": 1,
   "queued-waiting": 1,
   draft: 1,
   none: 0,
@@ -93,6 +97,7 @@ const THREAD_LIST_INDICATOR_LABELS: Record<
   "background-agent": "Background agent running",
   "background-command": "Background command running",
   "working-draft": "Thread working with unsubmitted draft",
+  "waiting-for-host": "Thread waiting for its machine",
   "queued-waiting": "Thread has a message waiting to send",
   draft: "Thread has unsubmitted draft",
 };
@@ -116,6 +121,7 @@ export function resolveThreadListIndicator(
   if (state.isWorkflowActive) return "workflow";
   if (state.isBackgroundAgentActive) return "background-agent";
   if (state.isBackgroundCommandActive) return "background-command";
+  if (state.isWaitingForHost) return "waiting-for-host";
   if (state.queuedWork === "waiting") return "queued-waiting";
   if (state.hasUnsubmittedDraft) return "draft";
   return "none";

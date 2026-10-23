@@ -19,6 +19,7 @@ type ThreadStatusGlyphShape =
   | "failed"
   | "new"
   | "running"
+  | "paused"
   | "queued"
   | "draft";
 
@@ -33,6 +34,7 @@ const GLYPH_COLOR_CLASS: Record<ThreadStatusGlyphShape, string> = {
   failed: "text-destructive-text",
   new: "text-sidebar-foreground",
   running: "text-sidebar-glyph-faint",
+  paused: "text-sidebar-glyph-faint",
   queued: "text-sidebar-glyph-faint",
   draft: "text-sidebar-glyph-faint",
 };
@@ -137,6 +139,28 @@ function RunningGlyph(props: GlyphProps) {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PausedGlyph(props: GlyphProps) {
+  return (
+    <svg {...glyphRootProps("paused", props)}>
+      <circle
+        cx="8"
+        cy="8"
+        r="5.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      <path
+        d="M6.7 6v4M9.3 6v4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
         strokeLinecap="round"
       />
     </svg>
@@ -304,6 +328,13 @@ export function ThreadStatusGlyph({
     case "working-draft":
       return (
         <RunningGlyph
+          label={getThreadListIndicatorLabel(kind)}
+          sizeClass={sizeClass}
+        />
+      );
+    case "waiting-for-host":
+      return (
+        <PausedGlyph
           label={getThreadListIndicatorLabel(kind)}
           sizeClass={sizeClass}
         />

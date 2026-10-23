@@ -492,7 +492,14 @@ describe("buildProjectThreadGroups", () => {
           "failed-grandchild",
         ]),
         kind: "waiting-for-input",
-        counts: { needsYou: 1, failed: 1, fresh: 0, working: 1, queued: 0 },
+        counts: {
+          needsYou: 1,
+          failed: 1,
+          fresh: 0,
+          working: 1,
+          waitingForHost: 0,
+          queued: 0,
+        },
       },
     });
     expect(findNode(rootItems, "quiet-child")?.stats).toEqual({
@@ -504,7 +511,14 @@ describe("buildProjectThreadGroups", () => {
           "failed-grandchild",
         ]),
         kind: "waiting-for-input",
-        counts: { needsYou: 1, failed: 1, fresh: 0, working: 1, queued: 0 },
+        counts: {
+          needsYou: 1,
+          failed: 1,
+          fresh: 0,
+          working: 1,
+          waitingForHost: 0,
+          queued: 0,
+        },
       },
     });
   });

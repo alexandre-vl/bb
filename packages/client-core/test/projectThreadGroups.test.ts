@@ -195,6 +195,7 @@ describe("buildChronologicalThreadList", () => {
         status: "active",
         runtime: {
           displayStatus: "active",
+          hostUnavailable: false,
         },
       }),
       createThread({
@@ -231,7 +232,7 @@ describe("buildChronologicalThreadList", () => {
         id: "running-child",
         parentThreadId: "parent",
         status: "active",
-        runtime: { displayStatus: "active" },
+        runtime: { displayStatus: "active", hostUnavailable: false },
       }),
     ]);
 

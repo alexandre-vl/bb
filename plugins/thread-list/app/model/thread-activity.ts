@@ -12,6 +12,9 @@ import {
 type ThreadStatusShape = Pick<PluginSidebarThread, "status" | "isUnread">;
 type ThreadRuntimeShape = Pick<PluginSidebarThread, "runtimeStatus">;
 type ThreadActivityStateShape = Pick<PluginSidebarThread, "activity">;
+type ThreadHostWorkShape = ThreadRuntimeShape &
+  ThreadActivityStateShape &
+  Pick<PluginSidebarThread, "experimental_hostUnavailable">;
 
 const RUNNING_RUNTIME_STATUSES: Record<
   PluginSidebarThread["runtimeStatus"],
@@ -36,24 +39,43 @@ const DONE_THREAD_STATUSES: Record<PluginSidebarThread["status"], boolean> = {
   pending: false,
 };
 
+function isHostUnavailable(thread: ThreadHostWorkShape): boolean {
+  return thread.experimental_hostUnavailable === true;
+}
+
 export function isRuntimeBusyThread(thread: ThreadRuntimeShape): boolean {
   return RUNNING_RUNTIME_STATUSES[thread.runtimeStatus] ?? false;
 }
 
-function hasActiveWorkflowActivity(thread: ThreadActivityStateShape): boolean {
-  return thread.activity.workflows > 0;
+function hasActiveWorkflowActivity(thread: ThreadHostWorkShape): boolean {
+  return !isHostUnavailable(thread) && thread.activity.workflows > 0;
 }
 
 function hasActiveBackgroundAgentActivity(
-  thread: ThreadActivityStateShape,
+  thread: ThreadHostWorkShape,
 ): boolean {
-  return thread.activity.backgroundAgents > 0;
+  return !isHostUnavailable(thread) && thread.activity.backgroundAgents > 0;
 }
 
 function hasActiveBackgroundCommandActivity(
-  thread: ThreadActivityStateShape,
+  thread: ThreadHostWorkShape,
 ): boolean {
-  return thread.activity.backgroundCommands > 0;
+  return !isHostUnavailable(thread) && thread.activity.backgroundCommands > 0;
+}
+
+function hasBackgroundTaskActivity(thread: ThreadActivityStateShape): boolean {
+  return (
+    thread.activity.workflows > 0 ||
+    thread.activity.backgroundAgents > 0 ||
+    thread.activity.backgroundCommands > 0
+  );
+}
+
+function isWaitingForHostThread(thread: ThreadHostWorkShape): boolean {
+  return (
+    thread.runtimeStatus === "waiting-for-host" ||
+    (isHostUnavailable(thread) && hasBackgroundTaskActivity(thread))
+  );
 }
 
 function hasActivePlanModeActivity(thread: ThreadActivityStateShape): boolean {
@@ -101,6 +123,7 @@ const THREAD_LIST_INDICATOR_LABELS: Record<
   "plan-mode": "Plan mode active",
   goal: "Goal active",
   runtime: "Thread working",
+  "waiting-for-host": "Thread waiting for its machine",
   "queued-failed": "Queued message failed to send",
   "queued-waiting": "Thread has a message waiting to send",
   draft: "Thread has unsubmitted draft",
@@ -125,6 +148,7 @@ const THREAD_LIST_STATE_TEXT: Record<ThreadListIndicatorKind, string | null> = {
   "background-agent": "running a background agent",
   "background-command": "running a background command",
   "working-draft": "working",
+  "waiting-for-host": "waiting for its machine",
   "queued-waiting": "queued message",
   draft: "unsent draft",
   none: null,
@@ -185,8 +209,7 @@ export function hasThreadListWorkingActivity(
 }
 
 type ThreadIndicatorShape = ThreadStatusShape &
-  ThreadRuntimeShape &
-  ThreadActivityStateShape &
+  ThreadHostWorkShape &
   Pick<PluginSidebarThread, "hasPendingInteraction" | "queuedWork">;
 
 export function threadListIndicatorStateForThread(
@@ -205,6 +228,7 @@ export function threadListIndicatorStateForThread(
     queuedWork: thread.queuedWork,
     isPlanModeActive: hasActivePlanModeActivity(thread),
     isRuntimeActive: isRuntimeBusyThread(thread),
+    isWaitingForHost: isWaitingForHostThread(thread),
     isWorkflowActive: hasActiveWorkflowActivity(thread),
   };
 }
@@ -236,6 +260,7 @@ export interface ThreadStateCounts {
   failed: number;
   fresh: number;
   working: number;
+  waitingForHost: number;
   queued: number;
 }
 
@@ -250,6 +275,7 @@ const NO_THREAD_STATE_COUNTS: ThreadStateCounts = {
   failed: 0,
   fresh: 0,
   working: 0,
+  waitingForHost: 0,
   queued: 0,
 };
 
@@ -263,6 +289,10 @@ function countThreadKind(
   counts: ThreadStateCounts,
   kind: ThreadListIndicatorKind,
 ): void {
+  if (kind === "waiting-for-host") {
+    counts.waitingForHost += 1;
+    return;
+  }
   switch (threadListIndicatorRung(kind)) {
     case 5:
       counts.needsYou += 1;
@@ -325,6 +355,15 @@ export function describeThreadStateCounts(counts: ThreadStateCounts): string {
     parts.push(pluralize(counts.fresh, "new result", "new results"));
   }
   if (counts.working > 0) parts.push(`${counts.working} working`);
+  if (counts.waitingForHost > 0) {
+    parts.push(
+      pluralize(
+        counts.waitingForHost,
+        "waiting for its machine",
+        "waiting for their machines",
+      ),
+    );
+  }
   if (counts.queued > 0) {
     parts.push(pluralize(counts.queued, "queued", "queued"));
   }

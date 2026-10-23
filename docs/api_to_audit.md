@@ -1437,9 +1437,9 @@ Docs: `backend-foundation.md`, `testing.md`.
 
 ## Fixed-tab targets (`experimental_target`, `experimental_useAppPanel`, and `experimental_useFixedTabTarget`)
 
-**Kept experimental (2026-08-22).** `PluginNavPanelRegistration.fixedTabs`
-itself is stable. The target trio has one example consumer, and the
-validator, survival and cross-thread items below are unanswered.
+**Kept experimental.** Fixed tabs now register through `experimental_tab`; the
+legacy navigation-page field remains a runtime adapter only. The target trio
+has one example consumer; validator, survival and cross-thread items remain.
 
 A fixed tab's `experimental_target` validator owns a JSON-safe target type.
 `experimental_useAppPanel()` selects one of the calling plugin's eligible tabs
@@ -1653,8 +1653,9 @@ Before stabilization, audit:
 - multiple simultaneous runs owned by one plugin on one thread;
 - arbitration across plugins and frontend generations. Against native
   statuses the rule is fixed since 2026-10-22 (sidebar V2): a row status shows
-  only while the core indicator sits on rung 1 or lower ("queued-waiting",
-  "draft", "none"), so it ranks below "new" and every running kind, where it
+  only while the core indicator sits on rung 1 or lower ("waiting-for-host",
+  "queued-waiting", "draft", "none"), so it ranks below "new" and every
+  running kind, where it
   used to hide only behind "runtime", "unread-error", and
   "waiting-for-input". `ThreadStatusGlyph` and the thread search palette
   apply it through `resolveThreadStatus`; confirm a replaced list follows it;
@@ -2516,6 +2517,14 @@ doc covers these additions:
 
 Docs: `frontend-registration.md`.
 
+**Offline machines (Oct 2026).** `PluginSidebarThread.experimental_hostUnavailable`
+is true while the thread's machine is offline past the reconnect grace,
+whatever the thread's status. It copies the server's `runtime.hostUnavailable`,
+and the `waiting-for-host` indicator then replaces `runtime`, `workflow` and
+the background kinds. Older hosts omit it. bb's thread-list plugin reads it;
+the palette, related threads and mobile recents resolve the same state through
+`@bb/client-core`.
+
 **Audit before stabilizing.**
 
 1. **DTO scope.** Confirm every field earns its place and that the copy stays
@@ -2584,6 +2593,11 @@ Docs: `frontend-registration.md`.
     Confirm a whole-view retry is the right grain, whether the promise should
     reject on failure, and whether a list should also be able to retry a load
     that stays `loading`.
+11. **Offline machines.** `activity` keeps the counts bb last heard while
+    `experimental_hostUnavailable` is true: zero would claim the work ended
+    when bb only lost sight of it. Confirm a per-thread boolean is the right
+    shape rather than a status on `host`, and that a list needs no reason
+    (suspended, asleep, crashed).
 
 ## `app.slots.experimental_threadHeaderAction` (`@get-bb/plugin-sdk/app`)
 
@@ -3390,8 +3404,9 @@ Since 2026-10-22 (sidebar V2) every caller draws the V2 glyphs in the same
 "?" for needs-you (`--attention-text`), the only filled glyph; a circled ✕
 for both failures (`--destructive-text`); an ink dot for new; one arc on a
 faint track for every running kind and "working-draft", the only glyph that
-moves (it spins, and holds still under reduced motion); an outline clock
-for "queued-waiting" and an outline pencil for "draft" (`--sidebar-glyph-faint`).
+moves (it spins, and holds still under reduced motion); an outline circle
+with two bars for "waiting-for-host", an outline clock for "queued-waiting"
+and an outline pencil for "draft" (`--sidebar-glyph-faint`).
 A `rowStatus` shows only while the indicator sits on rung 1 or lower.
 
 **Core callers.** `ThreadStatusGlyph`
@@ -3422,11 +3437,12 @@ and handed to plugins by the host:
   `ExperimentalThreadListIndicatorState` (one flag per kind, plus
   `queuedWork`) to one `PluginSidebarThreadIndicator`: needs-you › failed
   (unread error, then failed send) › new › running (plan mode, goal, runtime,
-  workflow, background agent, background command) › queued › draft › none. It
-  never returns "working-draft".
+  workflow, background agent, background command) › waiting for its machine ›
+  queued › draft › none. It never returns "working-draft".
 - `experimental_threadIndicatorRung(kind)` places a kind on rungs 5 (needs
-  you), 4 (failed), 3 (new), 2 (running, "working-draft" included), 1 (queued,
-  draft), 0 (none, and any kind it does not know).
+  you), 4 (failed), 3 (new), 2 (running, "working-draft" included), 1
+  (waiting for its machine, queued, draft), 0 (none, and any kind it does not
+  know).
 - `experimental_rollUpThreadIndicators(kinds)` returns the kind on the
   highest rung, the earliest in the precedence on a tie, and "none" for no
   input; it ignores kinds it does not know. Rolling `[indicator, "draft"]` up
@@ -3771,3 +3787,12 @@ Stabilize after exercising producer cancellation, reload, reconnect and byte lim
 ## Retired `experimental_useSidebarThreadPullRequest` runtime member
 
 `experimental_useSidebarThreadPullRequest(threadId)` and its `PluginSidebarPullRequest` and `PluginSidebarThreadPullRequestState` types are gone from `@get-bb/plugin-sdk/app`, the Plugin Guide and the authoring docs. Published bundles resolve `@get-bb/plugin-sdk/app` exports by name on `globalThis.__bbPluginRuntime.pluginSdkApp`, so the app installs `retiredPluginSdkAppMembers` (`apps/app/src/lib/plugin-sdk-app-impl.tsx`) next to the implementation. The member keeps its old shape, reads the GitHub PR Status plugin's `pullRequests` row for the thread's environment through the same `useEnvironmentPullRequest` hook core's banner and Info row use, and returns `{ isLoading: false, pullRequest: null }` when the plugin is disabled or the read fails. The name leaves only the typings. `bb-plugin-build` keeps it in the `@get-bb/plugin-sdk/app` runtime shim's export list (`RETIRED_PLUGIN_SDK_APP_EXPORTS` in `packages/plugin-build/src/build-plugin-app.ts`), so plugins that still import it build and run, because git-sourced marketplace plugins are built by bb at install and update and path and builtin plugins rebuild when the SDK version changes. An import of it is a build warning carrying the replacement call: `bb plugin build` and `bb plugin dev` print it, and the server writes it to the plugin's log and the server log when it builds the plugin. Callers are marketplace plugins written against the old SDK (t3sidebar, dockside, gtd-sidebar, thread-inbox, radar-sidebar, bb-sidebar, sidebar-plus, cursor-sidebar, switchboard, vantage, jb-flow, tinted-threads among them). Remove the runtime member and the shim entry only after those plugins have migrated.
+
+## Unified tabs (`experimental_tab`)
+
+- **Surface:** `app.slots.experimental_tab`, `ExperimentalTabRegistration`, `ExperimentalTabContext`, `ExperimentalTabReference`, `ExperimentalTabTargetReference`, `ExperimentalThreadActionTabProps`, `ExperimentalThreadTabActionContext`, and `ExperimentalAppPanel.experimental_openTab`. Context is thread (`threadId`) or an owned navigation panel (`panelId`, component `subPath`). Availability is fixed or action. Only actions accept `run`, default `params` and per-open persisted params/title; navigation-page fixed tabs retain validated session targets. `tooltip` defaults to title and layout is padded or flush.
+- **Behavior:** one registry and destination dispatcher serve thread fixed, thread action, navigation-page fixed and navigation-page action tabs. `useVisible` runs inside plugin scope/crash isolation for the current context. It hides a destination or launcher without removing saved fixed identity/order or already-open action instances. Action params deduplicate instances; fixed tabs have one identity and cannot close. Existing `openFixedTab`, action `openPanel`, message-action openers and `openThreadPanel` delegate through the shared dispatcher. New-thread-screen actions retain their project-context API and use the same action-opening implementation.
+- **Compatibility:** `threadPanelAction`, `PluginThreadPanelActionRegistration`, `PluginThreadPanelProps`, `PluginThreadPanelActionContext`, `navPanel.fixedTabs`, `PluginFixedTabRegistration` and `PluginFixedTabDeclaration` are removed from public source typings by explicit product decision. Runtime adapters in the registration collector remain for published bundles and Git-source install/update builds: 92 marketplace repositories use `threadPanelAction`, 15 use `fixedTabs`. Legacy optional icons, unknown fields and older fixed-tab owner shapes are accepted; malformed entries warn/skip rather than crashing the plugin. `bb-plugin-build` emits migration warnings with replacement examples and the authoring migration link. Server install/rebuild paths copy warnings into the plugin log; warnings never block install or update. The runtime export manifest continues to expose existing SDK functions. Remove adapters only after known callers have migrated.
+- **Persistence and automation:** thread fixed entries use `{id, kind: 'plugin-fixed', pluginId, tabId}` through SDK `threads.tabs.get/update` and CLI `bb thread tabs show/set`, with revision checks. Existing `plugin-page-fixed` and `plugin-panel` action entries/params keep their IDs and storage keys. Selection is client-local. Legacy core Info/Diff kinds, active selections and split IDs convert without reordering; server entries rewrite through the revision-checked queue. Split restoration waits for registration/visibility readiness.
+- **Core callers:** Info and Diff register as thread + fixed and use the shared content host, visibility, descriptor and open paths. Diff retains shortcut, Git setting, file/commit navigation and review state. Core-only Info metadata and Diff controllers remain pane-owned contexts; they are not public plugin API. Docs, GitHub, Side Chat, Tasks, Workflows and the ThreadChat demo use the unified registration.
+- **Stabilization:** audit context typing, targets versus persisted inputs, visibility and crash/reload lifecycles, independent panes/threads, startup split restoration, revision conflicts and compact drawers. Keep the shared contract table across contexts and legacy adapters, verify actual published plugin installs, then rename project-wide and remove this entry.

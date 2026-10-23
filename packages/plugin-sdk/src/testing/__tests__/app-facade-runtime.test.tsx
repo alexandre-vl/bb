@@ -137,6 +137,7 @@ describe("@get-bb/plugin-sdk/app without a runtime at import time", () => {
         isGoalActive: false,
         isPlanModeActive: false,
         isRuntimeActive: true,
+        isWaitingForHost: false,
         isWorkflowActive: false,
         queuedWork: "failed",
       }),

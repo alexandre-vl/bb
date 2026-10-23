@@ -22,6 +22,7 @@ const IDLE: ThreadListIndicatorState = {
   isGoalActive: false,
   isPlanModeActive: false,
   isRuntimeActive: false,
+  isWaitingForHost: false,
   isWorkflowActive: false,
   queuedWork: "none",
 };
@@ -37,6 +38,7 @@ const STATE_FOR_KIND = {
   workflow: { isWorkflowActive: true },
   "background-agent": { isBackgroundAgentActive: true },
   "background-command": { isBackgroundCommandActive: true },
+  "waiting-for-host": { isWaitingForHost: true },
   "queued-waiting": { queuedWork: "waiting" },
   draft: { hasUnsubmittedDraft: true },
 } satisfies Partial<
@@ -86,7 +88,7 @@ describe("resolveThreadListIndicator", () => {
     expect(resolveThreadListIndicator(stateFor(kind))).toBe(kind);
   });
 
-  it("puts needs-you first, then failed, new, the running kinds, queued, draft", () => {
+  it("puts needs-you first, then failed, new, the running kinds, waiting for its machine, queued, draft", () => {
     expect(RESOLVABLE_KINDS).toEqual([
       "waiting-for-input",
       "unread-error",
@@ -98,6 +100,7 @@ describe("resolveThreadListIndicator", () => {
       "workflow",
       "background-agent",
       "background-command",
+      "waiting-for-host",
       "queued-waiting",
       "draft",
     ]);
@@ -145,6 +148,7 @@ describe("threadListIndicatorRung", () => {
     ["background-agent", 2],
     ["background-command", 2],
     ["working-draft", 2],
+    ["waiting-for-host", 1],
     ["queued-waiting", 1],
     ["draft", 1],
     ["none", 0],
@@ -157,7 +161,7 @@ describe("threadListIndicatorRung", () => {
 
   it("lists every kind once, from the highest rung down", () => {
     const rungs = THREAD_LIST_INDICATOR_PRECEDENCE.map(threadListIndicatorRung);
-    expect(new Set(THREAD_LIST_INDICATOR_PRECEDENCE).size).toBe(14);
+    expect(new Set(THREAD_LIST_INDICATOR_PRECEDENCE).size).toBe(15);
     expect(rungs).toEqual([...rungs].sort((left, right) => right - left));
   });
 
@@ -181,6 +185,7 @@ describe("threadListIndicatorAttention", () => {
     ["background-agent", null],
     ["background-command", null],
     ["working-draft", null],
+    ["waiting-for-host", null],
     ["queued-waiting", null],
     ["draft", null],
     ["none", null],
@@ -207,6 +212,7 @@ describe("rollUpThreadListIndicators", () => {
     [["draft", "runtime", "unread-success"], "unread-success"],
     [["queued-failed", "waiting-for-input", "none"], "waiting-for-input"],
     [["queued-waiting", "background-command"], "background-command"],
+    [["waiting-for-host", "runtime"], "runtime"],
     [["none", "draft", "none"], "draft"],
   ] satisfies [ThreadListIndicatorKind[], ThreadListIndicatorKind][])(
     "takes the highest rung of %j",
@@ -222,6 +228,7 @@ describe("rollUpThreadListIndicators", () => {
     [["workflow", "runtime"], "runtime"],
     [["working-draft", "background-command"], "background-command"],
     [["draft", "queued-waiting"], "queued-waiting"],
+    [["queued-waiting", "waiting-for-host"], "waiting-for-host"],
   ] satisfies [ThreadListIndicatorKind[], ThreadListIndicatorKind][])(
     "breaks the rung tie in %j by precedence",
     (kinds, expected) => {

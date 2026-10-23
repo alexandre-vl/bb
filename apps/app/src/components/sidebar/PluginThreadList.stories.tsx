@@ -388,7 +388,7 @@ function v2Entry(
 const V2_UNREAD = { lastReadAt: 0 };
 const V2_RUNNING = {
   status: "active" as const,
-  runtime: { displayStatus: "active" as const },
+  runtime: { displayStatus: "active" as const, hostUnavailable: false },
 };
 const V2_FAILED = { status: "error" as const, lastReadAt: 0 };
 const V2_WORKTREE = {

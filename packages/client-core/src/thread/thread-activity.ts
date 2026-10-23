@@ -11,25 +11,49 @@ type ThreadStatusShape = Pick<
 
 type ThreadRuntimeShape = Pick<ThreadWithRuntime, "runtime">;
 type ThreadActivityStateShape = Pick<ThreadListEntry, "activity">;
+type ThreadHostWorkShape = ThreadRuntimeShape & ThreadActivityStateShape;
 
 function isRuntimeBusyThread(thread: ThreadRuntimeShape): boolean {
   return isRunningThreadRuntimeDisplayStatus(thread.runtime.displayStatus);
 }
 
-function hasActiveWorkflowActivity(thread: ThreadActivityStateShape): boolean {
-  return thread.activity.activeWorkflowCount > 0;
+function hasActiveWorkflowActivity(thread: ThreadHostWorkShape): boolean {
+  return (
+    !thread.runtime.hostUnavailable && thread.activity.activeWorkflowCount > 0
+  );
 }
 
 function hasActiveBackgroundAgentActivity(
-  thread: ThreadActivityStateShape,
+  thread: ThreadHostWorkShape,
 ): boolean {
-  return thread.activity.activeBackgroundAgentCount > 0;
+  return (
+    !thread.runtime.hostUnavailable &&
+    thread.activity.activeBackgroundAgentCount > 0
+  );
 }
 
 function hasActiveBackgroundCommandActivity(
-  thread: ThreadActivityStateShape,
+  thread: ThreadHostWorkShape,
 ): boolean {
-  return thread.activity.activeBackgroundCommandCount > 0;
+  return (
+    !thread.runtime.hostUnavailable &&
+    thread.activity.activeBackgroundCommandCount > 0
+  );
+}
+
+function hasBackgroundTaskActivity(thread: ThreadActivityStateShape): boolean {
+  return (
+    thread.activity.activeWorkflowCount > 0 ||
+    thread.activity.activeBackgroundAgentCount > 0 ||
+    thread.activity.activeBackgroundCommandCount > 0
+  );
+}
+
+function isWaitingForHostThread(thread: ThreadHostWorkShape): boolean {
+  return (
+    thread.runtime.displayStatus === "waiting-for-host" ||
+    (thread.runtime.hostUnavailable && hasBackgroundTaskActivity(thread))
+  );
 }
 
 function hasActivePlanModeActivity(thread: ThreadActivityStateShape): boolean {
@@ -56,6 +80,7 @@ export function threadListIndicatorStateForThread(
     queuedWork: thread.queuedWork,
     isPlanModeActive: hasActivePlanModeActivity(thread),
     isRuntimeActive: isRuntimeBusyThread(thread),
+    isWaitingForHost: isWaitingForHostThread(thread),
     isWorkflowActive: hasActiveWorkflowActivity(thread),
   };
 }

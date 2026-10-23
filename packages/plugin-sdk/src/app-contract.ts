@@ -105,12 +105,12 @@ export interface PluginNavPanelProps {
 }
 
 /**
- * Props passed to a panel tab opened by a `threadPanelAction`.
+ * Props passed to a panel tab opened by a thread action tab.
  *
  * This slot is rendered only for an existing thread. Use
  * `experimental_newThreadPanelAction` for the root New thread screen.
  */
-export interface PluginThreadPanelProps {
+export interface ExperimentalThreadActionTabProps {
   threadId: string;
   /**
    * The JSON value the action's `openPanel` call passed (round-tripped
@@ -883,22 +883,6 @@ export type ExperimentalPluginFixedTabReference<
       readonly experimental_target: ExperimentalFixedTabTargetContract<Target>;
     });
 
-/** A fixed tab declared by a plugin nav panel. */
-export type PluginFixedTabRegistration<Target extends JsonValue = never> =
-  ExperimentalPluginFixedTabReference<Target> & {
-    title: string;
-    /** Resolved names take precedence over plugin branding; unknown names fall back to branding. */
-    icon: BbIconName;
-    component: ComponentType<PluginNavPanelProps>;
-    /** `flush` lets the component own padding and scrolling. */
-    layout?: "padded" | "flush";
-  };
-
-/** A fixed tab with either no target or an owner-validated JSON target. */
-export type PluginFixedTabDeclaration =
-  | PluginFixedTabRegistration
-  | PluginFixedTabRegistration<JsonValue>;
-
 /**
  * How urgent an {@link ExperimentalBadge} is. bb picks the colors: `neutral`
  * (the default) for counts and new items, `warning` for something due or
@@ -967,17 +951,6 @@ export interface PluginNavPanelRegistration {
     props: PluginNavPanelProps,
   ) => ExperimentalPageTitle | null;
   /**
-   * Ordered, non-closable tabs shown in this page's host-owned right panel.
-   * BB owns selection and persistence and always includes its native Browser
-   * and Terminal tools beside them. One tab is active in each visible split
-   * pane, so multiple fixed-tab components can be mounted concurrently. A
-   * component mounts only while its tab is active in a visible pane and the
-   * panel is open, and receives the same `subPath` as the page component.
-   *
-   * Experimental: see docs/api_to_audit.md.
-   */
-  fixedTabs?: readonly PluginFixedTabDeclaration[];
-  /**
    * Optional React hook that returns this panel's navigation badge, or `null`
    * for none. The host calls it once in your plugin's scope for every
    * registered panel, including ones hidden under More, so it can own an RPC
@@ -1017,12 +990,12 @@ export interface PluginPanelActionOpenOptions {
 }
 
 /**
- * Context handed to a `threadPanelAction`'s `run`.
+ * Context handed to a thread action tab's `run`.
  *
  * The action is thread-only and is never offered on the root New thread
  * screen, so `threadId` is always present.
  */
-export interface PluginThreadPanelActionContext {
+export interface ExperimentalThreadTabActionContext {
   /** The thread whose panel launcher invoked the action. */
   threadId: string;
   /**
@@ -1044,35 +1017,111 @@ export interface PluginThreadPanelActionContext {
   openPanel(options?: PluginPanelActionOpenOptions): boolean;
 }
 
-export interface PluginThreadPanelActionRegistration {
-  /** Unique within the plugin; letters, digits, `-`, `_`. */
+/** Where a plugin tab belongs. Navigation panels are owned by the registering plugin. */
+export type ExperimentalTabContext =
+  | { kind: "thread" }
+  | { kind: "nav-panel"; panelId: string };
+
+export interface ExperimentalTabReference {
   id: string;
-  /** Label of the action row in the panel's new-tab launcher. */
-  title: string;
-  /**
-   * Resolved names take precedence over plugin branding in the launcher and
-   * opened tabs. Omitted or unknown names fall back to plugin branding.
-   */
-  icon?: BbIconName;
-  /** Rendered inside every panel tab this action opens. */
-  component: ComponentType<PluginThreadPanelProps>;
-  /**
-   * How the host frames the tab content. "padded" (default) wraps the
-   * component in the panel's scroll container with standard padding —
-   * right for document-like content. "flush" gives the component the full
-   * tab area (no padding, definite height, no host scrolling) — right for
-   * app-like content that manages its own layout, such as
-   * `ThreadChat`.
-   */
-  layout?: "padded" | "flush";
-  /**
-   * Runs when the user activates the action: call your RPC methods, show a
-   * toast, and/or open panel tabs via `context.openPanel`. Omitted =
-   * immediately open a panel tab with defaults. Errors (sync or async) are
-   * contained and logged; they never break the launcher.
-   */
-  run?(context: PluginThreadPanelActionContext): void | Promise<void>;
+  context: ExperimentalTabContext;
+  availability: "fixed" | "action";
 }
+
+type ExperimentalTabCommon = ExperimentalTabReference & {
+  title: string;
+  icon: BbIconName;
+  tooltip?: string;
+  layout?: "padded" | "flush";
+};
+
+type ExperimentalTabLifecycle<Props, Context> =
+  | {
+      availability: "fixed";
+      component: ComponentType<Props>;
+      run?: never;
+      params?: never;
+    }
+  | {
+      availability: "action";
+      component: ComponentType<Props & { params: JsonValue | null }>;
+      /** Default persisted params when opened without explicit params. */
+      params?: JsonValue;
+      run?(
+        context: Context & {
+          openPanel(options?: PluginPanelActionOpenOptions): boolean;
+        },
+      ): void | Promise<void>;
+    };
+
+type ExperimentalTabContextProps<C extends ExperimentalTabContext> = C extends {
+  kind: "thread";
+}
+  ? { threadId: string }
+  : PluginNavPanelProps;
+
+type ExperimentalTabInput<
+  C extends ExperimentalTabContext,
+  A extends "fixed" | "action",
+> = {
+  id: string;
+  title: string;
+  icon: BbIconName;
+  tooltip?: string;
+  layout?: "padded" | "flush";
+  context: C;
+  availability: A;
+  useVisible?(props: ExperimentalTabContextProps<C>): boolean;
+} & (A extends "fixed"
+  ? {
+      component: ComponentType<ExperimentalTabContextProps<C>>;
+      run?: never;
+      params?: never;
+      experimental_target?: C extends { kind: "nav-panel" }
+        ? ExperimentalFixedTabTargetContract<JsonValue>
+        : never;
+    }
+  : {
+      component: ComponentType<
+        ExperimentalTabContextProps<C> & { params: JsonValue | null }
+      >;
+      params?: JsonValue;
+      run?(
+        context: ExperimentalTabContextProps<C> & {
+          openPanel(options?: PluginPanelActionOpenOptions): boolean;
+        },
+      ): void | Promise<void>;
+      experimental_target?: never;
+    });
+
+/** One registration for pinned destinations and actions opening closable instances. */
+export type ExperimentalTabRegistration = ExperimentalTabCommon &
+  (
+    | ({
+        context: { kind: "thread" };
+        useVisible?(props: { threadId: string }): boolean;
+        experimental_target?: never;
+      } & ExperimentalTabLifecycle<{ threadId: string }, { threadId: string }>)
+    | ({
+        context: { kind: "nav-panel"; panelId: string };
+        useVisible?(props: PluginNavPanelProps): boolean;
+      } & (
+        | (ExperimentalTabLifecycle<
+            PluginNavPanelProps,
+            PluginNavPanelProps
+          > & {
+            availability: "action";
+            experimental_target?: never;
+          })
+        | (ExperimentalTabLifecycle<
+            PluginNavPanelProps,
+            PluginNavPanelProps
+          > & {
+            availability: "fixed";
+            experimental_target?: ExperimentalFixedTabTargetContract<JsonValue>;
+          })
+      ))
+  );
 
 /** Context handed to an `experimental_newThreadPanelAction`'s `run`. */
 export interface PluginNewThreadPanelActionContext {
@@ -1081,7 +1130,7 @@ export interface PluginNewThreadPanelActionContext {
   /**
    * Open a tab in the root New thread screen's side panel rendering this
    * action's `component`. The title, params, deduplication, return value, and
-   * error semantics match `threadPanelAction`.
+   * error semantics match thread action tabs.
    */
   openPanel(options?: PluginPanelActionOpenOptions): boolean;
 }
@@ -1096,7 +1145,7 @@ export interface PluginNewThreadPanelActionRegistration {
   icon?: BbIconName;
   /** Rendered inside every panel tab this action opens. */
   component: ComponentType<PluginNewThreadPanelProps>;
-  /** Host framing; matches `threadPanelAction`. */
+  /** Host framing; matches thread action tabs. */
   layout?: "padded" | "flush";
   /**
    * Runs when the user activates the action. Omitted = immediately open a
@@ -1217,7 +1266,12 @@ export interface ExperimentalSidebarFooter {
  *    read.
  * 4. The running kinds: "plan-mode", "goal", "runtime", "workflow",
  *    "background-agent", "background-command".
- * 5. "queued-waiting", then "draft".
+ * 5. "waiting-for-host", "queued-waiting", then "draft".
+ *
+ * "waiting-for-host" takes the place of "runtime", "workflow",
+ * "background-agent" and "background-command" while the thread's machine is
+ * offline (`experimental_hostUnavailable`): bb cannot tell whether that work
+ * still runs until the machine is back.
  *
  * {@link PluginSdkApp.experimental_threadIndicatorRung} places each kind on
  * that ladder, {@link PluginSdkApp.experimental_rollUpThreadIndicators} picks
@@ -1248,6 +1302,7 @@ export type PluginSidebarThreadIndicator =
   | "plan-mode"
   | "goal"
   | "runtime"
+  | "waiting-for-host"
   | "queued-failed"
   | "draft"
   | "unread-success"
@@ -1257,7 +1312,8 @@ export type PluginSidebarThreadIndicator =
 /**
  * A rung on bb's thread status ladder (see
  * {@link PluginSdkApp.experimental_threadIndicatorRung}): 5 needs the user,
- * 4 failed, 3 new, 2 running, 1 queued or draft, 0 settled.
+ * 4 failed, 3 new, 2 running, 1 waiting for its machine, queued or draft,
+ * 0 settled.
  */
 export type ExperimentalThreadIndicatorRung = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -1285,9 +1341,9 @@ export interface ExperimentalThreadListIndicatorState {
   hasUnreadError: boolean;
   /** The thread is unread and its `status` is "idle". */
   hasUnreadSuccess: boolean;
-  /** `activity.backgroundAgents` is above zero. */
+  /** `activity.backgroundAgents` is above zero and the machine is online. */
   isBackgroundAgentActive: boolean;
-  /** `activity.backgroundCommands` is above zero. */
+  /** `activity.backgroundCommands` is above zero and the machine is online. */
   isBackgroundCommandActive: boolean;
   /** `activity.goals` is above zero. */
   isGoalActive: boolean;
@@ -1297,13 +1353,22 @@ export interface ExperimentalThreadListIndicatorState {
    * `runtimeStatus` is "active", "provisioning", "starting", or "stopping".
    */
   isRuntimeActive: boolean;
-  /** `activity.workflows` is above zero. */
+  /**
+   * `runtimeStatus` is "waiting-for-host", or the machine is offline
+   * (`experimental_hostUnavailable`) under background work.
+   */
+  isWaitingForHost: boolean;
+  /** `activity.workflows` is above zero and the machine is online. */
   isWorkflowActive: boolean;
   /** As {@link PluginSidebarThread.queuedWork}. */
   queuedWork: ThreadQueuedWork;
 }
 
-/** Live work counts on a thread. All zero means nothing is running. */
+/**
+ * Live work counts on a thread. All zero means nothing is running. They are
+ * what bb last heard from the thread's machine: while
+ * `experimental_hostUnavailable` is true, work they count may have ended.
+ */
 export interface PluginSidebarThreadActivity {
   workflows: number;
   backgroundAgents: number;
@@ -1362,6 +1427,13 @@ export interface PluginSidebarThread {
    * unknown value as `status`.
    */
   runtimeStatus: ThreadRuntimeDisplayStatus;
+  /**
+   * True while the machine this thread runs on is offline: no daemon is
+   * connected and the reconnect grace has passed, whatever the thread's
+   * status. False for a thread without a machine. Older hosts omit it; treat
+   * a missing value as false.
+   */
+  experimental_hostUnavailable?: boolean;
   /**
    * Whether a message is queued behind the running turn ("waiting") or a
    * queued message failed to send ("failed"). "none" otherwise.
@@ -3115,7 +3187,7 @@ export interface ThreadChatMessageReference {
  * {@link PluginPanelActionOpenOptions} instead.
  */
 export interface PluginTargetedPanelActionOpenOptions extends PluginPanelActionOpenOptions {
-  /** A `threadPanelAction` id registered by this same plugin. */
+  /** A thread action tab id registered by this same plugin. */
   actionId: string;
 }
 
@@ -3130,12 +3202,12 @@ export interface PluginMessageActionContext {
    */
   selectedText?: string;
   /**
-   * Open one of this plugin's `threadPanelAction` components in the current
+   * Open one of this plugin's thread action tab components in the current
    * thread's side panel — the registration-callback equivalent of
    * `useBbNavigate().openThreadPanel`.
    *
    * Returns true when the host accepted the open; false when it declined —
-   * `params` was not a JSON value, the action id names no `threadPanelAction`
+   * `params` was not a JSON value, the action id names no thread action tab
    * of this plugin, or the surface has no side panel (only the main thread
    * view does; a `ThreadChat` embedded in a plugin panel does not). A decline
    * is never thrown: the host logs it and reports it here.
@@ -3177,7 +3249,7 @@ export interface PluginCommandContext {
   projectId: string | null;
   /**
    * Open one of this plugin's panel components in the focused side panel.
-   * In a thread, `actionId` resolves against `threadPanelAction`; on the New
+   * In a thread, `actionId` resolves against thread action tabs; on the New
    * thread screen, it resolves against `experimental_newThreadPanelAction`.
    * Register both slots with the same id to support commands on both screens.
    *
@@ -3452,16 +3524,14 @@ export interface PluginAppSlots {
     registration: ExperimentalAppOverlayRegistration,
   ): void;
   navPanel(registration: PluginNavPanelRegistration): void;
-  /**
-   * Add an action to an existing thread's panel launcher. This slot is
-   * thread-only; use `experimental_newThreadPanelAction` for root compose.
-   */
-  threadPanelAction(registration: PluginThreadPanelActionRegistration): void;
-  /**
-   * Add an action to the root New thread screen's panel launcher (see
-   * {@link PluginNewThreadPanelActionRegistration}). Experimental: see
-   * docs/api_to_audit.md.
-   */
+  /** Register a context-scoped tab. Experimental: see docs/api_to_audit.md. */
+  experimental_tab<
+    C extends ExperimentalTabContext,
+    A extends "fixed" | "action",
+  >(
+    registration: ExperimentalTabInput<C, A>,
+  ): void;
+  experimental_tab(registration: ExperimentalTabRegistration): void;
   experimental_newThreadPanelAction(
     registration: PluginNewThreadPanelActionRegistration,
   ): void;
@@ -4758,15 +4828,60 @@ export interface ExperimentalFixedTabTargetState<Target extends JsonValue> {
   clear(): void;
 }
 
-export type ExperimentalOpenFixedTabOptions<Target extends JsonValue> = {
+export type ExperimentalOpenFixedTabOptions<Target extends JsonValue> =
+  | {
+      surface: ExperimentalAppPanelSurface;
+      tab: ExperimentalPluginFixedTabReference<Target>;
+      /** Omit to select the tab without replacing its current session target. */
+      target?: NoInfer<Target>;
+    }
+  | {
+      surface: ExperimentalAppPanelSurface;
+      tab: { id: string; panelId?: never; experimental_target?: never };
+      target?: never;
+    };
+
+/** A navigation-page fixed tab with an owner-validated target. */
+export type ExperimentalTabTargetReference<Target extends JsonValue> =
+  ExperimentalTabReference & {
+    context: { kind: "nav-panel"; panelId: string };
+    availability: "fixed";
+    experimental_target: ExperimentalFixedTabTargetContract<Target>;
+  };
+
+/** Open a registered tab on the current surface. Action inputs persist; fixed targets are session-only. */
+export type ExperimentalTabOpenOptions = {
   surface: ExperimentalAppPanelSurface;
-  tab: ExperimentalPluginFixedTabReference<Target>;
-  /** Omit to select the tab without replacing its current session target. */
-  target?: NoInfer<Target>;
-};
+} & (
+  | {
+      tab: ExperimentalTabReference & { availability: "action" };
+      params?: JsonValue;
+      title?: string;
+      target?: never;
+    }
+  | {
+      tab: ExperimentalTabReference & {
+        context: { kind: "thread" };
+        availability: "fixed";
+      };
+      target?: never;
+      params?: never;
+      title?: never;
+    }
+  | {
+      tab: ExperimentalTabReference & {
+        context: { kind: "nav-panel"; panelId: string };
+        availability: "fixed";
+      };
+      target?: JsonValue;
+      params?: never;
+      title?: never;
+    }
+);
 
 /** Surface-aware controller for selecting owner-scoped fixed tabs. */
 export interface ExperimentalAppPanel {
+  experimental_openTab(options: ExperimentalTabOpenOptions): boolean;
   openFixedTab<Target extends JsonValue = never>(
     options: ExperimentalOpenFixedTabOptions<Target>,
   ): boolean;
@@ -4818,7 +4933,7 @@ export interface BbNavigate {
   }): void;
   /**
    * Open one of this plugin's registered panel actions in the current
-   * surface's side panel: a `threadPanelAction` in a thread, or an
+   * surface's side panel: a thread action tab in a thread, or an
    * `experimental_newThreadPanelAction` on the New thread screen. Plugin
    * commands and thread actions use the focused thread view's opener. Returns false when the surface has no side
    * panel actions (plugin pages) or the action is unavailable.
@@ -5056,7 +5171,9 @@ export interface PluginSdkApp {
   experimental_useAppPanel(): ExperimentalAppPanel;
   /** Read or clear the owning tab's validated, session-scoped target. */
   experimental_useFixedTabTarget<Target extends JsonValue>(
-    tab: ExperimentalPluginFixedTabReference<Target>,
+    tab:
+      | ExperimentalTabTargetReference<Target>
+      | ExperimentalPluginFixedTabReference<Target>,
   ): ExperimentalFixedTabTargetState<Target> | null;
   useComposer(): PluginComposerApi;
   /**

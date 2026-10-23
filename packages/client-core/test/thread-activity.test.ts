@@ -137,7 +137,58 @@ describe("threadListIndicatorStateForThread", () => {
       queuedWork: "waiting",
       isPlanModeActive: false,
       isRuntimeActive: true,
+      isWaitingForHost: false,
       isWorkflowActive: true,
     });
+  });
+
+  it("trades background work for waiting-for-host while the machine is offline", () => {
+    const backgroundOnly = {
+      activeWorkflowCount: 1,
+      activeBackgroundAgentCount: 1,
+      activeBackgroundCommandCount: 1,
+      activePlanModeCount: 0,
+      activeGoalCount: 0,
+    };
+    const offline = makeThreadListEntry({
+      activity: backgroundOnly,
+      runtime: { displayStatus: "idle", hostUnavailable: true },
+    });
+
+    expect(threadListIndicatorStateForThread(offline, false)).toMatchObject({
+      isBackgroundAgentActive: false,
+      isBackgroundCommandActive: false,
+      isWaitingForHost: true,
+      isWorkflowActive: false,
+    });
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(offline, false),
+      ),
+    ).toBe("waiting-for-host");
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(
+          makeThreadListEntry({
+            status: "active",
+            runtime: {
+              displayStatus: "waiting-for-host",
+              hostUnavailable: true,
+            },
+          }),
+          false,
+        ),
+      ),
+    ).toBe("waiting-for-host");
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(
+          makeThreadListEntry({
+            runtime: { displayStatus: "idle", hostUnavailable: true },
+          }),
+          false,
+        ),
+      ),
+    ).toBe("none");
   });
 });

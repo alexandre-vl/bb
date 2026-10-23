@@ -40,6 +40,7 @@ const idleIndicatorState: ThreadListIndicatorState = {
   queuedWork: "none",
   isPlanModeActive: false,
   isRuntimeActive: false,
+  isWaitingForHost: false,
   isWorkflowActive: false,
 };
 
@@ -57,6 +58,11 @@ const working = makeEntry({
 });
 const queued = makeEntry({ id: "queued", queuedWork: "waiting" });
 const settled = makeEntry({ id: "settled" });
+const offline = makeEntry({
+  id: "offline",
+  activity: { backgroundCommands: 1 },
+  experimental_hostUnavailable: true,
+});
 
 describe("thread-activity", () => {
   describe("resolveThreadListIndicator", () => {
@@ -107,6 +113,36 @@ describe("thread-activity", () => {
       });
       expect(kind).not.toBe("working-draft");
       expect(threadListIndicatorRung(kind)).toBe(2);
+    });
+
+    it("shows waiting-for-host below running work and above a queued message", () => {
+      const waitingForHost = { ...idleIndicatorState, isWaitingForHost: true };
+
+      expect(resolveThreadListIndicator(waitingForHost)).toBe(
+        "waiting-for-host",
+      );
+      expect(threadListIndicatorRung("waiting-for-host")).toBe(1);
+      expect(
+        resolveThreadListIndicator({
+          ...waitingForHost,
+          queuedWork: "waiting",
+        }),
+      ).toBe("waiting-for-host");
+      expect(
+        resolveThreadListIndicator({
+          ...waitingForHost,
+          hasUnsubmittedDraft: true,
+        }),
+      ).toBe("waiting-for-host");
+      expect(
+        resolveThreadListIndicator({
+          ...waitingForHost,
+          hasUnreadSuccess: true,
+        }),
+      ).toBe("unread-success");
+      expect(
+        resolveThreadListIndicator({ ...waitingForHost, isGoalActive: true }),
+      ).toBe("goal");
     });
 
     it("shows the queued clock over a draft", () => {
@@ -195,8 +231,42 @@ describe("thread-activity", () => {
         queuedWork: "waiting",
         isPlanModeActive: false,
         isRuntimeActive: true,
+        isWaitingForHost: false,
         isWorkflowActive: true,
       });
+    });
+
+    it("trades background work for waiting-for-host while the machine is offline", () => {
+      expect(
+        threadListIndicatorStateForThread(
+          makeEntry({
+            activity: {
+              workflows: 1,
+              backgroundAgents: 1,
+              backgroundCommands: 1,
+            },
+            experimental_hostUnavailable: true,
+          }),
+          false,
+        ),
+      ).toMatchObject({
+        isBackgroundAgentActive: false,
+        isBackgroundCommandActive: false,
+        isWaitingForHost: true,
+        isWorkflowActive: false,
+      });
+      expect(
+        threadIndicatorKind(
+          makeEntry({
+            status: "active",
+            runtimeStatus: "waiting-for-host",
+            experimental_hostUnavailable: true,
+          }),
+        ),
+      ).toBe("waiting-for-host");
+      expect(
+        threadIndicatorKind(makeEntry({ experimental_hostUnavailable: true })),
+      ).toBe("none");
     });
 
     it("counts a running plugin status as working activity", () => {
@@ -236,6 +306,10 @@ describe("thread-activity", () => {
         resolveThreadKindStatus("runtime", rowStatus).rowStatusIsVisible,
       ).toBe(false);
       expect(
+        resolveThreadKindStatus("waiting-for-host", rowStatus)
+          .rowStatusIsVisible,
+      ).toBe(true);
+      expect(
         resolveThreadKindStatus("unread-success", rowStatus),
       ).toMatchObject({
         rowStatusIsVisible: false,
@@ -272,8 +346,23 @@ describe("thread-activity", () => {
         failed: 1,
         fresh: 1,
         working: 2,
+        waitingForHost: 0,
         queued: 1,
       });
+    });
+
+    it("counts a thread on an offline machine as waiting for it, not working", () => {
+      const rollup = rollUpThreads([offline, queued]);
+
+      expect(rollup.kind).toBe("waiting-for-host");
+      expect(rollup.counts).toMatchObject({
+        working: 0,
+        waitingForHost: 1,
+        queued: 1,
+      });
+      expect(describeThreadRollup(rollup, "thread", "threads")).toBe(
+        "2 threads: 1 waiting for its machine, 1 queued",
+      );
     });
 
     it("lets a hidden draft show only over settled threads", () => {

@@ -57,6 +57,12 @@ const INDICATOR_GLYPHS: readonly (readonly [
     "text-sidebar-glyph-faint",
   ],
   [
+    "waiting-for-host",
+    "Thread waiting for its machine",
+    "paused",
+    "text-sidebar-glyph-faint",
+  ],
+  [
     "queued-waiting",
     "Thread has a message waiting to send",
     "queued",
@@ -201,7 +207,7 @@ describe("ThreadStatusGlyph", () => {
     expect(screen.queryByLabelText("Thread has unsubmitted draft")).toBeNull();
   });
 
-  it.each(["none", "draft", "queued-waiting"] as const)(
+  it.each(["none", "draft", "queued-waiting", "waiting-for-host"] as const)(
     "shows a row status over %s, rung 1 or lower",
     (indicator) => {
       render(
@@ -215,7 +221,10 @@ describe("ThreadStatusGlyph", () => {
 
   it.each(
     INDICATOR_GLYPHS.filter(
-      ([indicator]) => indicator !== "draft" && indicator !== "queued-waiting",
+      ([indicator]) =>
+        indicator !== "draft" &&
+        indicator !== "queued-waiting" &&
+        indicator !== "waiting-for-host",
     ),
   )("keeps %s, rung 2 or higher, ahead of a row status", (indicator, label) => {
     render(<ThreadStatusGlyph indicator={indicator} rowStatus={ROW_STATUS} />);
