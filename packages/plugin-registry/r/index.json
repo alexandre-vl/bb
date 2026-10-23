@@ -358,6 +358,10 @@
       "type": "registry:ui"
     },
     {
+      "name": "toast-clearance",
+      "type": "registry:ui"
+    },
+    {
       "name": "toggle",
       "type": "registry:ui"
     },

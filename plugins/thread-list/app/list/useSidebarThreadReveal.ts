@@ -21,7 +21,7 @@ import {
   sidebarOrganizationModeAtom,
 } from "../preferences/atoms.js";
 import { usePreferencesReady } from "../preferences/PreferencesSync.js";
-import { useExpandThreadAncestors } from "./useReadStatusGrouping.js";
+import { useExpandThreadAncestors } from "./useAttentionOrdering.js";
 
 interface ThreadSidebarExpansionArgs {
   organizationMode: SidebarOrganizationMode;
@@ -108,18 +108,15 @@ export function useSidebarThreadReveal(): void {
 export interface SidebarThreadRevealState {
   previousThreadId: string | undefined;
   pendingNavigation: string | undefined;
-  previousUnreadIds: ReadonlySet<string> | null;
 }
 
 export const INITIAL_SIDEBAR_THREAD_REVEAL_STATE: SidebarThreadRevealState = {
   previousThreadId: undefined,
   pendingNavigation: undefined,
-  previousUnreadIds: null,
 };
 
 interface SidebarThreadRevealStepInputs {
   selectedThreadId: string | undefined;
-  threads: readonly SidebarThread[];
   threadById: ReadonlyMap<string, SidebarThread>;
   threadsReady: boolean;
   preferencesReady: boolean;
@@ -127,15 +124,13 @@ interface SidebarThreadRevealStepInputs {
 
 interface SidebarThreadRevealStep {
   state: SidebarThreadRevealState;
-  revealIds: ReadonlySet<string>;
-  navigationRevealId: string | undefined;
+  revealId: string | undefined;
 }
 
 export function stepSidebarThreadReveal(
   state: SidebarThreadRevealState,
   {
     selectedThreadId,
-    threads,
     threadById,
     threadsReady,
     preferencesReady,
@@ -146,45 +141,20 @@ export function stepSidebarThreadReveal(
     previousThreadId = selectedThreadId;
     pendingNavigation = selectedThreadId;
   }
-  if (!preferencesReady || !threadsReady) {
+  if (
+    !preferencesReady ||
+    !threadsReady ||
+    pendingNavigation === undefined ||
+    !threadById.has(pendingNavigation)
+  ) {
     return {
-      state: {
-        previousThreadId,
-        pendingNavigation,
-        previousUnreadIds: state.previousUnreadIds,
-      },
-      revealIds: new Set(),
-      navigationRevealId: undefined,
+      state: { previousThreadId, pendingNavigation },
+      revealId: undefined,
     };
   }
-  const revealIds = new Set<string>();
-  const navigationRevealId = pendingNavigation;
-  if (navigationRevealId && threadById.has(navigationRevealId)) {
-    revealIds.add(navigationRevealId);
-    pendingNavigation = undefined;
-  }
-  const unreadIds = new Set<string>();
-  for (const thread of threads) {
-    if (thread.isHidden || !thread.isUnread) {
-      continue;
-    }
-    unreadIds.add(thread.id);
-    if (
-      state.previousUnreadIds &&
-      !state.previousUnreadIds.has(thread.id) &&
-      thread.id !== selectedThreadId
-    ) {
-      revealIds.add(thread.id);
-    }
-  }
   return {
-    state: {
-      previousThreadId,
-      pendingNavigation,
-      previousUnreadIds: unreadIds,
-    },
-    revealIds,
-    navigationRevealId,
+    state: { previousThreadId, pendingNavigation: undefined },
+    revealId: pendingNavigation,
   };
 }
 
@@ -273,57 +243,52 @@ function useSidebarThreadRevealCore({
   useEffect(() => {
     const step = stepSidebarThreadReveal(revealState.current, {
       selectedThreadId,
-      threads,
       threadById,
       threadsReady,
       preferencesReady,
     });
     revealState.current = step.state;
-    for (const threadId of step.revealIds) {
-      const thread = threadById.get(threadId);
-      if (!thread || thread.isHidden) {
-        continue;
-      }
-      const { threadIdsToExpand, environmentIdsToExpand, expansion } =
-        resolveThreadRevealExpansion({
-          thread,
-          threadById,
-          effectivePinnedThreadIds,
-          organizationMode,
-          personalProjectId,
-        });
+    const thread =
+      step.revealId === undefined ? undefined : threadById.get(step.revealId);
+    if (!thread || thread.isHidden) {
+      return;
+    }
+    const { threadIdsToExpand, environmentIdsToExpand, expansion } =
+      resolveThreadRevealExpansion({
+        thread,
+        threadById,
+        effectivePinnedThreadIds,
+        organizationMode,
+        personalProjectId,
+      });
 
-      expandThreadAncestors(
-        threadIdsToExpand,
-        threadId === step.navigationRevealId,
+    expandThreadAncestors(threadIdsToExpand);
+    setCollapsedEnvironmentIdList((current) =>
+      removeCollapsedIds(current, environmentIdsToExpand),
+    );
+    if (expansion.machineKey) {
+      const machineKey = expansion.machineKey;
+      setCollapsedMachineKeyList((current) =>
+        removeCollapsedIds(current, new Set([machineKey])),
       );
-      setCollapsedEnvironmentIdList((current) =>
-        removeCollapsedIds(current, environmentIdsToExpand),
+    }
+    if (expansion.sectionKey) {
+      const sectionKey = expansion.sectionKey;
+      setCollapsedSectionList((current) =>
+        removeCollapsedIds(current, new Set([sectionKey])),
       );
-      if (expansion.machineKey) {
-        const machineKey = expansion.machineKey;
-        setCollapsedMachineKeyList((current) =>
-          removeCollapsedIds(current, new Set([machineKey])),
-        );
-      }
-      if (expansion.sectionKey) {
-        const sectionKey = expansion.sectionKey;
-        setCollapsedSectionList((current) =>
-          removeCollapsedIds(current, new Set([sectionKey])),
-        );
-      }
-      if (expansion.projectId) {
-        const projectId = expansion.projectId;
-        setCollapsedProjectIdList((current) =>
-          removeCollapsedIds(current, new Set([projectId])),
-        );
-      }
-      if (expansion.sidebarSectionId) {
-        const sidebarSectionId = expansion.sidebarSectionId;
-        setCollapsedSidebarSectionIdList((current) =>
-          removeCollapsedIds(current, new Set([sidebarSectionId])),
-        );
-      }
+    }
+    if (expansion.projectId) {
+      const projectId = expansion.projectId;
+      setCollapsedProjectIdList((current) =>
+        removeCollapsedIds(current, new Set([projectId])),
+      );
+    }
+    if (expansion.sidebarSectionId) {
+      const sidebarSectionId = expansion.sidebarSectionId;
+      setCollapsedSidebarSectionIdList((current) =>
+        removeCollapsedIds(current, new Set([sidebarSectionId])),
+      );
     }
   }, [
     selectedThreadId,
@@ -331,7 +296,6 @@ function useSidebarThreadRevealCore({
     preferencesReady,
     personalProjectId,
     organizationMode,
-    threads,
     threadById,
     effectivePinnedThreadIds,
     expandThreadAncestors,

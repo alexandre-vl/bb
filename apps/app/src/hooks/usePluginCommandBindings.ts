@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import {
   applyAppKeybindingOverrides,
   pluginCommandId,
+  sidebarListKeybindings,
   type AppDefaultKeybindings,
   type AppKeybindingOverrides,
 } from "@bb/domain";
@@ -48,6 +49,9 @@ export function usePluginCommandBindings() {
       commands: commandPaletteActions,
       keybindings: [
         ...(data?.keybindings ?? []),
+        ...sidebarListKeybindings(
+          applyAppKeybindingOverrides(builtInDefaults, overrides),
+        ),
         ...applyAppKeybindingOverrides(
           resolved.defaults.filter((binding) => pluginIds.has(binding.command)),
           overrides,

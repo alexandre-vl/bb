@@ -50,6 +50,9 @@ export const APP_COMMAND_IDS = [
   "thread.archive",
   "thread.previous",
   "thread.next",
+  "thread.toggleRead",
+  "thread.previousAttention",
+  "thread.nextAttention",
   "history.back",
   "history.forward",
   ...THREAD_JUMP_APP_COMMAND_IDS,
@@ -66,6 +69,7 @@ export const APP_COMMAND_IDS = [
   "settings.open",
   "settings.openServers",
   "sidebar.toggle",
+  "sidebar.focus",
   "panel.previousTab",
   "panel.nextTab",
   "panel.previousNewTabItem",
@@ -130,6 +134,7 @@ const APP_COMMAND_CONTEXT_KEYS = [
   "editableFocus",
   "terminalFocus",
   "browserFocus",
+  "sidebarListFocus",
   "modelPickerOpen",
   "questionOpen",
   "promptAvailable",
@@ -391,4 +396,23 @@ export function applyAppKeybindingOverrides(
           ];
     });
   });
+}
+
+function namesSidebarListFocus(binding: AppKeybinding): boolean {
+  return (
+    binding.when.all.includes("sidebarListFocus") ||
+    binding.when.none.includes("sidebarListFocus")
+  );
+}
+
+export function withoutSidebarListKeybindings(
+  keybindings: AppKeybindings,
+): AppKeybindings {
+  return keybindings.filter((binding) => !namesSidebarListFocus(binding));
+}
+
+export function sidebarListKeybindings(
+  keybindings: AppKeybindings,
+): AppKeybindings {
+  return keybindings.filter(namesSidebarListFocus);
 }

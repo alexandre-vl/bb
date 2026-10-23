@@ -71,6 +71,8 @@ the same change.
 - Read references/frontend-pull-requests.md to show a thread's GitHub pull
   request on a row, or to migrate off
   `experimental_useSidebarThreadPullRequest`.
+- Read references/frontend-sidebar-list.md for bb's status glyph, ladder and
+  attention, and the list keys a custom thread list takes.
 - Read references/frontend-api-index.md to check every public frontend
   runtime value and type export.
 - Read references/frontend-core-slots.md for trusted content scripts, homepage,
