@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { ThreadPullRequest } from "@bb/domain";
+import type { PullRequest } from "bb-plugin-bb--github-pr-status/contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadPromptContextBanner } from "@/components/promptbox/banner/ThreadPromptContextBanner";
 import { PullRequestRow } from "@/components/secondary-panel/ThreadMetadataContent";
@@ -12,7 +12,7 @@ import { PluginUrlClaimContext } from "./plugin-url-claims";
 
 const PULL_URL = "https://github.com/acme/bb/pull/128";
 
-const pullRequest: ThreadPullRequest = {
+const pullRequest: PullRequest = {
   number: 128,
   title: "Open pull requests in the GitHub side panel",
   state: "open",
