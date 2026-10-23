@@ -14,6 +14,7 @@ import {
   DetailsDisclosure,
   displayPluginVersion,
   pluginReleaseLabel,
+  pluginUpdateFailureSummary,
 } from "./plugin-ui";
 import { UpdatePluginDialog } from "./UpdatePluginDialog";
 
@@ -167,11 +168,11 @@ function PluginDetailPrimaryReleaseStatus({
 }: {
   plugin: PluginListItem;
 }) {
-  const failure = plugin.updateState.lastFailure;
+  const failureSummary = pluginUpdateFailureSummary(plugin);
   const blockedVersion = pluginCompatibilityBlockedVersion(plugin);
   const blockedReasons = plugin.updateState.blockedReasons;
 
-  if (failure !== null) {
+  if (failureSummary !== null) {
     return (
       <div
         role="status"
@@ -184,8 +185,7 @@ function PluginDetailPrimaryReleaseStatus({
           aria-hidden
         />
         <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
-          bb couldn&rsquo;t activate {displayPluginVersion(failure.version)}. It
-          restored {displayPluginVersion(plugin.version)} and its data.
+          {failureSummary}
         </p>
       </div>
     );
