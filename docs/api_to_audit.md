@@ -2159,7 +2159,9 @@ logged and skipped.
 the Info tab's Pull request row share `useOpenClaimedUrlOnClick`, which offers
 plain clicks to `PluginUrlClaimContext`; `ThreadDetailView` provides it around
 its timeline and its split-hosted side panel. `useOpenClaimedUrl` asks the
-thread action tabs in `usePluginSlots().tabs`, and opens the tab through
+thread action tabs the thread view shows (`useThreadFixedTabs().actions`,
+after `useVisible`), the list `usePanelPluginPanels` opens from, so a hidden
+tab never claims a link it cannot open. It opens the tab through
 `usePanelPluginPanels`, the opener that
 `useBbNavigate().openThreadPanel`, message actions, and timeline title actions
 use. `plugin-url-claims.test.tsx` covers resolution, and
@@ -2204,11 +2206,11 @@ active only if the calling tab was, and leaves a closed panel closed, since a
 lookup can finish after the person moved on. When a tab with those params is
 already open, bb closes the calling tab instead, and focuses the open one if
 the calling tab was active. It returns false when the caller is not inside one
-of its own plugin's side-panel tabs (another plugin's content nested in the
-tab included), or once that tab has closed.
+of its own plugin's thread or New thread action tabs (another plugin's
+content nested in the tab included), or once that tab has closed.
 
-**Core callers.** Every plugin-facing panel opener goes through
-`openPluginThreadPanel` (`plugin-thread-panel-navigation.tsx`):
+**Core callers.** Every plugin-facing panel opener that takes the flag goes
+through `openPluginThreadPanel` (`plugin-thread-panel-navigation.tsx`):
 `useBbNavigate`, a thread action's `navigate`, and the `openPanel` of
 command palette and message actions. It forwards only the plugin's id,
 `actionId`, `title`, and `params`, and turns the flag into the calling tab's
@@ -2235,6 +2237,11 @@ Docs: `frontend-hooks-and-ui.md`, `frontend-core-slots.md`.
    tab rather than where they were looking.
 2. **History.** A replaced tab is not offered by Reopen closed tab. Decide
    whether back navigation inside a tab should restore the params it replaced.
+3. **Openers.** Only `openThreadPanel` takes the flag, and only thread and New
+   thread action tabs can replace themselves: `experimental_useAppPanel()
+   .experimental_openTab` drops it, and fixed and navigation-page tabs return
+   false. Decide whether it belongs on `ExperimentalTabOpenOptions` before
+   stabilizing.
 
 ## `app.slots.experimental_newThreadPanelAction` (`@get-bb/plugin-sdk/app`)
 

@@ -4,11 +4,16 @@ import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginPanelActionOpenOptions } from "@get-bb/plugin-sdk";
 import {
+  isThreadTab,
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
+  usePluginSlots,
 } from "@/lib/plugin-slots";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
-import { useOpenClaimedUrl } from "./plugin-url-claims";
+import {
+  useOpenClaimedUrl,
+  type PluginThreadActionTabSlot,
+} from "./plugin-url-claims";
 
 type ClaimUrl = (url: URL) => PluginPanelActionOpenOptions | null;
 
@@ -36,9 +41,23 @@ function registerClaims(
   );
 }
 
-function renderOpener(accepts = true) {
+function renderOpener(
+  accepts = true,
+  isVisible: (tab: PluginThreadActionTabSlot) => boolean = () => true,
+) {
   const openThreadPanel = vi.fn(() => accepts);
-  const { result } = renderHook(() => useOpenClaimedUrl(openThreadPanel));
+  const { result } = renderHook(() =>
+    useOpenClaimedUrl(
+      openThreadPanel,
+      usePluginSlots()
+        .tabs.filter(isThreadTab)
+        .filter(
+          (tab): tab is PluginThreadActionTabSlot =>
+            tab.availability === "action",
+        )
+        .filter(isVisible),
+    ),
+  );
   return { openClaimedUrl: result.current, openThreadPanel };
 }
 
@@ -67,6 +86,24 @@ describe("useOpenClaimedUrl", () => {
       params: { path: "/acme/app/pull/7" },
     });
     expect(later).not.toHaveBeenCalled();
+  });
+
+  it("asks only the tabs the thread view shows", () => {
+    const hidden = vi.fn(() => ({ title: "Hidden" }));
+    registerClaims("acme", { review: hidden });
+    registerClaims("github", { pull: () => ({ title: "PR #7" }) });
+    const { openClaimedUrl, openThreadPanel } = renderOpener(
+      true,
+      (tab) => tab.pluginId !== "acme",
+    );
+
+    expect(openClaimedUrl(PULL_URL)).toBe(true);
+    expect(hidden).not.toHaveBeenCalled();
+    expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
+      pluginId: "github",
+      actionId: "pull",
+      title: "PR #7",
+    });
   });
 
   it("leaves links to the browser when the side panel declines", () => {

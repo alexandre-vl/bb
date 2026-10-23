@@ -88,7 +88,9 @@ bb plugin install github
   issues; a pick becomes that item's tab. The palette command GitHub: Open
   this thread's pull request opens the same tab. `bb thread tabs set` opens
   these tabs too: a `plugin-panel` tab with `pluginId` `github`, `actionId`
-  `pull` or `issue`, and `paramsJson` `{"repo":"owner/name","number":N}`.
+  `pull` or `issue`, and `paramsJson` `{"repo":"owner/name","number":N}` with
+  the repository in lowercase and the keys in that order, the form a clicked
+  link opens, so a second click focuses that tab.
 - **Home page**: the first four pull requests that need you, and a link to
   the inbox.
 - **Issues**: open issues first, closed ones folded; each row says who is

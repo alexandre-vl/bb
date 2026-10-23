@@ -1343,7 +1343,10 @@ function ThreadDetailViewInternal(
     reveal: openCompactDrawer,
     slot: "threadPanelAction",
   });
-  const openClaimedUrl = useOpenClaimedUrl(handleOpenTimelinePluginPanel);
+  const openClaimedUrl = useOpenClaimedUrl(
+    handleOpenTimelinePluginPanel,
+    threadFixedTabs.actions,
+  );
 
   const handleSelectFileSearchResult = useCallback(
     (selection: FileSearchSelection) => {

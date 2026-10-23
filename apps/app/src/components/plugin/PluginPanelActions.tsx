@@ -115,7 +115,7 @@ export function createPanelActionOpenPanel(
     });
     if (!accepted && !reachedOpener)
       console.warn(
-        `[plugin:${args.action.pluginId}] ${args.slot} "${args.action.id}" openPanel declined: params must be JSON values`,
+        `[plugin:${args.action.pluginId}] ${args.slot} "${args.action.id}" openPanel declined: title must be a string and params JSON values`,
       );
     return accepted;
   };
