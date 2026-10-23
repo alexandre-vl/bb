@@ -16,6 +16,7 @@ github-plugin-inbox
 plugin-track-range
 plugin-updates-outside-range
 plugin-update-rollback
+fix/plugin-update-rollback-hub
 bb/project-default-environment
 carry/automation-environment-composer
 bb/automation-environment-composer
