@@ -69,6 +69,25 @@ import {
   type PluginMessageDirectiveRegistration,
   type ExperimentalCodeFenceRendererRegistration,
   type PluginDiffRendererRegistration,
+  type ExperimentalComposerRegistration,
+  type ExperimentalComposerRendererApi,
+  type ExperimentalComposerCommandSearch,
+  type ExperimentalComposerContributions,
+  type ExperimentalComposerMentionSearch,
+  type ExperimentalComposerRootProps,
+  type ExperimentalComposerPopupProps,
+  type ExperimentalComposerMenuEntryProps,
+  type ExperimentalVoiceInputButtonProps,
+  type ExperimentalVoiceRecordingBarProps,
+  type ExperimentalFailedVoiceRecordingsProps,
+  type ExperimentalShortcutHintProps,
+  type ExperimentalImageLightboxProps,
+  type ExperimentalPromptMentionIconProps,
+  type ExperimentalPromptMentionClipboardPill,
+  type ExperimentalPromptMentionPresentation,
+  type ExperimentalComposerMentionTarget,
+  type ExperimentalPluginIconProps,
+  type ExperimentalThreadTitleTextProps,
   type PluginNavPanelRegistration,
   type PluginNewThreadPanelActionRegistration,
   type PluginPendingInteractionRegistration,
@@ -80,13 +99,11 @@ import {
   type PluginSettingsSectionRegistration,
   type PluginSettingsState,
   type PluginSidebarFooterActionRegistration,
-  type PluginSidebarPullRequest,
   type PluginSidebarThreadActions,
   type PluginBrowserBbSdk,
   type PluginEnvironmentProvidersState,
   type PluginSidebarSplitLayout,
   type PluginSidebarThreadDraftState,
-  type PluginSidebarThreadPullRequestState,
   type PluginSidebarThreadRowStatus,
   type PluginSidebarThreadShortcut,
   type PluginSidebarThreadSplit,
@@ -336,11 +353,11 @@ interface SlotEnv {
   sidebarListCommands: TestSidebarListCommands;
   threadActions: TestThreadActionsResolver;
   threadActionRegistrations: readonly PluginThreadActionRegistrationInfo[];
-  sidebarPullRequests: ReadonlyMap<string, PluginSidebarPullRequest>;
   sidebarDraftThreadIds: ReadonlySet<string>;
   sidebarRowStatuses: ReadonlyMap<string, PluginSidebarThreadRowStatus>;
   sidebarShortcuts: ReadonlyMap<string, PluginSidebarThreadShortcut>;
   sidebarSplitLayout: PluginSidebarSplitLayout | null;
+  composerRenderer: ExperimentalComposerRendererApi | null;
   environmentProviders: PluginEnvironmentProvidersState;
   sdk: PluginBrowserBbSdk;
   sdkCalls: SdkCall[];
@@ -1170,6 +1187,143 @@ function TestPermissionModePicker({
   );
 }
 
+function TestComposerRoot(_props: ExperimentalComposerRootProps) {
+  return null;
+}
+
+function TestComposerPluginActions() {
+  return null;
+}
+
+function TestComposerPluginPopup({
+  contribution,
+}: ExperimentalComposerPopupProps) {
+  return <contribution.popup.component />;
+}
+
+function TestComposerMenuEntry({
+  contribution,
+}: ExperimentalComposerMenuEntryProps) {
+  return <div role="menuitem">{contribution.item.label}</div>;
+}
+
+const IDLE_COMPOSER_MENTION_SEARCH: ExperimentalComposerMentionSearch = {
+  status: "idle",
+  refreshing: false,
+  groups: [],
+  search: () => {},
+};
+
+const IDLE_COMPOSER_COMMAND_SEARCH: ExperimentalComposerCommandSearch = {
+  status: "idle",
+  refreshing: false,
+  groups: [],
+  search: () => {},
+};
+
+const TEST_COMPOSER_CONTRIBUTIONS: ExperimentalComposerContributions = {
+  popups: [],
+  plusMenuItems: [],
+  sendMenuItems: [],
+  Actions: TestComposerPluginActions,
+  Popup: TestComposerPluginPopup,
+  MenuEntry: TestComposerMenuEntry,
+};
+
+function TestVoiceInputButton({
+  warning: _warning,
+  variant: _variant,
+  size: _size,
+  ...props
+}: ExperimentalVoiceInputButtonProps) {
+  return <button {...props} />;
+}
+
+function TestVoiceRecordingBar({
+  state,
+  onConfirm,
+  onCancel,
+}: ExperimentalVoiceRecordingBarProps) {
+  return (
+    <div data-voice-recording-state={state}>
+      <button type="button" onClick={onConfirm}>
+        Finish voice input
+      </button>
+      <button type="button" onClick={onCancel}>
+        Cancel voice input
+      </button>
+    </div>
+  );
+}
+
+function TestFailedVoiceRecordings({
+  recordings,
+  className,
+}: ExperimentalFailedVoiceRecordingsProps) {
+  return (
+    <ul className={className}>
+      {recordings.map((recording) => (
+        <li key={recording.id}>{recording.errorMessage}</li>
+      ))}
+    </ul>
+  );
+}
+
+function TestShortcutHint({
+  shortcut,
+  className,
+}: ExperimentalShortcutHintProps) {
+  return shortcut === null ? null : (
+    <kbd className={className}>{shortcut.label}</kbd>
+  );
+}
+
+function TestImageLightbox({
+  imageSrc,
+  imageAlt,
+  isOpen,
+}: ExperimentalImageLightboxProps) {
+  const visible = isOpen ?? imageSrc !== null;
+  return visible && imageSrc !== null ? (
+    <img alt={imageAlt} src={imageSrc} />
+  ) : null;
+}
+
+function TestPromptMentionIcon({
+  className,
+}: ExperimentalPromptMentionIconProps) {
+  return <span className={className} aria-hidden />;
+}
+
+const TEST_PROMPT_MENTION_ATTRIBUTE = "data-test-prompt-mention";
+
+function testPromptMentionClipboardAttributes(
+  mention: ExperimentalComposerMentionTarget,
+  text: string,
+): Readonly<Record<string, string>> {
+  return { [TEST_PROMPT_MENTION_ATTRIBUTE]: JSON.stringify({ mention, text }) };
+}
+
+function readTestPromptMentionClipboard(
+  element: Element,
+): ExperimentalPromptMentionClipboardPill | null {
+  const value = element.getAttribute(TEST_PROMPT_MENTION_ATTRIBUTE);
+  if (value === null) return null;
+  const pill: ExperimentalPromptMentionClipboardPill = JSON.parse(value);
+  return pill;
+}
+
+function TestPluginIcon({ className }: ExperimentalPluginIconProps) {
+  return <span className={className} aria-hidden />;
+}
+
+function TestThreadTitleText({
+  title,
+  className,
+}: ExperimentalThreadTitleTextProps) {
+  return <span className={className}>{title}</span>;
+}
+
 /**
  * Stand-in for the host-owned voice input textarea: a plain controlled
  * textarea with no microphone, matching a host where voice input is
@@ -1471,6 +1625,30 @@ const testPluginSdkApp = {
   UrlLink: TestUrlLink,
   experimental_NewThreadComposer: TestNewThreadComposer,
   experimental_VoiceInputTextarea: TestVoiceInputTextarea,
+  experimental_ComposerRoot: TestComposerRoot,
+  experimental_VoiceInputButton: TestVoiceInputButton,
+  experimental_VoiceRecordingBar: TestVoiceRecordingBar,
+  experimental_FailedVoiceRecordings: TestFailedVoiceRecordings,
+  experimental_ShortcutHint: TestShortcutHint,
+  experimental_ImageLightbox: TestImageLightbox,
+  experimental_PromptMentionIcon: TestPromptMentionIcon,
+  experimental_describePromptMention(
+    mention: ExperimentalComposerMentionTarget,
+  ): ExperimentalPromptMentionPresentation {
+    return {
+      className: "prompt-mention-pill",
+      title: mention.label,
+      text: `${mention.kind}: ${mention.label}`,
+    };
+  },
+  experimental_promptMentionClipboardAttributes:
+    testPromptMentionClipboardAttributes,
+  experimental_readPromptMentionClipboard: readTestPromptMentionClipboard,
+  experimental_PluginIcon: TestPluginIcon,
+  experimental_ThreadTitleText: TestThreadTitleText,
+  experimental_useThreadTitleDisplayText(title: string): string {
+    return title;
+  },
   experimental_ProviderModelPicker: TestProviderModelPicker,
   experimental_PermissionModePicker: TestPermissionModePicker,
   experimental_BranchPicker: TestBranchPicker,
@@ -1645,17 +1823,33 @@ const testPluginSdkApp = {
   useSdk(): PluginBrowserBbSdk {
     return useSlotEnv("useSdk").sdk;
   },
-  experimental_useSidebarThreadPullRequest(
-    threadId,
-  ): PluginSidebarThreadPullRequestState {
-    const env = useSlotEnv("experimental_useSidebarThreadPullRequest");
-    return useMemo(
-      () => ({
-        isLoading: false,
-        pullRequest: env.sidebarPullRequests.get(threadId) ?? null,
-      }),
-      [env, threadId],
-    );
+  experimental_useComposerRenderer(): ExperimentalComposerRendererApi {
+    const renderer = useSlotEnv(
+      "experimental_useComposerRenderer",
+    ).composerRenderer;
+    if (renderer === null) {
+      throw new Error(
+        "experimental_useComposerRenderer() is only available inside an experimental_composer component; pass composerRenderer to mount it as one.",
+      );
+    }
+    return renderer;
+  },
+  experimental_useComposerContributions(): ExperimentalComposerContributions {
+    if (
+      useSlotEnv("experimental_useComposerContributions").composerRenderer ===
+      null
+    ) {
+      throw new Error(
+        "experimental_useComposerContributions() is only available inside an experimental_composer component; pass composerRenderer to mount it as one.",
+      );
+    }
+    return TEST_COMPOSER_CONTRIBUTIONS;
+  },
+  experimental_useComposerMentionSearch(): ExperimentalComposerMentionSearch {
+    return IDLE_COMPOSER_MENTION_SEARCH;
+  },
+  experimental_useComposerCommandSearch(): ExperimentalComposerCommandSearch {
+    return IDLE_COMPOSER_COMMAND_SEARCH;
   },
   useComposerView(): ComposerView {
     const composer = useSlotEnv("useComposerView").composer;
@@ -1726,6 +1920,7 @@ export interface CapturedPluginApp {
   fileOpeners: PluginFileOpenerRegistration[];
   sourceCodeRenderers: PluginSourceCodeRendererRegistration[];
   diffRenderers: PluginDiffRendererRegistration[];
+  composers: ExperimentalComposerRegistration[];
   messageDirectives: PluginMessageDirectiveRegistration[];
   codeFenceRenderers: ExperimentalCodeFenceRendererRegistration[];
   messageActions: PluginMessageActionRegistration[];
@@ -1992,11 +2187,6 @@ export interface RenderSlotOptions<
   /** Checkout facts `experimental_useCheckoutState()` reports. */
   checkoutState?: Partial<CheckoutState>;
   /**
-   * Pull requests `experimental_useSidebarThreadPullRequest()` reports, keyed
-   * by thread id. Omitted → every thread reports none.
-   */
-  sidebarPullRequests?: Record<string, PluginSidebarPullRequest>;
-  /**
    * Thread ids `useSidebarThreadDraft()` and `useSidebarThreadDraftIds()`
    * report as holding an unsent draft. Omitted → none.
    */
@@ -2014,6 +2204,12 @@ export interface RenderSlotOptions<
   sidebarShortcuts?: Record<string, PluginSidebarThreadShortcut>;
   /** The split layout `useSidebarSplitLayout()` reports. Omitted → null. */
   sidebarSplitLayout?: PluginSidebarSplitLayout;
+  /**
+   * What `experimental_useComposerRenderer()` returns, as if the slot were
+   * mounted as an `experimental_composer` replacement. Omitted → the hook
+   * throws, as it does outside a composer replacement.
+   */
+  composerRenderer?: ExperimentalComposerRendererApi;
   /**
    * Items and the active item `experimental_useSidebarNavigation()` reports.
    * Omitted → no items. Actions are recorded in `sidebarNavigationCalls` and
@@ -2076,7 +2272,10 @@ export interface RenderedSlotBehaviorDrivers {
    * Push a realtime event to `useRealtime(channel, …)` subscribers, wrapped
    * in act. The payload is JSON-round-tripped like `bb.realtime.publish`.
    */
-  experimental_invalidateRpc(tags: readonly string[] | null): Promise<void>;
+  experimental_invalidateRpc(
+    tags: readonly string[] | null,
+    pluginId?: string,
+  ): Promise<void>;
   /**
    * Run a bb list command the way its key does while focus is on `target`
    * inside the element marked `data-sidebar-thread-tree`: the newest
@@ -2225,7 +2424,9 @@ export function renderSlot<
       });
     return parsed.value;
   };
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const callRpc = async (method: string, input?: unknown) => {
     const normalizedInput =
       input === undefined
@@ -2391,9 +2592,6 @@ export function renderSlot<
   };
   const environmentArchiveCalls: string[] = [];
   const sidebarListCommands: TestSidebarListCommands = new Map();
-  const sidebarPullRequests = new Map(
-    Object.entries(options.sidebarPullRequests ?? {}),
-  );
   const sidebarDraftThreadIds: ReadonlySet<string> = new Set(
     options.sidebarDraftThreadIds ?? [],
   );
@@ -2825,11 +3023,11 @@ export function renderSlot<
     threadActions: options.threadActions ?? NO_THREAD_ACTIONS,
     threadActionRegistrations:
       options.threadActionRegistrations ?? NO_THREAD_ACTION_REGISTRATIONS,
-    sidebarPullRequests,
     sidebarDraftThreadIds,
     sidebarRowStatuses,
     sidebarShortcuts,
     sidebarSplitLayout: options.sidebarSplitLayout ?? null,
+    composerRenderer: options.composerRenderer ?? null,
     environmentProviders,
     sdk,
     sdkCalls,
@@ -2902,7 +3100,15 @@ export function renderSlot<
   const setRealtimeConnectionState = async (
     state: PluginRealtimeConnectionState,
   ): Promise<void> => {
-    await act(async () => realtimeConnection.setState(state));
+    await act(async () => {
+      realtimeConnection.setState(state);
+      if (state === "connected")
+        await invalidateTags(
+          queryClient,
+          pluginTagScope(options.pluginId ?? "test-plugin"),
+          null,
+        );
+    });
   };
   const setComposerText = async (text: string): Promise<void> => {
     await act(async () => commitComposerText(text));
@@ -2927,13 +3133,12 @@ export function renderSlot<
     });
     return handled;
   };
-  const experimental_invalidateRpc = async (tags: readonly string[] | null) => {
+  const experimental_invalidateRpc = async (
+    tags: readonly string[] | null,
+    pluginId = options.pluginId ?? "test-plugin",
+  ) => {
     await act(async () => {
-      await invalidateTags(
-        queryClient,
-        pluginTagScope(rpcQueryHost.pluginId),
-        tags,
-      );
+      await invalidateTags(queryClient, pluginTagScope(pluginId), tags);
     });
   };
   const unmountSlot = (): void => {

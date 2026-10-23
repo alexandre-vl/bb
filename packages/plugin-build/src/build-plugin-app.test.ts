@@ -68,6 +68,42 @@ describe("plugin app runtime shim", () => {
     await expect(bundle("addedLater")).resolves.toContain("addedLater");
   });
 
+  it("still builds a plugin that imports a retired SDK hook and warns with the replacement", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bb-plugin-retired-"));
+    tempDirs.push(dir);
+    const facadePath = join(dir, "app-facade.mjs");
+    await writeFile(facadePath, "export const first = 1;\n");
+    const entry = join(dir, "app.tsx");
+    await writeFile(
+      entry,
+      `import {\n  first,\n  experimental_useSidebarThreadPullRequest as useRowPullRequest,\n} from "@get-bb/plugin-sdk/app";\nexport { first, useRowPullRequest };\n`,
+    );
+
+    const result = await build({
+      entryPoints: [entry],
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      write: false,
+      logLevel: "silent",
+      plugins: [runtimeShimPlugin(pathToFileURL(facadePath).href)],
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.outputFiles[0]?.text).toContain(
+      "experimental_useSidebarThreadPullRequest",
+    );
+    expect(result.warnings).toMatchObject([
+      {
+        pluginName: "bb-plugin-runtime-shims",
+        location: expect.objectContaining({ line: 4 }),
+        text: expect.stringMatching(
+          /^experimental_useSidebarThreadPullRequest is retired from @get-bb\/plugin-sdk\/app and keeps working only for already-built plugins\. Read pull requests from the GitHub PR Status plugin instead: experimental_useRpcKeyedQuery\(\{ pluginId: "bb--github-pr-status"/,
+        ),
+      },
+    ]);
+  });
+
   it("has an export-manifest entry for every non-SDK slot", () => {
     for (const specifier of Object.keys(RUNTIME_SLOT_BY_SPECIFIER)) {
       if (specifier.endsWith("/plugin-sdk/app")) continue;

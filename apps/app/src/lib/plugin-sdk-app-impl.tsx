@@ -13,6 +13,31 @@ import {
   usePluginCheckoutState,
 } from "@/components/plugin/usePluginBranchPickerState";
 import { PluginNewThreadComposer } from "@/components/plugin/PluginNewThreadComposer";
+import { useComposerRendererApi } from "@/components/promptbox/ComposerBox";
+import {
+  ComposerRoot,
+  useComposerContributions,
+} from "@/components/promptbox/composer-root";
+import {
+  useComposerCommandSearch,
+  useComposerMentionSearch,
+} from "@/components/promptbox/composer-search";
+import { VoiceInputButton } from "@/components/promptbox/VoiceInputButton";
+import { VoiceRecordingBar } from "@/components/promptbox/VoiceRecordingBar";
+import { FailedVoiceRecordings } from "@/components/promptbox/FailedVoiceRecordings";
+import { AppCommandShortcutHint } from "@/components/commands/AppCommandShortcutHint";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { ComposerMentionIcon } from "@/components/promptbox/mentions/PromptMentionIcon";
+import {
+  describePromptMention,
+  promptMentionClipboardAttributes,
+  readPromptMentionClipboard,
+} from "@/components/promptbox/mentions/prompt-mention-pill";
+import { PluginIcon } from "@/components/plugin/PluginIcon";
+import {
+  ThreadTitle as ThreadTitleText,
+  useThreadTitleDisplayText,
+} from "@/components/thread/ThreadTitleMentions";
 import { VoiceInputTextarea } from "@/components/promptbox/VoiceInputTextarea";
 import { PluginProviderModelPicker } from "@/components/plugin/PluginProviderModelPicker";
 import { PluginPermissionModePicker } from "@/components/plugin/PluginPermissionModePicker";
@@ -132,6 +157,24 @@ export const pluginSdkAppImplementation = {
   experimental_useFixedTabTarget,
   useComposer,
   useComposers,
+  experimental_useComposerRenderer: useComposerRendererApi,
+  experimental_useThreadTitleDisplayText: useThreadTitleDisplayText,
+  experimental_useComposerContributions: useComposerContributions,
+  experimental_useComposerMentionSearch: useComposerMentionSearch,
+  experimental_useComposerCommandSearch: useComposerCommandSearch,
+  experimental_ComposerRoot: ComposerRoot,
+  experimental_VoiceInputButton: VoiceInputButton,
+  experimental_VoiceRecordingBar: VoiceRecordingBar,
+  experimental_FailedVoiceRecordings: FailedVoiceRecordings,
+  experimental_ShortcutHint: AppCommandShortcutHint,
+  experimental_ImageLightbox: ImageLightbox,
+  experimental_PromptMentionIcon: ComposerMentionIcon,
+  experimental_describePromptMention: describePromptMention,
+  experimental_promptMentionClipboardAttributes:
+    promptMentionClipboardAttributes,
+  experimental_readPromptMentionClipboard: readPromptMentionClipboard,
+  experimental_PluginIcon: PluginIcon,
+  experimental_ThreadTitleText: ThreadTitleText,
   useComposerView,
   useRealtime,
   useRealtimeConnectionState,
@@ -170,7 +213,6 @@ export const pluginSdkAppImplementation = {
   experimental_THREAD_ACTION_GROUPS,
   experimental_THREAD_INFO_ROW_GROUPS,
   experimental_THREAD_INFO_SECTION_GROUPS,
-  experimental_useSidebarThreadPullRequest: useSidebarThreadPullRequest,
   experimental_useSidebarThreadSplit: useSidebarThreadSplit,
   experimental_useSidebarNavigation: useSidebarNavigation,
   experimental_useSidebarNavigationSplit: useSidebarNavigationSplit,
@@ -193,6 +235,10 @@ export const pluginSdkAppImplementation = {
   experimental_copyToClipboard: copyToClipboard,
   experimental_saveFile: saveFile,
 } satisfies PluginSdkApp;
+
+export const retiredPluginSdkAppMembers = {
+  experimental_useSidebarThreadPullRequest: useSidebarThreadPullRequest,
+};
 
 function PluginMarkdown({
   content,
