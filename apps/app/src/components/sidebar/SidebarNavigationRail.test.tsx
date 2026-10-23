@@ -82,6 +82,7 @@ vi.mock("@/components/commands/AppCommandProvider", () => ({
   }),
   useAppCommandShortcut: () => null,
   useIsAppCommandModifierHeld: () => false,
+  useSidebarListCommandHandler: () => {},
 }));
 
 vi.mock("@/views/useMobileRecentsThreadReveal", () => ({

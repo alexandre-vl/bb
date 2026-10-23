@@ -298,6 +298,7 @@ export type ThreadReadStateCommand =
       kind: "read";
       threadId: string;
       throughAttentionAt?: number;
+      descendantsThroughAttentionAt?: number;
       signal?: AbortSignal;
     }
   | { kind: "unread"; threadId: string; signal?: AbortSignal };
@@ -355,6 +356,7 @@ interface ThreadReadStateMutation<Input> {
 interface ThreadReadMutation extends ThreadReadStateMutation<{
   threadId: string;
   throughAttentionAt?: number;
+  descendantsThroughAttentionAt?: number;
 }> {
   hasFailed: (threadId: string, latestAttentionAt: number) => boolean;
   noteSeenRead: (threadId: string) => void;
@@ -405,6 +407,12 @@ async function sendThreadReadStateAttempt(
       ...(command.throughAttentionAt === undefined
         ? {}
         : { experimental_throughAttentionAt: command.throughAttentionAt }),
+      ...(command.descendantsThroughAttentionAt === undefined
+        ? {}
+        : {
+            experimental_descendantsThroughAttentionAt:
+              command.descendantsThroughAttentionAt,
+          }),
     });
   } finally {
     clearTimeout(timeout);
@@ -538,7 +546,12 @@ export function runThreadReadStateCommand(
     transaction: beginThreadReadStateTransaction({
       intent:
         command.kind === "read"
-          ? { kind: "read", throughAttentionAt: command.throughAttentionAt }
+          ? {
+              kind: "read",
+              throughAttentionAt: command.throughAttentionAt,
+              descendantsThroughAttentionAt:
+                command.descendantsThroughAttentionAt,
+            }
           : { kind: "unread" },
       queryClient,
       threadId: command.threadId,
@@ -589,7 +602,11 @@ export function useMarkThreadRead(): ThreadReadMutation {
   return useMemo(
     () => ({
       ...toThreadReadStateMutation(
-        (input: { threadId: string; throughAttentionAt?: number }) =>
+        (input: {
+          threadId: string;
+          throughAttentionAt?: number;
+          descendantsThroughAttentionAt?: number;
+        }) =>
           runThreadReadStateCommand(queryClient, { kind: "read", ...input }),
       ),
       hasFailed: (threadId: string, latestAttentionAt: number) =>

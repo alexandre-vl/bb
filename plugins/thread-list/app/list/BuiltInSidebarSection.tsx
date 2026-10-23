@@ -11,7 +11,7 @@ import type {
   CollapsibleSidebarSectionId,
   SidebarSectionId,
 } from "../model/sidebar-section-id.js";
-import type { CollapsedChildActivity } from "../model/thread-activity.js";
+import type { ThreadRollup } from "../model/thread-activity.js";
 import { PINNED_THREAD_PARENT_KEY } from "../dnd/useSectionThreadDnd.js";
 import type { ThreadSplitIndicatorTarget } from "./groupRollups.js";
 
@@ -21,7 +21,7 @@ interface SortableSidebarSectionProps extends TopLevelSidebarSectionProps {
 }
 
 export interface BuiltInSidebarSectionOptions {
-  activity?: CollapsedChildActivity;
+  rollup?: ThreadRollup;
   actions?: ReactNode;
   actionsOpen?: boolean;
   collapsedThreads?: readonly ThreadSplitIndicatorTarget[];
@@ -83,7 +83,7 @@ export const SortableSidebarSection = memo(function SortableSidebarSection({
 function BuiltInSidebarSection({
   actions,
   actionsOpen,
-  activity,
+  rollup,
   collapsedThreads,
   consumeClickSuppression,
   content,
@@ -97,11 +97,10 @@ function BuiltInSidebarSection({
     <SortableSidebarSection
       id={id}
       label={label}
-      stickyHeader={id !== "pinned"}
       disabled={disabled}
       actions={actions}
       actionsOpen={actionsOpen}
-      collapsedActivity={activity}
+      rollup={rollup}
       collapsedThreads={collapsedThreads}
       actionsMobileAlways
       collapseControl={{

@@ -21,8 +21,9 @@ describe("toPluginSidebarThread", () => {
   it("resolves the display title through the same rules bb's row uses", () => {
     expect(toPluginSidebarThread(makeThread()).displayTitle).toBe("A thread");
     expect(
-      toPluginSidebarThread(makeThread({ title: null, titleFallback: "Fallback" }))
-        .displayTitle,
+      toPluginSidebarThread(
+        makeThread({ title: null, titleFallback: "Fallback" }),
+      ).displayTitle,
     ).toBe("Fallback");
     expect(
       toPluginSidebarThread(
@@ -80,6 +81,17 @@ describe("toPluginSidebarThread", () => {
     expect(
       toPluginSidebarThread(
         makeThread({
+          hasPendingInteraction: true,
+          status: "error",
+          lastReadAt: 1,
+          latestAttentionAt: 9,
+        }),
+      ).indicator,
+    ).toBe("waiting-for-input");
+
+    expect(
+      toPluginSidebarThread(
+        makeThread({
           runtime: {
             displayStatus: "active",
           },
@@ -120,17 +132,49 @@ describe("toPluginSidebarThread", () => {
     expect(mapped.isUnread).toBe(true);
   });
 
-  it("reports unread child threads as unread", () => {
-    const mapped = toPluginSidebarThread(
+  it("resolves unread child threads like roots", () => {
+    const unread = toPluginSidebarThread(
       makeThread({
         parentThreadId: "thr_parent",
         lastReadAt: 1,
         latestAttentionAt: 9,
       }),
     );
-    expect(mapped.isUnread).toBe(true);
-    expect(mapped.indicator).toBe("none");
+    expect(unread.isUnread).toBe(true);
+    expect(unread.indicator).toBe("unread-success");
+    expect(unread.experimental_attention).toBe("new");
+
+    const failed = toPluginSidebarThread(
+      makeThread({
+        parentThreadId: "thr_parent",
+        status: "error",
+        lastReadAt: 1,
+        latestAttentionAt: 9,
+      }),
+    );
+    expect(failed.indicator).toBe("unread-error");
+    expect(failed.experimental_attention).toBe("failed");
   });
+
+  it.each([
+    [{ hasPendingInteraction: true, status: "error" as const }, "needs-you"],
+    [
+      { status: "error" as const, lastReadAt: 1, latestAttentionAt: 9 },
+      "failed",
+    ],
+    [{ queuedWork: "failed" as const }, "failed"],
+    [{ lastReadAt: 1, latestAttentionAt: 9 }, "new"],
+    [{ runtime: { displayStatus: "active" as const } }, null],
+    [{ queuedWork: "waiting" as const }, null],
+    [{}, null],
+  ] satisfies [Partial<ThreadListEntry>, string | null][])(
+    "derives the attention of %j as %s",
+    (overrides, attention) => {
+      expect(
+        toPluginSidebarThread(makeThread(overrides)).experimental_attention,
+      ).toBe(attention);
+    },
+  );
 
   it("treats a never-read thread as unread", () => {
     expect(
@@ -212,6 +256,14 @@ describe("toPluginSidebarThread", () => {
       makeThread({ queuedWork: "failed", lastReadAt: 1, latestAttentionAt: 9 }),
     );
     expect(unreadAndFailed.indicator).toBe("queued-failed");
+
+    const runningAndFailed = toPluginSidebarThread(
+      makeThread({
+        queuedWork: "failed",
+        runtime: { displayStatus: "active" },
+      }),
+    );
+    expect(runningAndFailed.indicator).toBe("queued-failed");
   });
 
   it("reports no environment when the thread has none", () => {

@@ -62,11 +62,26 @@ const sdkThreads = vi.hoisted(() => ({
   get: vi.fn(),
 }));
 const copyToClipboardWithToast = vi.hoisted(() => vi.fn(async () => true));
+const boundShortcuts = vi.hoisted(
+  () => new Map<string, { label: string; ariaKeyshortcuts: string }>(),
+);
 
 vi.mock("@/lib/sdk", () => ({ sdk: { threads: sdkThreads } }));
 vi.mock("@/lib/clipboard", () => ({ copyToClipboardWithToast }));
 vi.mock("./ThreadActionsProvider", () => ({
   useThreadActions: () => hostActions,
+}));
+vi.mock("@/components/commands/AppCommandProvider", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/components/commands/AppCommandProvider")
+  >()),
+  useAppCommandShortcuts: (commands: readonly string[]) =>
+    new Map(
+      commands.flatMap((command) => {
+        const shortcut = boundShortcuts.get(command);
+        return shortcut === undefined ? [] : [[command, shortcut] as const];
+      }),
+    ),
 }));
 
 const moveRun = vi.fn();
@@ -325,6 +340,7 @@ afterEach(() => {
   window.sessionStorage.clear();
   resetPluginSlotStoreForTest();
   resetThreadActionRegistryForTest();
+  boundShortcuts.clear();
   vi.clearAllMocks();
   vi.useRealTimers();
 });
@@ -866,6 +882,63 @@ describe("thread action registrations", () => {
       "fixture/notify",
     ]);
   });
+});
+
+describe("thread action shortcuts", () => {
+  function ShortcutList({ thread }: { thread: ThreadListEntry }) {
+    const entries = useThreadActionEntries(threadListEntryActionTarget(thread));
+    return (
+      <ol>
+        {entries.map(({ key, experimental_shortcut }) => (
+          <li key={key}>{`${key} ${experimental_shortcut?.label ?? "-"}`}</li>
+        ))}
+      </ol>
+    );
+  }
+
+  it.each([
+    [
+      "an active thread",
+      baseThread,
+      ["bb--core/read U", "bb--core/rename F2", "bb--core/archive E"],
+    ],
+    [
+      "an archived thread, whose Unarchive has none",
+      { ...baseThread, archivedAt: 20 },
+      ["bb--core/read U", "bb--core/rename F2"],
+    ],
+  ])(
+    "gives bb's actions the keys the person bound on %s",
+    async (_name, thread, bound) => {
+      boundShortcuts.set("thread.archive", {
+        label: "E",
+        ariaKeyshortcuts: "E",
+      });
+      boundShortcuts.set("thread.rename", {
+        label: "F2",
+        ariaKeyshortcuts: "F2",
+      });
+      boundShortcuts.set("thread.toggleRead", {
+        label: "U",
+        ariaKeyshortcuts: "U",
+      });
+      const [surface] = SURFACES;
+      if (surface === undefined) throw new Error("no surface");
+      renderSurface(
+        { ...surface, render: () => <ShortcutList thread={thread} /> },
+        { thread },
+      );
+      await waitFor(() => {
+        const rows = screen
+          .getAllByRole("listitem")
+          .map((item) => item.textContent ?? "");
+        expect(rows.some((row) => row.startsWith("bb--core/archive "))).toBe(
+          true,
+        );
+        expect(rows.filter((row) => !row.endsWith(" -"))).toEqual(bound);
+      });
+    },
+  );
 });
 
 describe("thread actions outside bb's own surfaces", () => {

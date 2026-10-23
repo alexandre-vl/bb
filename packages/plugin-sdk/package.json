@@ -157,6 +157,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@bb/client-core": "workspace:*",
     "@bb/domain": "workspace:*",
     "@bb/process-utils": "workspace:*",
     "@bb/provider-bridge-acp": "workspace:*",

@@ -59,6 +59,7 @@ import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
 import {
   orderPendingInteractions,
   useThread,
+  useThreadDescendantReadStates,
   useThreadPendingInteractions,
 } from "@/hooks/queries/thread-queries";
 import { useThreadQueuedMessages } from "@/hooks/queries/thread-panel-queries";
@@ -231,9 +232,13 @@ function EmbeddedThreadChatWithComposer({
   ).filter((interaction) => interaction.payload.kind !== "plugin");
   const hasComposerBlockingPendingInteraction =
     composerBlockingPendingInteractions.length > 0;
+  const descendantReadStates = useThreadDescendantReadStates(
+    threadQuery.data?.id,
+  );
   useThreadReadTracking({
     markThreadRead,
     thread: threadQuery.data,
+    descendants: descendantReadStates,
   });
   const { data: queuedMessagesData } = useThreadQueuedMessages(threadId);
   const queuedMessages = queuedMessagesData ?? EMPTY_QUEUED_MESSAGES;

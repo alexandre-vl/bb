@@ -63,6 +63,7 @@ vi.mock("@/components/commands/AppCommandProvider", () => ({
   }),
   useAppCommandShortcut: () => null,
   useIsAppCommandModifierHeld: () => false,
+  useSidebarListCommandHandler: () => {},
 }));
 
 const THREAD_PATH = getThreadRoutePath({

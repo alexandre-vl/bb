@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   experimental_Icon as RegisteredIcon,
+  type ExperimentalThreadActionShortcut,
   type PluginThreadActionEntry,
 } from "@get-bb/plugin-sdk/app";
 import {
@@ -21,6 +22,19 @@ import {
 import { COARSE_POINTER_ICON_SIZE_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { cn } from "@/lib/utils";
 
+function ThreadActionShortcutHint({
+  shortcut,
+}: {
+  shortcut: ExperimentalThreadActionShortcut | null;
+}) {
+  if (shortcut === null) return null;
+  return (
+    <kbd className="ml-2 font-sans tabular-nums opacity-60">
+      {shortcut.label}
+    </kbd>
+  );
+}
+
 function ThreadQuickActionButton({
   entry,
   className,
@@ -39,6 +53,8 @@ function ThreadQuickActionButton({
           size="icon"
           className={cn("rounded-md p-0", className)}
           aria-label={action.label}
+          aria-keyshortcuts={entry.experimental_shortcut?.ariaKeyshortcuts}
+          tabIndex={-1}
           data-thread-action={entry.key}
           disabled={action.disabled || isRunning}
           onClick={(event) => {
@@ -54,7 +70,10 @@ function ThreadQuickActionButton({
           />
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{action.label}</TooltipContent>
+      <TooltipContent side="bottom">
+        {action.label}
+        <ThreadActionShortcutHint shortcut={entry.experimental_shortcut} />
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -90,6 +109,8 @@ function ThreadQuickActionChoices({
                   ? action.label
                   : `${action.label}, ${action.detail}`
               }
+              aria-keyshortcuts={entry.experimental_shortcut?.ariaKeyshortcuts}
+              tabIndex={-1}
               data-thread-action={entry.key}
               disabled={action.disabled}
               onClick={(event) => {
@@ -107,6 +128,7 @@ function ThreadQuickActionChoices({
           {action.detail === undefined
             ? action.label
             : `${action.label}: ${action.detail}`}
+          <ThreadActionShortcutHint shortcut={entry.experimental_shortcut} />
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent
