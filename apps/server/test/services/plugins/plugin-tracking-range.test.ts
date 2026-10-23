@@ -491,6 +491,7 @@ describe("plugin tracking range service and route", () => {
         getDaemonSessionIdForHost: () => null,
         notifyPluginChanged: () => {},
         notifyPluginSignal: () => 0,
+        onWatchedTargets: () => () => {},
         notifySystem: (kinds) => {
           broadcasts.push([...kinds]);
         },
