@@ -186,7 +186,7 @@ describe("deferred timeline details", () => {
     });
     if (
       reasoning.systemKind !== "operation" ||
-      reasoning.operationKind === "parent-change"
+      reasoning.operationKind !== "reasoning"
     ) {
       throw new Error("Expected a reasoning operation row");
     }

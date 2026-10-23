@@ -1,4 +1,7 @@
-import type { TimelineRow } from "@bb/server-contract";
+import type {
+  TimelineProvisioningEstimate,
+  TimelineRow,
+} from "@bb/server-contract";
 import { ThreadTimelineRows } from "@/components/thread/timeline";
 import { systemRow } from "@/test/fixtures/thread-timeline-rows";
 import { StoryCard, StoryRow } from "../../../../../.ladle/story-card";
@@ -17,31 +20,66 @@ const baseProps = {
   workspaceRootPath: undefined,
 };
 
-const provisioningPending: TimelineRow = systemRow({
-  id: "thr_sjgc9pafri:op:thread-provisioning:tpv_4if68xgg7d",
-  threadId: "thr_sjgc9pafri",
-  turnId: null,
-  sourceSeqStart: 12,
-  sourceSeqEnd: 28,
-  startedAt: Date.now() - 9_000,
-  createdAt: Date.now(),
-  systemKind: "operation",
-  operationKind: "thread-provisioning",
-  title: "Provisioning thread",
-  detail:
-    "Creating worktree (305ms)\n" +
-    "HEAD is now at 37eeec85 Refactor timeline row titles\n" +
-    "Preparing worktree (new branch 'bb/investigate-thread-timeline-load-thr_sjgc9pafri')\n" +
-    "Created worktree (305ms)\n" +
-    "Using workspace: /Users/michael/.bb-dev/worktrees/env_etyr7f84cg/bb\n" +
-    "Running .bb-env-setup.sh\n" +
-    "[bb-env-setup] Running: pnpm install\n" +
-    "Scope: all 35 workspace projects\n" +
-    "Lockfile is up to date, resolution step is skipped\n" +
-    "Progress: resolved 1094, reused 1093, downloaded 0, added 877",
-  status: "pending",
-  completedAt: null,
-});
+const PROVISIONING_ESTIMATE: TimelineProvisioningEstimate = {
+  p50Ms: 21_000,
+  p90Ms: 34_000,
+  runCount: 20,
+  scope: "project",
+};
+
+function runningProvisioningRow(id: string, elapsedMs: number): TimelineRow {
+  const startedAt = Date.now() - elapsedMs;
+  return systemRow({
+    id,
+    threadId: "thr_sjgc9pafri",
+    turnId: null,
+    sourceSeqStart: 12,
+    sourceSeqEnd: 28,
+    startedAt,
+    createdAt: Date.now(),
+    systemKind: "operation",
+    operationKind: "thread-provisioning",
+    title: "Provisioning thread",
+    detail: null,
+    status: "pending",
+    completedAt: null,
+    steps: [
+      {
+        label: "Preparing worktree…",
+        status: "completed",
+        startedAt,
+        completedAt: startedAt + 305,
+        output: null,
+      },
+      {
+        label:
+          "Using workspace: /Users/michael/.bb-dev/worktrees/env_etyr7f84cg/bb",
+        status: "completed",
+        startedAt: startedAt + 305,
+        completedAt: startedAt + 317,
+        output: null,
+      },
+      {
+        label: "Running .bb-env-setup.sh",
+        status: "pending",
+        startedAt: startedAt + 317,
+        completedAt: null,
+        output: "Progress: resolved 1094, reused 1093, downloaded 0, added 877",
+      },
+    ],
+    estimate: PROVISIONING_ESTIMATE,
+  });
+}
+
+const provisioningPending = runningProvisioningRow(
+  "thr_sjgc9pafri:op:thread-provisioning:tpv_4if68xgg7d",
+  9_000,
+);
+
+const provisioningSlow = runningProvisioningRow(
+  "thr_sjgc9pafri:op:thread-provisioning:tpv_4if68xgg7d:slow",
+  41_000,
+);
 
 const provisioningCompleted: TimelineRow = systemRow({
   id: "thr_sjgc9pafri:op:thread-provisioning:tpv_4if68xgg7d:completed",
@@ -54,14 +92,77 @@ const provisioningCompleted: TimelineRow = systemRow({
   systemKind: "operation",
   operationKind: "thread-provisioning",
   title: "Provisioned thread",
-  detail:
-    "Created worktree (305ms)\n" +
-    "Using workspace: /Users/michael/.bb-dev/worktrees/env_etyr7f84cg/bb\n" +
-    ".bb-env-setup.sh finished (8.2s)\n" +
-    "Using branch: bb/investigate-thread-timeline-load-thr_sjgc9pafri (37eeec8)\n" +
-    "Provisioned thread (8.7s)",
+  detail: null,
   status: "completed",
   completedAt: 1778027670469,
+  steps: [
+    {
+      label: "Preparing worktree…",
+      status: "completed",
+      startedAt: 1778027661741,
+      completedAt: 1778027662046,
+      output: null,
+    },
+    {
+      label:
+        "Using workspace: /Users/michael/.bb-dev/worktrees/env_etyr7f84cg/bb",
+      status: "completed",
+      startedAt: 1778027662046,
+      completedAt: 1778027662058,
+      output: null,
+    },
+    {
+      label: "Running .bb-env-setup.sh",
+      status: "completed",
+      startedAt: 1778027662058,
+      completedAt: 1778027670258,
+      output: null,
+    },
+    {
+      label:
+        "Using branch: bb/investigate-thread-timeline-load-thr_sjgc9pafri (37eeec8)",
+      status: "completed",
+      startedAt: 1778027670258,
+      completedAt: 1778027670469,
+      output: null,
+    },
+  ],
+});
+
+const provisioningFailed: TimelineRow = systemRow({
+  id: "thr_sjgc9pafri:op:thread-provisioning:tpv_4if68xgg7d:failed",
+  threadId: "thr_sjgc9pafri",
+  turnId: null,
+  sourceSeqStart: 12,
+  sourceSeqEnd: 14,
+  startedAt: 1778027661741,
+  createdAt: 1778027662000,
+  systemKind: "operation",
+  operationKind: "thread-provisioning",
+  title: "Provisioning thread failed",
+  detail:
+    "Setup script failed with exit code 1: /Users/michael/.bb-dev/worktrees/env_etyr7f84cg/bb/.bb-env-setup.sh",
+  status: "error",
+  completedAt: 1778027663400,
+  steps: [
+    {
+      label: "Preparing worktree…",
+      status: "completed",
+      startedAt: 1778027661741,
+      completedAt: 1778027662046,
+      output: null,
+    },
+    {
+      label: "Running .bb-env-setup.sh",
+      status: "error",
+      startedAt: 1778027662046,
+      completedAt: 1778027663400,
+      output: [
+        "Scope: all 41 workspace projects",
+        'ERR_PNPM_NO_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is absent',
+      ].join("\n"),
+    },
+  ],
 });
 
 const compactionCompleted: TimelineRow = systemRow({
@@ -350,8 +451,8 @@ export function Operations() {
   return (
     <StoryCard>
       <StoryRow
-        label="thread-provisioning — pending, cleaned"
-        hint="status=pending; no git/env command echo lines in the transcript"
+        label="thread-provisioning — pending with estimate"
+        hint="live clock, time left against the usual p50, running step keeps its latest output line"
       >
         <TimelineStage>
           <ThreadTimelineRows
@@ -362,13 +463,37 @@ export function Operations() {
         </TimelineStage>
       </StoryRow>
       <StoryRow
-        label="thread-provisioning — completed"
-        hint="status=completed; already matched the cleaned transcript shape"
+        label="thread-provisioning — slower than usual"
+        hint="elapsed time is past the p90 of recent provisionings"
       >
         <TimelineStage>
           <ThreadTimelineRows
             {...baseProps}
+            timelineRows={[provisioningSlow]}
+          />
+        </TimelineStage>
+      </StoryRow>
+      <StoryRow
+        label="thread-provisioning — completed"
+        hint="total time in the title, each step with its own time"
+      >
+        <TimelineStage>
+          <ThreadTimelineRows
+            {...baseProps}
+            initialExpanded={new Set([provisioningCompleted.id])}
             timelineRows={[provisioningCompleted]}
+          />
+        </TimelineStage>
+      </StoryRow>
+      <StoryRow
+        label="thread-provisioning — failed"
+        hint="the failed step keeps its last output lines, then the error"
+      >
+        <TimelineStage>
+          <ThreadTimelineRows
+            {...baseProps}
+            initialExpanded={new Set([provisioningFailed.id])}
+            timelineRows={[provisioningFailed]}
           />
         </TimelineStage>
       </StoryRow>
