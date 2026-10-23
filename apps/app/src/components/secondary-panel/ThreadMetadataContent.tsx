@@ -100,7 +100,7 @@ import {
 import { PullRequestNextStepLabel } from "@/components/pull-request/PullRequestNextStepLabel";
 import { PullRequestStateIcon } from "@/components/pull-request/PullRequestStatusPill";
 import { GithubFaviconIcon } from "@/components/pull-request/GithubFaviconIcon";
-import { useUrlAnchorClickHandler } from "@/lib/url-open-routing";
+import { useClaimableUrlAnchorClickHandler } from "@/components/plugin/plugin-url-claims";
 import { ParentThreadPicker } from "@/components/pickers/ParentThreadPicker";
 
 interface ParentSelectorRowProps {
@@ -508,7 +508,9 @@ interface PullRequestRowProps {
 }
 
 export function PullRequestRow({ pullRequest }: PullRequestRowProps) {
-  const handlePullRequestClick = useUrlAnchorClickHandler(pullRequest?.url);
+  const handlePullRequestClick = useClaimableUrlAnchorClickHandler(
+    pullRequest?.url,
+  );
   if (!pullRequest) return null;
   const stateDisplay = getPullRequestStateDisplay(pullRequest);
   const nextStep = getPullRequestNextStep(pullRequest);
