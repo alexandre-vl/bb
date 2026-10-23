@@ -15,28 +15,43 @@ interface MarkThreadReadMutation {
   mutateAsync: (input: {
     threadId: string;
     throughAttentionAt: number;
+    descendantsThroughAttentionAt: number;
   }) => Promise<unknown>;
 }
 
 interface UseThreadReadTrackingParams {
   markThreadRead: MarkThreadReadMutation;
   thread?: ThreadReadTrackingState;
+  descendants: readonly ThreadReadTrackingState[];
 }
 
 interface ReadTrackingSnapshot {
   isActive: boolean;
   isVisible: boolean;
   isRead: boolean | null;
-  latestAttentionAt: number | null;
+  attentionAtById: ReadonlyMap<string, number>;
   threadId: string | null;
   visibilityRevision: number;
+}
+
+function hasNewAttention(
+  previousAttentionAtById: ReadonlyMap<string, number>,
+  subtree: readonly ThreadReadTrackingState[],
+): boolean {
+  return subtree.some((member) => {
+    const previousAttentionAt = previousAttentionAtById.get(member.id);
+    return previousAttentionAt === undefined
+      ? !isThreadRead(member)
+      : previousAttentionAt !== member.latestAttentionAt;
+  });
 }
 
 export function useThreadReadTracking({
   markThreadRead,
   thread,
+  descendants,
 }: UseThreadReadTrackingParams) {
-  const suppressedManualUnreadKeysRef = useRef<Set<string>>(new Set());
+  const manuallyUnreadRef = useRef(false);
   const previousSnapshotRef = useRef<ReadTrackingSnapshot | null>(null);
   const visibilityRevision = useDocumentVisibilityRevision();
   const isVisible = useDocumentVisible();
@@ -44,16 +59,18 @@ export function useThreadReadTracking({
 
   useEffect(() => {
     const previousSnapshot = previousSnapshotRef.current;
-    const threadIsRead = thread ? isThreadRead(thread) : null;
-    const currentSnapshot: ReadTrackingSnapshot = {
+    const subtree = thread ? [thread, ...descendants] : [];
+    const subtreeIsRead = thread ? subtree.every(isThreadRead) : null;
+    previousSnapshotRef.current = {
       isActive,
       isVisible,
-      isRead: threadIsRead,
-      latestAttentionAt: thread?.latestAttentionAt ?? null,
+      isRead: subtreeIsRead,
+      attentionAtById: new Map(
+        subtree.map((member) => [member.id, member.latestAttentionAt]),
+      ),
       threadId: thread?.id ?? null,
       visibilityRevision,
     };
-    previousSnapshotRef.current = currentSnapshot;
 
     if (!isVisible) {
       return;
@@ -62,19 +79,17 @@ export function useThreadReadTracking({
       return;
     }
 
-    const marker = `${thread.id}:${thread.latestAttentionAt}`;
-    const isOpenedThread =
-      previousSnapshot === null || previousSnapshot.threadId !== thread.id;
-    const hasNewAttention =
-      previousSnapshot?.threadId === thread.id &&
-      previousSnapshot.latestAttentionAt !== thread.latestAttentionAt;
-    if (isOpenedThread || hasNewAttention) {
-      suppressedManualUnreadKeysRef.current.clear();
+    const isSameThread = previousSnapshot?.threadId === thread.id;
+    const attentionArrived =
+      isSameThread &&
+      hasNewAttention(previousSnapshot.attentionAtById, subtree);
+    if (!isSameThread || attentionArrived) {
+      manuallyUnreadRef.current = false;
     }
 
-    if (threadIsRead) {
+    if (subtreeIsRead) {
       markThreadRead.noteSeenRead(thread.id);
-      suppressedManualUnreadKeysRef.current.delete(marker);
+      manuallyUnreadRef.current = false;
       return;
     }
 
@@ -82,35 +97,28 @@ export function useThreadReadTracking({
       thread.id,
       thread.latestAttentionAt,
     );
-    const becameManuallyUnread =
-      previousSnapshot?.threadId === thread.id &&
-      previousSnapshot.latestAttentionAt === thread.latestAttentionAt &&
+    if (
+      isSameThread &&
+      !attentionArrived &&
       previousSnapshot.isVisible &&
       previousSnapshot.isRead === true &&
-      !readFailed;
-
-    if (becameManuallyUnread) {
-      suppressedManualUnreadKeysRef.current.add(marker);
-    }
-    if (
-      suppressedManualUnreadKeysRef.current.has(marker) &&
-      !isOpenedThread &&
-      !hasNewAttention
+      !readFailed
     ) {
+      manuallyUnreadRef.current = true;
+    }
+    if (manuallyUnreadRef.current) {
       return;
     }
 
     if (!isActive) {
       return;
     }
-    const becameActive =
-      previousSnapshot?.threadId === thread.id &&
-      previousSnapshot.isActive === false;
+    const becameActive = isSameThread && previousSnapshot.isActive === false;
     const retryFailedRead =
       readFailed && previousSnapshot?.visibilityRevision !== visibilityRevision;
     if (
-      !isOpenedThread &&
-      !hasNewAttention &&
+      isSameThread &&
+      !attentionArrived &&
       !becameActive &&
       !retryFailedRead
     ) {
@@ -121,7 +129,18 @@ export function useThreadReadTracking({
       .mutateAsync({
         threadId: thread.id,
         throughAttentionAt: thread.latestAttentionAt,
+        descendantsThroughAttentionAt: subtree.reduce(
+          (latest, member) => Math.max(latest, member.latestAttentionAt),
+          thread.latestAttentionAt,
+        ),
       })
       .catch(() => undefined);
-  }, [isActive, isVisible, markThreadRead, thread, visibilityRevision]);
+  }, [
+    descendants,
+    isActive,
+    isVisible,
+    markThreadRead,
+    thread,
+    visibilityRevision,
+  ]);
 }

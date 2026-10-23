@@ -248,6 +248,7 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
   orderPendingInteractions: (
     interactions: readonly { createdAt: number }[] | undefined,
   ) => interactions ?? [],
+  useThreadDescendantReadStates: () => [],
 }));
 
 vi.mock(

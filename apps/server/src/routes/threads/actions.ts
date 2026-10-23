@@ -625,11 +625,16 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
 
   post(routes.read, (context, query) => {
     requirePublicThread(deps.db, context.req.param("id"));
+    const throughAttentionAt =
+      query.throughAttentionAt === undefined
+        ? null
+        : Number(query.throughAttentionAt);
     const thread = markThreadRead(deps.db, deps.hub, context.req.param("id"), {
-      throughAttentionAt:
-        query.throughAttentionAt === undefined
-          ? null
-          : Number(query.throughAttentionAt),
+      throughAttentionAt,
+      descendantsThroughAttentionAt:
+        query.descendantsThroughAttentionAt === undefined
+          ? throughAttentionAt
+          : Number(query.descendantsThroughAttentionAt),
     });
     if (!thread) {
       throw new ApiError(404, "thread_not_found", "Thread not found");

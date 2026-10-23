@@ -67,6 +67,8 @@ const surfaces = {
     return command.kind === "read"
       ? bound.threads.markRead({
           experimental_throughAttentionAt: command.throughAttentionAt,
+          experimental_descendantsThroughAttentionAt:
+            command.descendantsThroughAttentionAt,
           signal: command.signal,
           threadId: command.threadId,
         })
@@ -397,6 +399,124 @@ describe.each(surfaceNames)("thread read state through %s", (surface) => {
     } finally {
       f.dispose();
     }
+  });
+
+  describe("with descendants", () => {
+    const family = () => [
+      listEntry("A"),
+      listEntry("child", { parentThreadId: "A", latestAttentionAt: 30 }),
+      listEntry("grandchild", {
+        parentThreadId: "child",
+        lastReadAt: null,
+        latestAttentionAt: 35,
+      }),
+      listEntry("later", { parentThreadId: "A", latestAttentionAt: 50 }),
+      listEntry("stranger", { latestAttentionAt: 30 }),
+    ];
+    const readThrough40: ThreadReadStateCommand = {
+      kind: "read",
+      threadId: "A",
+      throughAttentionAt: 20,
+      descendantsThroughAttentionAt: 40,
+    };
+
+    it("shows the descendants it covers read at once and keeps them once the thread comes back read", async () => {
+      const f = setup();
+      const list = setupList(f.queryClient, family());
+      const write = deferred<ThreadResponse>();
+      vi.mocked(sdk.threads.markRead).mockReturnValue(write.promise);
+      try {
+        const reading = run(f.queryClient, readThrough40);
+        const readAts = () =>
+          ["child", "grandchild", "later", "stranger"].map(list.readAt);
+        expect(readAts()).toEqual([30, 35, 10, 10]);
+        await vi.waitFor(() =>
+          expect(sdk.threads.markRead).toHaveBeenCalledWith(
+            expect.objectContaining({
+              threadId: "A",
+              experimental_throughAttentionAt: 20,
+              experimental_descendantsThroughAttentionAt: 40,
+            }),
+          ),
+        );
+
+        write.resolve(response());
+        await reading;
+        expect(readAts()).toEqual([30, 35, 10, 10]);
+      } finally {
+        list.unsubscribe();
+        f.dispose();
+      }
+    });
+
+    it("shows the descendants unread again when the thread's own bound stopped the read", async () => {
+      const f = setup();
+      const list = setupList(f.queryClient, family());
+      vi.mocked(sdk.threads.markRead).mockResolvedValue(
+        response({ lastReadAt: 10, latestAttentionAt: 25 }),
+      );
+      try {
+        await run(f.queryClient, readThrough40);
+        expect(list.readAt("child")).toBe(10);
+        expect(list.readAt("grandchild")).toBeNull();
+      } finally {
+        list.unsubscribe();
+        f.dispose();
+      }
+    });
+
+    it("keeps the descendants read with the thread after a failed read until the refetch settles them", async () => {
+      const f = setup();
+      const list = setupList(f.queryClient, family());
+      vi.mocked(sdk.threads.markRead).mockRejectedValue(httpError(400));
+      try {
+        await expect(run(f.queryClient, readThrough40)).rejects.toThrow();
+        expect(f.cachedThread()?.lastReadAt).toBe(20);
+        expect(list.readAt("child")).toBe(30);
+
+        await vi.waitFor(() => expect(list.fetches).toHaveLength(1));
+        list.fetches[0]?.resolve(family());
+        await list.settled();
+        expect(list.readAt("child")).toBe(10);
+      } finally {
+        list.unsubscribe();
+        f.dispose();
+      }
+    });
+
+    it("drops the descendants it covered when a newer command replaces it before it is sent", async () => {
+      const f = setup();
+      const list = setupList(f.queryClient, family());
+      const firstUnread = deferred<ThreadResponse>();
+      vi.mocked(sdk.threads.markUnread)
+        .mockReturnValueOnce(firstUnread.promise)
+        .mockResolvedValue(response({ lastReadAt: null }));
+      try {
+        const unreading = run(f.queryClient, { kind: "unread", threadId: "A" });
+        await vi.waitFor(() =>
+          expect(sdk.threads.markUnread).toHaveBeenCalledTimes(1),
+        );
+        const reading = run(f.queryClient, readThrough40).catch(
+          (error: unknown) => error,
+        );
+        expect(list.readAt("child")).toBe(30);
+        const unreadingAgain = run(f.queryClient, {
+          kind: "unread",
+          threadId: "A",
+        });
+
+        firstUnread.resolve(response({ lastReadAt: null }));
+        await unreading;
+        await expect(reading).resolves.toHaveProperty("name", "AbortError");
+        await unreadingAgain;
+        expect(sdk.threads.markRead).not.toHaveBeenCalled();
+        expect(list.readAt("child")).toBe(10);
+        expect(list.readAt("grandchild")).toBeNull();
+      } finally {
+        list.unsubscribe();
+        f.dispose();
+      }
+    });
   });
 
   it("sends a later unread after the pending read and ignores the read's result", async () => {

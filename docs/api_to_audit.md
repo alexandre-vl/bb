@@ -975,7 +975,7 @@ Docs: `backend-sdk.md`.
    becoming visible, so a caller that skips hidden threads cannot refresh
    one when it appears; decide whether visibility changes need an event.
 
-## `bb.sdk.threads.markRead({ experimental_throughAttentionAt })`
+## `bb.sdk.threads.markRead({ experimental_throughAttentionAt, experimental_descendantsThroughAttentionAt })`
 
 `POST /threads/:id/read?throughAttentionAt=<ms>` marks the thread read only
 when its `latestAttentionAt` is at most that value. Otherwise it writes
@@ -987,6 +987,22 @@ the read stays unconditional. Core caller: the app's auto-read
 action and the plugin-bound `markRead`. The executor retries a command whose
 outcome is unknown (a timeout, a network error, 408, 429 or 5xx) up to four
 times, and the condition keeps a late retry from marking unseen output read.
+
+A read that applies also marks read, in the same statement, every unread
+descendant that is not deleted, archived and hidden ones included, whose
+`latestAttentionAt` is at most `descendantsThroughAttentionAt`, and sends
+`read-state-changed` for each. That bound defaults to `throughAttentionAt`, so
+without either argument every unread descendant is marked read; a read that
+the condition stops changes no descendant. Unread never cascades. The
+auto-read passes the newest attention it saw across the thread and the
+descendants in the sidebar's navigation data
+(`useThreadDescendantReadStates`), and fires again when any of them gets new
+attention while the thread stays open. The read-state transaction predicts
+those descendants read in the entity store
+(`apps/app/src/hooks/cache-owners/thread-state-cache-owner.ts`), keeps the
+prediction when the answered thread is read or the outcome is unknown, and
+drops it when the condition stopped the read or the command was replaced
+before it applied.
 
 The executor sends one thread's read and unread commands one at a time, in
 order, whether or not the page is visible, and the newest wins. This applies
@@ -1014,6 +1030,11 @@ thread, which the app does not apply over the newer command.
 3. **Replaced commands.** Decide whether a replaced command should keep
    rejecting with an `AbortError` or resolve with the outcome of the command
    that replaced it.
+4. **Descendants.** Commands on different threads are not ordered against
+   each other: a descendant marked unread while its ancestor's read is still
+   in flight is read again if that read lands later. Confirm this stays
+   acceptable, and decide whether one bound for every descendant should give
+   way to a bound per descendant.
 
 ## `PluginSettingDescriptor.experimental_optionLabels`
 
