@@ -66,6 +66,10 @@ import {
   listQueuedThreadMessagesByWaitHolder,
 } from "../src/data/queued-thread-messages.js";
 import { listEnvironments } from "../src/data/environments.js";
+import {
+  listRecentProvisioningDurations,
+  type ThreadProvisioningRunScope,
+} from "../src/data/thread-provisioning-runs.js";
 import { upsertHost } from "../src/data/hosts.js";
 import { createProject } from "../src/data/projects.js";
 import {
@@ -422,6 +426,43 @@ describe("slow query index plans", () => {
     });
     expect(details).toMatch(/USING INDEX queued_thread_messages_retry_idx/u);
     expect(details).not.toMatch(/SCAN queued_thread_messages/u);
+
+    db.$client.close();
+  });
+
+  it("reads recent provisioning durations through the estimate indexes", () => {
+    const { db } = setup();
+    const scopes: ThreadProvisioningRunScope[] = [
+      { kind: "project", projectId: "project-1" },
+      { kind: "all-projects" },
+    ];
+
+    const captured = captureStatements(db, () => {
+      for (const scope of scopes) {
+        expect(
+          listRecentProvisioningDurations(db, {
+            environmentProviderId: "worktree",
+            limit: 20,
+            machineKind: "existing",
+            scope,
+          }),
+        ).toEqual([]);
+      }
+    });
+    expect(captured).toHaveLength(2);
+    const [projectDetails, allProjectsDetails] = captured.map((statement) =>
+      queryPlanDetails({ db, params: statement.params, sql: statement.sql }),
+    );
+    expect(projectDetails).toMatch(
+      /USING INDEX thread_provisioning_runs_project_estimate_idx/u,
+    );
+    expect(allProjectsDetails).toMatch(
+      /USING INDEX thread_provisioning_runs_estimate_idx/u,
+    );
+    for (const details of [projectDetails, allProjectsDetails]) {
+      expect(details).not.toMatch(/SCAN thread_provisioning_runs/u);
+      expect(details).not.toMatch(/TEMP B-TREE/u);
+    }
 
     db.$client.close();
   });

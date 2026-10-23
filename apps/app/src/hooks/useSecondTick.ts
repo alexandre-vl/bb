@@ -62,6 +62,22 @@ function getSnapshot(): number {
   return lastTickMs;
 }
 
+function subscribeNever(): () => void {
+  return () => {};
+}
+
 export function useSecondTick(): number {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function useSecondTickValue<T>(
+  enabled: boolean,
+  read: (nowMs: number) => T,
+): T {
+  const getValue = () => read(getSnapshot());
+  return useSyncExternalStore(
+    enabled ? subscribe : subscribeNever,
+    getValue,
+    getValue,
+  );
 }

@@ -167,7 +167,10 @@ export type TimelineSystemOperationKind = z.infer<
   typeof timelineSystemOperationKindSchema
 >;
 const timelineGenericSystemOperationKindSchema =
-  timelineSystemOperationKindSchema.exclude(["parent-change"]);
+  timelineSystemOperationKindSchema.exclude([
+    "parent-change",
+    "thread-provisioning",
+  ]);
 
 export const timelineParentChangeActionValues = [
   "assign",
@@ -227,11 +230,52 @@ export type TimelineParentChangeSystemRow = z.infer<
   typeof timelineParentChangeSystemRowSchema
 >;
 
+export const timelineProvisioningStepSchema = z.object({
+  label: z.string(),
+  status: timelineRowStatusSchema,
+  startedAt: z.number(),
+  completedAt: z.number().nullable(),
+  output: z.string().nullable(),
+});
+export type TimelineProvisioningStep = z.infer<
+  typeof timelineProvisioningStepSchema
+>;
+
+export const timelineProvisioningEstimateScopeValues = [
+  "project",
+  "all-projects",
+] as const;
+
+export const timelineProvisioningEstimateSchema = z.object({
+  p50Ms: z.number().int().nonnegative(),
+  p90Ms: z.number().int().nonnegative().nullable(),
+  runCount: z.number().int().positive(),
+  scope: z.enum(timelineProvisioningEstimateScopeValues),
+});
+export type TimelineProvisioningEstimate = z.infer<
+  typeof timelineProvisioningEstimateSchema
+>;
+
+export const timelineThreadProvisioningSystemRowSchema =
+  timelineSystemRowBaseSchema.extend({
+    systemKind: z.literal("operation"),
+    operationKind: z.literal("thread-provisioning"),
+    provisioningId: z.string(),
+    status: timelineRowStatusSchema,
+    completedAt: z.number().nullable(),
+    steps: z.array(timelineProvisioningStepSchema),
+    estimate: timelineProvisioningEstimateSchema.nullable(),
+  });
+export type TimelineThreadProvisioningSystemRow = z.infer<
+  typeof timelineThreadProvisioningSystemRowSchema
+>;
+
 export const timelineOperationSystemRowSchema = z.discriminatedUnion(
   "operationKind",
   [
     timelineGenericOperationSystemRowSchema,
     timelineParentChangeSystemRowSchema,
+    timelineThreadProvisioningSystemRowSchema,
   ],
 );
 
