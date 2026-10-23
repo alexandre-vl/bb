@@ -3,7 +3,8 @@
 import { cleanup, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NO_COLLAPSED_CHILD_ACTIVITY } from "../model/thread-activity.js";
+import { rollUpThreads } from "../model/thread-activity.js";
+import { makeSidebarThread } from "../model/fixtures.js";
 import {
   installTestPluginRuntime,
   renderSlot,
@@ -11,9 +12,8 @@ import {
 import type { BuiltInSidebarSectionOptionsById } from "./BuiltInSidebarSection.js";
 
 installTestPluginRuntime();
-const { renderBuiltInSidebarSection } = await import(
-  "./BuiltInSidebarSection.js"
-);
+const { renderBuiltInSidebarSection } =
+  await import("./BuiltInSidebarSection.js");
 
 const SECTIONS: BuiltInSidebarSectionOptionsById = {
   pinned: {
@@ -61,7 +61,7 @@ afterEach(() => cleanup());
 
 describe("built-in sidebar section renderer", () => {
   it.each([false, true])(
-    "keeps Pinned in normal flow without changing Threads stickiness (collapsed: %s)",
+    "keeps Pinned and Threads headers sticky (collapsed: %s)",
     (collapsed) => {
       renderSections(
         <>
@@ -78,21 +78,14 @@ describe("built-in sidebar section renderer", () => {
         </>,
       );
 
-      const header = (label: string) =>
-        screen.getByTitle(label).closest('[data-sidebar-sticky-tier="label"]');
-
       const group = (label: string) =>
-        screen.getByTitle(label).closest("[data-sidebar-sticky-group]");
+        screen.getByText(label).closest("[data-sidebar-sticky-group]");
 
-      expect(header("Pinned")?.classList.contains("relative")).toBe(true);
-      expect(header("Pinned")?.classList.contains("top-auto")).toBe(true);
-      expect(header("Threads")?.classList.contains("relative")).toBe(false);
-      expect(group("Pinned")?.getAttribute("data-sidebar-sticky-header")).toBe(
-        "false",
-      );
-      expect(group("Threads")?.hasAttribute("data-sidebar-sticky-header")).toBe(
-        false,
-      );
+      for (const label of ["Pinned", "Threads"]) {
+        expect(group(label)?.hasAttribute("data-sidebar-sticky-header")).toBe(
+          false,
+        );
+      }
       expect(screen.queryByText("Pinned content") !== null).toBe(!collapsed);
     },
   );
@@ -114,7 +107,7 @@ describe("built-in sidebar section renderer", () => {
     expect(result.container.querySelector('[data-icon="Pin"]')).toBeNull();
   });
 
-  it("surfaces shared activity when Threads is collapsed", () => {
+  it("surfaces the hidden threads' state when Threads is collapsed", () => {
     renderSections(
       renderBuiltInSidebarSection({
         collapsedSectionIds: new Set(["threads"]),
@@ -125,11 +118,19 @@ describe("built-in sidebar section renderer", () => {
           ...SECTIONS,
           threads: {
             ...SECTIONS.threads,
-            activity: {
-              ...NO_COLLAPSED_CHILD_ACTIVITY,
-              goal: true,
-              working: true,
-            },
+            rollup: rollUpThreads([
+              makeSidebarThread({
+                id: "goal-thread",
+                lastReadAt: 1,
+                activity: {
+                  workflows: 0,
+                  backgroundAgents: 0,
+                  backgroundCommands: 0,
+                  planMode: 0,
+                  goals: 1,
+                },
+              }),
+            ]),
           },
         },
         showPinnedSection: false,

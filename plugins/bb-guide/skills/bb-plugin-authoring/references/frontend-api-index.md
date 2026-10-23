@@ -64,6 +64,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `experimental_useSidebarThreads`
 - `experimental_useSidebarThreadActions`
 - `experimental_useArchiveEnvironmentThreads`
+- `experimental_useSidebarListCommand`
 - `experimental_useThreadActions`
 - `experimental_useThreadActionRegistrations`
 - `experimental_ThreadActionsMenu`
@@ -88,6 +89,9 @@ Read the installed SDK declarations for the exact current signatures.
 - `useSidebarThreadShortcut`
 - `ThreadTitle`
 - `experimental_ThreadStatusGlyph`
+- `experimental_resolveThreadListIndicator`
+- `experimental_rollUpThreadIndicators`
+- `experimental_threadIndicatorRung`
 - `useEnvironmentProviders`
 - `useSdk`
 - `experimental_useProviders`
@@ -201,6 +205,11 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginSidebarThreadShortcut`
 - `PluginThreadTitleProps`
 - `PluginThreadStatusGlyphProps`
+- `ExperimentalThreadListIndicatorState`
+- `ExperimentalThreadIndicatorRung`
+- `ExperimentalThreadAttention`
+- `ExperimentalSidebarListCommand`
+- `ExperimentalSidebarListCommandInvocation`
 - `PluginEnvironmentProvider`
 - `PluginEnvironmentProvidersState`
 - `PluginBoundThreadsArea`
@@ -219,6 +228,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginThreadActionRegistration`
 - `PluginBoundThreadAction`
 - `PluginThreadActionEntry`
+- `ExperimentalThreadActionShortcut`
 - `PluginThreadActionRegistrationInfo`
 - `PluginThreadActionsOptions`
 - `PluginThreadActionsInlineItem`

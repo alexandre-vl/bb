@@ -72,8 +72,28 @@ import {
 } from "./sidebarNavigationProvider";
 
 import { NAV_RAIL_WIDTH_CLASS } from "./navRailWidth";
+import { SIDEBAR_THREAD_TREE_SELECTOR } from "@/lib/app-keybindings";
 
 const BUG_REPORT_NEW_ISSUE_URL = "https://github.com/get-bb/bb/issues/new";
+const THREAD_LIST_FOCUS_FRAMES = 30;
+
+function focusThreadList(
+  getContainer: () => HTMLElement | null,
+  framesLeft = THREAD_LIST_FOCUS_FRAMES,
+): void {
+  const tree = getContainer()?.querySelector(SIDEBAR_THREAD_TREE_SELECTOR);
+  const item =
+    tree?.querySelector<HTMLElement>(
+      '[data-sidebar-tree-item][tabindex="0"]',
+    ) ?? tree?.querySelector<HTMLElement>("[data-sidebar-tree-item]");
+  if (item && item.closest("[inert]") === null) {
+    item.focus();
+    if (item.ownerDocument.activeElement === item) return;
+  }
+  if (framesLeft > 0) {
+    requestAnimationFrame(() => focusThreadList(getContainer, framesLeft - 1));
+  }
+}
 
 interface AppSidebarProps {
   onResizeMouseDown: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -101,7 +121,8 @@ export function AppSidebar({
   const { threadId: activeThreadId } = useRouteState();
   const navigate = useNavigate();
   const closeOnMobile = useCloseMobileSidebar();
-  const { isCompactViewport, open, openMobile } = useSidebar();
+  const { isCompactViewport, open, openMobile, openMobileSidebar, setOpen } =
+    useSidebar();
   const isThreadListVisible =
     !isBodyHidden && (isCompactViewport ? openMobile : open);
   const [isFooterCustomizing, setFooterCustomizing] = useState(false);
@@ -212,6 +233,16 @@ export function AppSidebar({
   useAppCommandHandler("thread.next", () =>
     isBodyHidden ? false : activateAdjacentThread(1),
   );
+  useAppCommandHandler("sidebar.focus", () => {
+    if (isBodyHidden) return false;
+    if (isCompactViewport) {
+      if (!openMobile) openMobileSidebar();
+    } else if (!open) {
+      setOpen(true);
+    }
+    focusThreadList(() => sidebarRef.current);
+    return true;
+  });
 
   useEffect(() => {
     if (isAppCommandModifierHeld) {

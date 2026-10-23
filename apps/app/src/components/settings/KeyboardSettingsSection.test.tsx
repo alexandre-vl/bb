@@ -468,11 +468,12 @@ describe("KeyboardSettingsSection", () => {
         (recorder) =>
           recorder.getAttribute("aria-label")?.split(", current shortcut")[0],
       );
-    expect(labels.slice(0, 6)).toEqual([
+    expect(labels.slice(0, 7)).toEqual([
       "Record shortcut for Sidebar",
       "Record shortcut for Sidebar tools",
       "Record shortcut for Sidebar settings",
       "Record shortcut for Toggle sidebar",
+      "Record shortcut for Focus thread list",
       "Record shortcut for Open navigation",
       "Record shortcut for Previous thread",
     ]);

@@ -56,9 +56,11 @@ const longCommand: TimelineWorkflowWorkRow[] = [
 
 function ExpandableCard({
   commands,
+  hostUnavailable = false,
   startExpanded = false,
 }: {
   commands: TimelineWorkflowWorkRow[];
+  hostUnavailable?: boolean;
   startExpanded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(startExpanded);
@@ -66,6 +68,7 @@ function ExpandableCard({
     <div className="flex min-h-44 flex-col justify-end gap-2">
       <ThreadBackgroundCommandsCard
         commands={commands}
+        hostUnavailable={hostUnavailable}
         isExpanded={expanded}
         onToggle={() => setExpanded((value) => !value)}
       />
@@ -107,6 +110,14 @@ export function Overview() {
       >
         <ResponsiveStage>
           <ExpandableCard commands={longCommand} />
+        </ResponsiveStage>
+      </StoryRow>
+      <StoryRow
+        label="machine offline"
+        hint="bb cannot tell whether the command still runs: no timer, no shine"
+      >
+        <ResponsiveStage>
+          <ExpandableCard commands={single} hostUnavailable />
         </ResponsiveStage>
       </StoryRow>
     </StoryCard>

@@ -79,6 +79,7 @@ import {
   useChildThreads,
   useProjectThreadSubset,
   useThread,
+  useThreadDescendantReadStates,
   useThreadDetailBootstrap,
   useThreadPendingInteractions,
   type ProjectThreadSubsetFilters,
@@ -1784,9 +1785,14 @@ function ThreadDetailViewInternal(
       return { ...childThreadsSection, pendingInteractions };
     }, [childThreadsSection, childPendingInteractions]);
   const isThreadTimelinePending = timelineLoading && timelineRows.length === 0;
+  const readTrackedThread = timelineEnabled ? thread : undefined;
+  const readTrackedDescendants = useThreadDescendantReadStates(
+    readTrackedThread?.id,
+  );
   useThreadReadTracking({
     markThreadRead,
-    thread: timelineEnabled ? thread : undefined,
+    thread: readTrackedThread,
+    descendants: readTrackedDescendants,
   });
   const {
     effectiveMergeBaseBranch,

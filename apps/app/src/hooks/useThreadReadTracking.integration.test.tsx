@@ -74,6 +74,7 @@ function setup() {
         });
         useThreadReadTracking({
           thread: query.data,
+          descendants: [],
           markThreadRead: useMarkThreadRead(),
         });
         return {

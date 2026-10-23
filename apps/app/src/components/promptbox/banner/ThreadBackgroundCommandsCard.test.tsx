@@ -32,11 +32,18 @@ const newestFirst = [
   runningCommand("bg:tail", "Tail the dev server log", 663),
 ];
 
-function StatefulCard({ commands }: { commands: TimelineWorkflowWorkRow[] }) {
+function StatefulCard({
+  commands,
+  hostUnavailable = false,
+}: {
+  commands: TimelineWorkflowWorkRow[];
+  hostUnavailable?: boolean;
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
   return (
     <ThreadBackgroundCommandsCard
       commands={commands}
+      hostUnavailable={hostUnavailable}
       isExpanded={isExpanded}
       onToggle={() => setIsExpanded((value) => !value)}
     />
@@ -146,5 +153,24 @@ describe("ThreadBackgroundCommandsCard", () => {
       }),
     ).toBeTruthy();
     expect(screen.getByTitle("Model: haiku").textContent).toBe("haiku");
+  });
+
+  it("says the machine is offline instead of counting time", () => {
+    render(<StatefulCard commands={newestFirst} hostUnavailable />);
+
+    const toggle = screen.getByRole("button", {
+      name: "Background commands, machine offline (3): Wait seven minutes then check run progress",
+    });
+    expect(toggle.textContent).toContain("machine offline");
+    expect(toggle.textContent).not.toContain("42s");
+
+    fireEvent.click(toggle);
+
+    const rows = screen.getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.textContent).toContain("machine offline");
+    }
+    expect(document.body.textContent).not.toContain("11m 3s");
   });
 });

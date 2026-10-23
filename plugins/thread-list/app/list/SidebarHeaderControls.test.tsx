@@ -23,6 +23,10 @@ import {
   sidebarShowProviderIconsAtom,
 } from "../preferences/atoms.js";
 import type { OrganizationMode } from "../../shared/preferences.js";
+import {
+  CustomizeRowActionsContext,
+  type StartCustomizingRowActions,
+} from "./customizeRowActionsContext.js";
 
 installTestPluginRuntime();
 const {
@@ -40,6 +44,7 @@ function setup(
   section = false,
   organization: OrganizationMode = "project",
   compact = false,
+  customizeRowActions: StartCustomizingRowActions | null = null,
 ) {
   const store = createStore();
   store.set(sidebarThreadLifecyclesAtom, ["active"]);
@@ -54,16 +59,18 @@ function setup(
     <Provider store={store}>
       <CompactViewportOverrideProvider isCompactViewport={compact}>
         <TooltipProvider>
-          <SidebarHeaderActionsProvider value={{ onNewSection: newSection }}>
-            <SidebarHeaderControls label={label} onNewThread={newThread}>
-              {section && (
-                <SidebarSectionMenuItems
-                  onRename={vi.fn()}
-                  onRemove={vi.fn()}
-                />
-              )}
-            </SidebarHeaderControls>
-          </SidebarHeaderActionsProvider>
+          <CustomizeRowActionsContext.Provider value={customizeRowActions}>
+            <SidebarHeaderActionsProvider value={{ onNewSection: newSection }}>
+              <SidebarHeaderControls label={label} onNewThread={newThread}>
+                {section && (
+                  <SidebarSectionMenuItems
+                    onRename={vi.fn()}
+                    onRemove={vi.fn()}
+                  />
+                )}
+              </SidebarHeaderControls>
+            </SidebarHeaderActionsProvider>
+          </CustomizeRowActionsContext.Provider>
         </TooltipProvider>
       </CompactViewportOverrideProvider>
     </Provider>,
@@ -74,6 +81,7 @@ function setup(
 async function openMenu(label = "Pinned") {
   fireEvent.keyDown(
     screen.getByRole("button", {
+      hidden: true,
       name: new RegExp(`^${label} actions(?:;|$)`),
     }),
     {
@@ -93,9 +101,11 @@ describe("sidebar header controls", () => {
   it("supports keyboard selection when the menu first loads", async () => {
     const { store } = setup("Pinned", false, "chronological");
     await openMenu();
-    const newSection = screen.getByRole("menuitem", { name: "New section" });
-    fireEvent.keyDown(newSection.closest('[role="menu"]')!, { key: "Home" });
-    await waitFor(() => expect(document.activeElement).toBe(newSection));
+    const first = screen.getByRole("menuitem", {
+      name: "New thread in Pinned",
+    });
+    fireEvent.keyDown(first.closest('[role="menu"]')!, { key: "Home" });
+    await waitFor(() => expect(document.activeElement).toBe(first));
     await openSubmenu("Organize");
     const project = await screen.findByRole("menuitemradio", {
       name: "By project",
@@ -134,6 +144,7 @@ describe("sidebar header controls", () => {
   it("keeps the primary before overflow and applies the shared control state", async () => {
     const { newThread } = setup("Pinned", false, "chronological");
     const primary = screen.getByRole("button", {
+      hidden: true,
       name: "New thread in Pinned",
     });
     expect(primary.nextElementSibling?.getAttribute("aria-label")).toBe(
@@ -166,12 +177,29 @@ describe("sidebar header controls", () => {
     expect(primary.nextElementSibling?.getAttribute("data-state")).toBe("open");
   });
 
+  it("starts a thread from the menu, where keyboard users reach it", async () => {
+    const { newThread } = setup("Pinned", false, "chronological");
+    await openMenu();
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "New thread in Pinned" }),
+    );
+    expect(newThread).toHaveBeenCalledOnce();
+  });
+
   it("preserves creation callbacks and separates section editing/removal", async () => {
     const { newSection } = setup("Review", true);
     await openMenu("Review");
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["New section", "Organize", "Sort by", "Filter", "Rename", "Remove"]);
+    ).toEqual([
+      "New thread in Review",
+      "New section",
+      "Organize",
+      "Sort by",
+      "Filter",
+      "Rename",
+      "Remove",
+    ]);
     expect(screen.getAllByRole("separator")).toHaveLength(3);
     fireEvent.click(screen.getByRole("menuitem", { name: "New section" }));
     expect(newSection).toHaveBeenCalledOnce();
@@ -272,6 +300,38 @@ describe("sidebar header controls", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
+  it.each([
+    ["desktop submenu", false],
+    ["compact page", true],
+  ])(
+    "starts customizing row actions from the Organize Rows group on the %s",
+    async (_name, compact) => {
+      const customize = vi.fn();
+      setup("Pinned", false, "project", compact, customize);
+      if (compact) {
+        fireEvent.click(
+          screen.getByRole("button", {
+            hidden: true,
+            name: /^Pinned actions(?:;|$)/,
+          }),
+        );
+        fireEvent.click(
+          await screen.findByRole("menuitem", { name: "Organize" }),
+        );
+      } else {
+        await openMenu();
+        await openSubmenu("Organize");
+      }
+      fireEvent.click(
+        await screen.findByRole("menuitem", { name: "Customize actions" }),
+      );
+      await waitFor(() => expect(customize).toHaveBeenCalledTimes(1));
+      expect(customize).toHaveBeenCalledWith(
+        screen.getByRole("button", { hidden: true, name: /^Pinned actions/ }),
+      );
+    },
+  );
+
   it("resolves legacy sort, toggles direction, and resets it for another field", async () => {
     const { store } = setup();
     act(() => store.set(sidebarChronologicalSortAtom, "none"));
@@ -307,7 +367,10 @@ describe("sidebar header controls", () => {
   it("announces compact sort direction and resets the nested page after closing", async () => {
     const { store } = setup("Pinned", false, "project", true);
     fireEvent.click(
-      screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: /^Pinned actions(?:;|$)/,
+      }),
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Sort by" }));
     fireEvent.click(
@@ -333,13 +396,19 @@ describe("sidebar header controls", () => {
         .getAttribute("aria-checked"),
     ).toBe("true");
     fireEvent.click(
-      screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: /^Pinned actions(?:;|$)/,
+      }),
     );
     await waitFor(() =>
       expect(screen.queryByRole("menuitem", { name: "Back" })).toBeNull(),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      screen.getByRole("button", {
+        hidden: true,
+        name: /^Pinned actions(?:;|$)/,
+      }),
     );
     expect(
       await screen.findByRole("menuitem", { name: "New section" }),
@@ -353,7 +422,12 @@ it.each([false, true])(
   async (compact) => {
     const { store } = setup("Pinned", false, "project", compact);
     if (compact) {
-      fireEvent.click(screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          hidden: true,
+          name: /^Pinned actions(?:;|$)/,
+        }),
+      );
       fireEvent.click(await screen.findByRole("menuitem", { name: "Filter" }));
     } else {
       await openMenu();

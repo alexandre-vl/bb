@@ -9,8 +9,10 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import type { KeyboardCommandId } from "@bb/domain";
 import type {
   BbNavigate,
+  ExperimentalThreadActionShortcut,
   PluginBoundThreadAction,
   PluginBrowserBbSdk,
   PluginThreadAction,
@@ -20,6 +22,7 @@ import type {
   PluginThreadActionTarget,
   PluginThreadActionsOptions,
 } from "@get-bb/plugin-sdk";
+import { useAppCommandShortcuts } from "@/components/commands/AppCommandProvider";
 import { PluginContext } from "@/components/plugin/plugin-context";
 import {
   getActiveThreadPanelOpener,
@@ -30,6 +33,29 @@ import { compareGroupedPlacement } from "@/lib/grouped-placement";
 import { usePluginSlots } from "@/lib/plugin-slots";
 
 export const CORE_THREAD_ACTION_OWNER = "bb--core";
+
+const THREAD_ACTION_COMMANDS: ReadonlyMap<string, KeyboardCommandId> = new Map([
+  [`${CORE_THREAD_ACTION_OWNER}/archive`, "thread.archive"],
+  [`${CORE_THREAD_ACTION_OWNER}/rename`, "thread.rename"],
+  [`${CORE_THREAD_ACTION_OWNER}/read`, "thread.toggleRead"],
+]);
+const THREAD_ACTION_COMMAND_IDS = [...THREAD_ACTION_COMMANDS.values()];
+
+type ThreadActionShortcuts = ReadonlyMap<
+  KeyboardCommandId,
+  ExperimentalThreadActionShortcut
+>;
+
+function threadActionShortcut(
+  key: string,
+  thread: PluginThreadActionTarget,
+  shortcuts: ThreadActionShortcuts,
+): ExperimentalThreadActionShortcut | null {
+  const command = THREAD_ACTION_COMMANDS.get(key);
+  if (command === undefined) return null;
+  if (command === "thread.archive" && thread.archivedAt !== null) return null;
+  return shortcuts.get(command) ?? null;
+}
 
 export interface ThreadActionRegistrationRecord {
   key: string;
@@ -382,6 +408,7 @@ function evaluateRecord(
   thread: PluginThreadActionTarget,
   registry: ThreadActionRegistrySnapshot,
   requestRename: (threadId: string) => void,
+  shortcuts: ThreadActionShortcuts,
 ): PluginThreadActionEntry | null {
   const input = registry.collected.get(record.key);
   if (input === undefined) return null;
@@ -398,6 +425,11 @@ function evaluateRecord(
       pluginId: record.pluginId,
       group: record.registration.group,
       action: bindThreadAction(record.key, action, requestRename),
+      experimental_shortcut: threadActionShortcut(
+        record.key,
+        thread,
+        shortcuts,
+      ),
     };
   } catch (error) {
     reportFailure(record.key, "item", error);
@@ -409,6 +441,7 @@ function evaluateThreadActions(
   registry: ThreadActionRegistrySnapshot,
   thread: PluginThreadActionTarget,
   options: PluginThreadActionsOptions | undefined,
+  shortcuts: ThreadActionShortcuts,
 ): PluginThreadActionEntry[] {
   const requestRename = options?.requestRename ?? registry.requestRename;
   const records =
@@ -421,7 +454,13 @@ function evaluateThreadActions(
           return record === undefined ? [] : [record];
         });
   return records.flatMap((record) => {
-    const entry = evaluateRecord(record, thread, registry, requestRename);
+    const entry = evaluateRecord(
+      record,
+      thread,
+      registry,
+      requestRename,
+      shortcuts,
+    );
     return entry === null ? [] : [entry];
   });
 }
@@ -432,11 +471,12 @@ export function useThreadActionEntries(
 ): readonly PluginThreadActionEntry[] {
   const registry = useSyncExternalStore(subscribe, getSnapshot);
   const surfaceVisible = useContext(ThreadActionSurfaceVisibleContext);
+  const shortcuts = useAppCommandShortcuts(THREAD_ACTION_COMMAND_IDS);
   useEffect(
     () => (surfaceVisible ? retainThreadId(thread.id) : undefined),
     [surfaceVisible, thread.id],
   );
-  return evaluateThreadActions(registry, thread, options);
+  return evaluateThreadActions(registry, thread, options, shortcuts);
 }
 
 export function useDefaultRequestRename(): (threadId: string) => void {
