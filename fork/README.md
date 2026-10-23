@@ -21,16 +21,23 @@ sync a `main` that has commits upstream lacks. Start every new branch from
 
 ## Workflows
 
-- **Fork Sync** (`.github/workflows/fork-sync.yml`) runs at :17 and :47 every
-  hour, on every push to `fork-infra`, and by hand. It fast-forwards `main` to
-  upstream, rebuilds `alex` with [`rebuild.sh`](rebuild.sh), pushes it when its
-  tree changed, turns off upstream's workflows, and keeps the issue
-  "alex rebuild needs attention" open while a layer is skipped.
+- **Fork Sync** (`.github/workflows/fork-sync.yml`) runs at 00:17, 06:17,
+  12:17 and 18:17 UTC, on every push to `fork-infra`, and by hand. It
+  fast-forwards `main` to upstream, rebuilds `alex` with
+  [`rebuild.sh`](rebuild.sh), pushes it when its tree changed, turns off
+  upstream's workflows, and keeps the issue "alex rebuild needs attention" open
+  while a layer is skipped.
 - **Fork CI** (`.github/workflows/fork-ci.yml`) runs on every push to `alex`:
   lint, typecheck and tests of the packages the layers change, then versions
   `bb-app` as `X.Y.(Z+1)-alex.<run>.<attempt>`, smoke-tests the tarball, packs
-  it and uploads it, on GitHub-hosted `ubuntu-latest`. Runs queue; none is
-  cancelled.
+  it and uploads it, on GitHub-hosted `ubuntu-latest`. A newer push to `alex`
+  cancels the run still testing the older one.
+- GitHub pauses a fork's workflows when it judges their Actions usage too
+  large: on 2026-10-23, after a day of 25 Fork CI runs (384 runner minutes)
+  with the sync every 30 minutes. The Actions page then shows a banner a
+  maintainer can re-enable from, while the API still reports Actions enabled
+  and a dispatch fails with `Actions has been disabled for this repository`.
+  Keep the schedule sparse and batch pushes to `fork-infra`.
 - **Fork Release** (`.github/workflows/fork-release.yml`) runs when Fork CI
   succeeds on `alex`. It publishes the tested tarball as the release
   `fork-v<version>` (`bb-app.tgz`, `version.txt`, `SHA256SUMS`, and the list

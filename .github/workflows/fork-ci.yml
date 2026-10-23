@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: fork-ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   NODE_VERSION: "22.x"
