@@ -1270,10 +1270,13 @@ export interface ExperimentalSidebarFooter {
  * precedence bb's list uses (a failed send outranks the unread dot; a waiting
  * message ranks just below it).
  *
- * "waiting-for-host" takes the place of "runtime", "workflow",
- * "background-agent" and "background-command" while the thread's machine is
- * offline (`experimental_hostUnavailable`): bb cannot tell whether that work
- * still runs until the machine is back.
+ * "waiting-for-host" means the thread's machine is offline
+ * (`experimental_hostUnavailable`) while bb last knew of work on it: an active
+ * turn (`runtimeStatus` "waiting-for-host"), a workflow, a background agent or
+ * a background command. bb cannot tell whether that work still runs until the
+ * machine is back, so it reports "waiting-for-host" in place of "runtime" for
+ * the turn and of "workflow", "background-agent" and "background-command". A
+ * thread that is starting or stopping keeps "runtime".
  */
 export type PluginSidebarThreadIndicator =
   | "unread-error"

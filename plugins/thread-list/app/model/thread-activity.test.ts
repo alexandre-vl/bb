@@ -236,6 +236,24 @@ describe("thread-activity", () => {
       ).toBe("unread-error");
     });
 
+    it.each([
+      ["isRuntimeActive", "runtime"],
+      ["isWorkflowActive", "workflow"],
+      ["isBackgroundAgentActive", "background-agent"],
+      ["isBackgroundCommandActive", "background-command"],
+    ] as const)(
+      "ranks %s above waiting-for-host, so a roll-up keeps live work",
+      (flag, expectedIndicator) => {
+        expect(
+          resolveThreadListIndicator({
+            ...idleIndicatorState,
+            isWaitingForHost: true,
+            [flag]: true,
+          }),
+        ).toBe(expectedIndicator);
+      },
+    );
+
     it("keeps Plan and Goal independent and applies Plan precedence", () => {
       expect(
         resolveThreadListIndicator({
@@ -538,6 +556,29 @@ describe("thread-activity", () => {
         waitingForHost: true,
         working: false,
       });
+    });
+
+    it("keeps a sibling's live work visible next to an offline child", () => {
+      const activity = getCollapsedChildActivity([
+        makeChild({ id: "thr-online", activity: { backgroundCommands: 1 } }),
+        makeChild({
+          id: "thr-offline",
+          activity: { backgroundCommands: 1 },
+          experimental_hostUnavailable: true,
+        }),
+      ]);
+
+      expect(activity).toMatchObject({
+        backgroundCommand: true,
+        waitingForHost: true,
+      });
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          isBackgroundCommandActive: activity.backgroundCommand,
+          isWaitingForHost: activity.waitingForHost,
+        }),
+      ).toBe("background-command");
     });
 
     it("flags pending and working independently when both are present", () => {

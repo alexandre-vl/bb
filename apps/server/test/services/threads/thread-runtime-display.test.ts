@@ -466,10 +466,21 @@ describe("thread runtime display", () => {
       db,
       sessionId: openTestSession({ db, hostId: offlineHostId }).id,
     });
+    const reconnectingHostId = upsertHost(db, noopNotifier, {
+      id: "host-runtime-display-reconnecting",
+      name: "Reconnecting Host",
+    }).id;
+    closeTestSession({
+      closedAt: now - HOST_RECONNECT_GRACE_MS + 1,
+      db,
+      sessionId: openTestSession({ db, hostId: reconnectingHostId }).id,
+    });
     const threads = [
       { hostId: connectedHostId, status: "idle" },
       { hostId: offlineHostId, status: "idle" },
       { hostId: offlineHostId, status: "active" },
+      { hostId: reconnectingHostId, status: "idle" },
+      { hostId: reconnectingHostId, status: "active" },
       { hostId: null, status: "idle" },
     ] as const;
 
@@ -494,6 +505,8 @@ describe("thread runtime display", () => {
       { displayStatus: "idle", hostUnavailable: false },
       { displayStatus: "idle", hostUnavailable: true },
       { displayStatus: "waiting-for-host", hostUnavailable: true },
+      { displayStatus: "idle", hostUnavailable: false },
+      { displayStatus: "active", hostUnavailable: false },
       { displayStatus: "idle", hostUnavailable: false },
     ] satisfies ThreadRuntimeState[]);
   });
