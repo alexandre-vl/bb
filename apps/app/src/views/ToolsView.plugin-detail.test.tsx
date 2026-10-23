@@ -499,6 +499,7 @@ describe("PluginDetail official catalog lifecycle", () => {
           version: "1.5.0",
           at: null,
           detail: "The plugin failed to load.",
+          restored: true,
         },
       },
       expected: "Update failed",
@@ -586,6 +587,62 @@ describe("PluginDetail official catalog lifecycle", () => {
       expect(screen.queryByRole("dialog")).toBeNull();
     },
   );
+
+  it("offers a rollback below the update information until its deadline", () => {
+    const until = new Date(2026, 9, 28).getTime();
+    const { wrapper: QueryClientWrapper } = createQueryClientTestHarness();
+    render(
+      <MemoryRouter>
+        <QueryClientWrapper>
+          <PluginDetail
+            isLoading={false}
+            plugin={{
+              ...GITHUB_PLUGIN,
+              source: "npm:@example/github@^1.0.0",
+              provenance: "direct",
+              catalogEntryId: null,
+              publisherLabel: null,
+              version: "1.5.0",
+              updateState: {
+                ...EMPTY_PLUGIN_UPDATE_STATE,
+                availableVersion: "1.5.1",
+                rollback: {
+                  version: "1.4.0",
+                  display: "@example/github@1.4.0",
+                  until,
+                },
+              },
+            }}
+            pending={false}
+            openSourceDisabled
+            onToggle={() => {}}
+            onEdit={() => {}}
+            onOpenSource={() => {}}
+            onDelete={() => {}}
+            catalogEntries={[]}
+            onOpenPlugin={() => undefined}
+          />
+        </QueryClientWrapper>
+      </MemoryRouter>,
+    );
+
+    const rollbackRow = screen.getByText("Rollback", {
+      selector: "p",
+    }).parentElement;
+    const updateRow = screen.getByText("Update", {
+      selector: "p",
+    }).parentElement;
+    expect(rollbackRow).not.toBe(updateRow);
+    expect(rollbackRow?.textContent).toContain(
+      `The last update replaced 1.4.0. You can return to it until ${formatAbsoluteDate(until)}.`,
+    );
+    const action = screen.getByRole("button", { name: "Roll back to 1.4.0" });
+    expect(rollbackRow?.contains(action)).toBe(true);
+    fireEvent.click(action);
+    expect(
+      screen.getByRole("heading", { name: "Roll back GitHub to 1.4.0?" }),
+    ).toBeTruthy();
+  });
 
   it("uses a plugin-owned canonical icon when no rich logo is declared", () => {
     const compactIconUrl = "/api/v1/plugins/omega/assets/icon?h=abc";
@@ -1741,6 +1798,7 @@ describe("PluginDetail banner precedence", () => {
         version: "1.4.5",
         at: null,
         detail: "The plugin failed to load after the update.",
+        restored: true,
       },
     },
   };
