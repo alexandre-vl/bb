@@ -1,16 +1,32 @@
 // @vitest-environment jsdom
 
 import type { ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { PullRequest } from "bb-plugin-bb--github-pr-status/contract";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { ThreadPromptContextBanner } from "@/components/promptbox/banner/ThreadPromptContextBanner";
-import { PullRequestRow } from "@/components/secondary-panel/ThreadMetadataContent";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { MarkdownPreview } from "@/components/ui/markdown-preview";
-import { PluginUrlClaimContext } from "./plugin-url-claims";
+import { installPluginRuntime } from "@/lib/plugin-frontend";
+import { UrlOpenRoutingProvider } from "@/lib/url-open-routing";
+import { PullRequestLink } from "../../../../../plugins/github-pr-status/ui/PullRequestContextSegment";
+import { PullRequestRow } from "../../../../../plugins/github-pr-status/ui/PullRequestInfoRow";
+import { PluginSlotMount } from "./PluginSlotMount";
+import {
+  PluginUrlClaimContext,
+  type OpenClaimedUrl,
+} from "./plugin-url-claims";
 
 const PULL_URL = "https://github.com/acme/bb/pull/128";
+const PR_STATUS_PLUGIN_ID = "bb--github-pr-status";
 
 const pullRequest: PullRequest = {
   number: 128,
@@ -38,8 +54,6 @@ const pullRequest: PullRequest = {
   attention: "ready_to_merge",
 };
 
-type OpenClaimedUrl = (href: string) => boolean;
-
 interface MountedSurface {
   link: HTMLElement;
   openedWithoutPlugins(): boolean;
@@ -47,25 +61,41 @@ interface MountedSurface {
 
 interface Surface {
   name: string;
+  callerPluginId: string | null;
   mount(openClaimedUrl: OpenClaimedUrl): MountedSurface;
 }
 
+type RuntimeHost = typeof globalThis & { __bbPluginRuntime?: unknown };
+
 function mountInThreadView(openClaimedUrl: OpenClaimedUrl, content: ReactNode) {
   render(
-    <MemoryRouter>
-      <PluginUrlClaimContext.Provider value={openClaimedUrl}>
-        {content}
-      </PluginUrlClaimContext.Provider>
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter>
+        <PluginUrlClaimContext.Provider value={openClaimedUrl}>
+          <UrlOpenRoutingProvider openInAppBrowser={null}>
+            {content}
+          </UrlOpenRoutingProvider>
+        </PluginUrlClaimContext.Provider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
-function mountPullRequestLink(
+function mountPullRequestStatusLink(
   openClaimedUrl: OpenClaimedUrl,
   content: ReactNode,
 ): MountedSurface {
   const openWindow = vi.spyOn(window, "open").mockReturnValue(null);
-  mountInThreadView(openClaimedUrl, content);
+  mountInThreadView(
+    openClaimedUrl,
+    <PluginSlotMount
+      pluginId={PR_STATUS_PLUGIN_ID}
+      slotKind="test"
+      slotId="pull-request"
+    >
+      {content}
+    </PluginSlotMount>,
+  );
   return {
     link: screen.getByRole("link", { name: /^Pull request 128:/ }),
     openedWithoutPlugins: () =>
@@ -76,6 +106,7 @@ function mountPullRequestLink(
 const surfaces: readonly Surface[] = [
   {
     name: "a Markdown link",
+    callerPluginId: null,
     mount(openClaimedUrl) {
       const onOpenLink = vi.fn<(link: { href: string }) => boolean>(() => true);
       mountInThreadView(
@@ -93,32 +124,38 @@ const surfaces: readonly Surface[] = [
     },
   },
   {
-    name: "the prompt banner's pull request",
+    name: "the pull request context segment",
+    callerPluginId: PR_STATUS_PLUGIN_ID,
     mount: (openClaimedUrl) =>
-      mountPullRequestLink(
+      mountPullRequestStatusLink(
         openClaimedUrl,
-        <ThreadPromptContextBanner
-          gitSection={null}
-          gitSectionPending={false}
-          archivedSection={null}
-          environmentGoneSection={null}
-          parentThreadSection={null}
-          childThreadsSection={null}
-          pullRequestSection={{ pullRequest }}
-          expandedSection={null}
-          onToggleSection={() => {}}
+        <PullRequestLink
+          pullRequest={pullRequest}
+          segments={[
+            {
+              key: `${PR_STATUS_PLUGIN_ID}/pull-request`,
+              pluginId: PR_STATUS_PLUGIN_ID,
+            },
+          ]}
         />,
       ),
   },
   {
     name: "the Info tab's pull request",
+    callerPluginId: PR_STATUS_PLUGIN_ID,
     mount: (openClaimedUrl) =>
-      mountPullRequestLink(
+      mountPullRequestStatusLink(
         openClaimedUrl,
         <PullRequestRow pullRequest={pullRequest} />,
       ),
   },
 ];
+
+beforeAll(() => installPluginRuntime());
+
+afterAll(() => {
+  delete (globalThis as RuntimeHost).__bbPluginRuntime;
+});
 
 afterEach(() => {
   cleanup();
@@ -131,7 +168,10 @@ describe.each(surfaces)("$name in a thread view", (surface) => {
     const { link, openedWithoutPlugins } = surface.mount(openClaimedUrl);
 
     expect(fireEvent.click(link)).toBe(false);
-    expect(openClaimedUrl).toHaveBeenCalledExactlyOnceWith(PULL_URL);
+    expect(openClaimedUrl).toHaveBeenCalledExactlyOnceWith(
+      PULL_URL,
+      surface.callerPluginId,
+    );
     expect(openedWithoutPlugins()).toBe(false);
   });
 
@@ -140,7 +180,10 @@ describe.each(surfaces)("$name in a thread view", (surface) => {
     const { link, openedWithoutPlugins } = surface.mount(openClaimedUrl);
 
     fireEvent.click(link);
-    expect(openClaimedUrl).toHaveBeenCalledExactlyOnceWith(PULL_URL);
+    expect(openClaimedUrl).toHaveBeenCalledExactlyOnceWith(
+      PULL_URL,
+      surface.callerPluginId,
+    );
     expect(openedWithoutPlugins()).toBe(true);
   });
 

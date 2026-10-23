@@ -64,7 +64,11 @@ terminalId }) }`.
   replace themselves), or once that tab has closed; `experimental_openTab`
   does not replace. Experimental: see `docs/api_to_audit.md`.
   `openUrl` owns HTTP(S) only and returns false for schemes BB
-  leaves to normal anchor behavior. The two file methods accept an
+  leaves to normal anchor behavior. In a thread view it first offers the URL
+  to other plugins' thread action tabs that claim it (`experimental_claimUrl`,
+  in [core slots](frontend-core-slots.md)), as a plain click on a link there
+  does. The calling plugin's own claims are skipped, so it can still open a
+  URL its tabs claim in the browser. The two file methods accept an
   `ExperimentalFileOpenOptions` live-file target.
   `experimental_openTerminal` shows a terminal the plugin created with
   `useSdk().terminals.create` in the current surface's terminal panel; the

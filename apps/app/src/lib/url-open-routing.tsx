@@ -23,7 +23,7 @@ interface UrlOpenRoutingProviderProps {
 
 export type UrlAnchorClickEvent = ReactMouseEvent<HTMLAnchorElement>;
 
-export type UrlAnchorClickHandler = (event: UrlAnchorClickEvent) => void;
+type UrlAnchorClickHandler = (event: UrlAnchorClickEvent) => void;
 
 const InAppBrowserUrlOpenContext = createContext<OpenInAppBrowserUrl | null>(
   null,

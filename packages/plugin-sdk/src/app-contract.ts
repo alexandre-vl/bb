@@ -1037,19 +1037,20 @@ type ExperimentalTabCommon = ExperimentalTabReference & {
 
 interface ExperimentalThreadTabUrlClaim {
   /**
-   * Claim web links this thread action tab can show. A plain click on an
-   * http(s) link bb shows in a thread view (Markdown in its messages and side
-   * panel, and the thread's pull request in the prompt banner and the Info
-   * tab) calls this with the link's URL before bb opens it. Return the
-   * options `openPanel` takes to open this tab instead, or null (undefined
-   * counts as null) to leave the link to the browser. Return the same params
-   * for the same resource, so a second click focuses its tab. It runs on
-   * every such click, so keep it synchronous and cheap; `run` is not called.
-   * Clicks with Cmd, Ctrl, Shift, or Alt still open the URL, and so does a
-   * claim the side panel declines. When several tabs claim a link, the first
-   * in slot order wins; a claim that throws or returns anything but options
-   * or null is logged and skipped. Only thread tabs with action availability
-   * claim links.
+   * Claim web links this thread action tab can show. In a thread view, a
+   * plain click on an http(s) link in Markdown (its messages and side panel)
+   * and another plugin's `useBbNavigate().openUrl` (such as the GitHub PR
+   * Status plugin's pull request in the prompt banner and the Info tab) call
+   * this with the URL before bb opens it. Return the options `openPanel`
+   * takes to open this tab instead, or null (undefined counts as null) to
+   * leave the link to the browser. Return the same params for the same
+   * resource, so a second click focuses its tab. It runs on every such open,
+   * so keep it synchronous and cheap; `run` is not called. Clicks with Cmd,
+   * Ctrl, Shift, or Alt still open the URL, and so does a claim the side
+   * panel declines. When several tabs claim a link, the first in slot order
+   * wins; a claim that throws or returns anything but options or null is
+   * logged and skipped. Only thread tabs with action availability claim
+   * links, and a tab never claims its own plugin's `openUrl`.
    *
    * Experimental: see docs/api_to_audit.md.
    */
@@ -4930,9 +4931,12 @@ export interface BbNavigate {
     },
   ): boolean;
   /**
-   * Open an HTTP(S) URL using this client's BB browser preference. Returns
-   * false for schemes the host does not own. Experimental: see
-   * docs/api_to_audit.md.
+   * Open an HTTP(S) URL using this client's BB browser preference. In a
+   * thread view, another plugin's thread action tab that claims the URL
+   * (`experimental_claimUrl`) opens instead, as for a plain click on a link
+   * there. This plugin's own claims are skipped, so it can still open a URL
+   * its tabs claim in the browser. Returns false for schemes the host does
+   * not own. Experimental: see docs/api_to_audit.md.
    */
   openUrl(url: string): boolean;
   /** Open a live file in this surface's shared BB preview panel. */

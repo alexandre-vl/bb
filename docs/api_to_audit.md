@@ -2130,45 +2130,50 @@ Docs: `frontend-core-slots.md`.
 
 ## `ExperimentalTabRegistration.experimental_claimUrl` (`@get-bb/plugin-sdk/app`)
 
-**Added 2026-10-23 (SDK 0.6.74).** One consumer: the GitHub plugin's GitHub
+**Added 2026-10-23 (SDK 0.6.76).** One consumer: the GitHub plugin's GitHub
 tab, which claims pull request and issue links.
 
 A thread action tab (`app.slots.experimental_tab` with
 `context: { kind: "thread" }` and `availability: "action"`) claims web links
 it can show; the registration collector rejects a claim on a fixed or
-navigation-page tab. A plain primary click
-on an http(s) link bb shows in a thread view (Markdown in the timeline and in
-its side panel, inline or hosted by a split pane, and the thread's pull
-request in the prompt banner and the Info tab) asks each action's claim in
-slot order, with a fresh `URL` each, before bb opens the link. The first claim
-that returns `{ title?, params? }` opens that action's tab with those options,
-as `openPanel` would, and `run` is not called. Null, or undefined, passes the
-link on to the next claim, then to the browser. Cmd-, Ctrl-, Shift-, and
-Alt-clicks skip claims, a claim the side panel declines falls back to the
-browser, and a claim that throws or returns anything but options or null is
-logged and skipped.
+navigation-page tab. In a thread view, a plain primary click on an http(s)
+link in Markdown (in the timeline and in its side panel, inline or hosted by
+a split pane) and a plugin's `useBbNavigate().openUrl` ask each action's claim
+in slot order, with a fresh `URL` each, before bb opens the link. The GitHub
+PR Status plugin's pull request link in the prompt banner and its Info tab
+row open through `openUrl`. The first claim that returns `{ title?, params? }`
+opens that action's tab with those options, as `openPanel` would, and `run`
+is not called. Null, or undefined, passes the link on to the next claim, then
+to the browser. Cmd-, Ctrl-, Shift-, and Alt-clicks skip claims, a claim the
+side panel declines falls back to the browser, and a claim that throws or
+returns anything but options or null is logged and skipped. `openUrl` skips
+the calling plugin's own claims, so the GitHub plugin's Open on GitHub still
+opens GitHub.
 
-**Core callers.** `MarkdownAnchor`, the prompt banner's pull request link and
-the Info tab's Pull request row share `useOpenClaimedUrlOnClick`, which offers
-plain clicks to `PluginUrlClaimContext`; `ThreadDetailView` provides it around
-its timeline and its split-hosted side panel. `useOpenClaimedUrl` asks the
-thread action tabs the thread view shows (`useThreadFixedTabs().actions`,
+**Core callers.** `MarkdownAnchor` offers plain clicks to
+`PluginUrlClaimContext` through `useOpenClaimedUrlOnClick`, and
+`useBbNavigate().openUrl` offers its URL there with the calling plugin's id
+before the navigation host's opener; `ThreadDetailView` provides the context
+around its timeline and its split-hosted side panel. `useOpenClaimedUrl` asks
+the thread action tabs the thread view shows (`useThreadFixedTabs().actions`,
 after `useVisible`), the list `usePanelPluginPanels` opens from, so a hidden
 tab never claims a link it cannot open. It opens the tab through
 `usePanelPluginPanels`, the opener that
 `useBbNavigate().openThreadPanel`, message actions, and timeline title actions
 use. `plugin-url-claims.test.tsx` covers resolution, and
-`plugin-url-claims.surfaces.test.tsx` runs one click contract table against
-the three link surfaces.
+`plugin-url-claims.surfaces.test.tsx` runs one click contract table against a
+Markdown link and the GitHub PR Status plugin's pull request segment and Info
+row, rendered through the plugin runtime.
 
 Docs: `frontend-core-slots.md`.
 
 **Audit before stabilizing.**
 
-1. **Link surfaces.** Markdown links and the thread's pull request links
-   consult claims. Decide whether terminal links, `UrlLink`,
-   `useBbNavigate().openUrl`, and Markdown on the New thread screen should
-   too.
+1. **Link surfaces.** Markdown links and `useBbNavigate().openUrl` consult
+   claims. Decide whether terminal links, `UrlLink`, a thread action's
+   `navigate.openUrl` (its collector renders outside the thread view), and
+   Markdown on the New thread screen should too, and whether skipping the
+   caller's own claims should become an explicit `openUrl` option.
 2. **Conflicts.** The first claim in slot order wins: plugin id order, then
    registration order. Decide whether people need a preference per kind of
    link, like file openers' Open with, or a switch that turns claims off.
@@ -2186,7 +2191,7 @@ Docs: `frontend-core-slots.md`.
 
 ## `BbNavigate.openThreadPanel` `experimental_replace` (`@get-bb/plugin-sdk/app`)
 
-**Added 2026-10-23 (SDK 0.6.74).** One consumer: the GitHub plugin's GitHub
+**Added 2026-10-23 (SDK 0.6.76).** One consumer: the GitHub plugin's GitHub
 tab, when a tab opened without params finds the thread's pull request, and
 when someone picks a pull request or issue in one.
 
@@ -2232,7 +2237,7 @@ Docs: `frontend-hooks-and-ui.md`, `frontend-core-slots.md`.
    whether back navigation inside a tab should restore the params it replaced.
 3. **Openers.** Only `openThreadPanel` takes the flag, and only thread and New
    thread action tabs can replace themselves: `experimental_useAppPanel()
-   .experimental_openTab` drops it, and fixed and navigation-page tabs return
+.experimental_openTab` drops it, and fixed and navigation-page tabs return
    false. Decide whether it belongs on `ExperimentalTabOpenOptions` before
    stabilizing.
 
