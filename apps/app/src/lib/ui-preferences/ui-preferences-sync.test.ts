@@ -64,12 +64,12 @@ function setCachedUiPreferences(
   client: QueryClient,
   response: UiPreferencesResponse,
 ): void {
-  client.setQueryData(uiPreferencesQueryOptions().queryKey, response);
+  client.setQueryData(uiPreferencesQueryOptions(client).queryKey, response);
 }
 function getCachedUiPreferences(
   client: QueryClient,
 ): UiPreferencesResponse | undefined {
-  return client.getQueryData(uiPreferencesQueryOptions().queryKey);
+  return client.getQueryData(uiPreferencesQueryOptions(client).queryKey);
 }
 
 function conflict(currentRevision: number): BbHttpError {
@@ -292,7 +292,7 @@ describe("ui preferences sync", () => {
     const { modeAtom, queryClient, store } = createHarness();
     mocks.list.mockResolvedValueOnce(serverResponse());
     const observer = new QueryObserver(queryClient, {
-      ...uiPreferencesQueryOptions(),
+      ...uiPreferencesQueryOptions(queryClient),
       retry: false,
     });
     const stop = observer.subscribe(() => {});
@@ -652,6 +652,47 @@ describe("ui preferences sync", () => {
     });
 
     expect(store.get(orderAtom)).toEqual(["remote", "other", "a", "b"]);
+  });
+
+  it("ends pending at write acknowledgement and keeps the mirror while its refresh is held", async () => {
+    const { orderAtom, queryClient, store } = createHarness();
+    const previous = serverResponse({
+      "sidebar.sectionOrder": { revision: 1, value: ["old"] },
+    });
+    setCachedUiPreferences(queryClient, previous);
+    startUiPreferencesSync({ queryClient, store });
+    let release!: (response: UiPreferencesResponse) => void;
+    mocks.list.mockReturnValueOnce(
+      new Promise<UiPreferencesResponse>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const observer = new QueryObserver(
+      queryClient,
+      uiPreferencesQueryOptions(queryClient),
+    );
+    const stop = observer.subscribe(() => {});
+    try {
+      store.set(orderAtom, ["chosen"]);
+      await waitForUiPreferenceWrites();
+      expect(hasPendingUiPreferenceWrite("sidebar.sectionOrder")).toBe(false);
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+      expect(observer.getCurrentResult().isFetching).toBe(true);
+      reconcileUiPreferences(previous);
+      expect(store.get(orderAtom)).toEqual(["chosen"]);
+      const confirmed = serverResponse({
+        "sidebar.sectionOrder": { revision: 2, value: ["confirmed"] },
+      });
+      release(confirmed);
+      await vi.waitFor(() =>
+        expect(observer.getCurrentResult().isFetching).toBe(false),
+      );
+      reconcileUiPreferences(confirmed);
+      expect(store.get(orderAtom)).toEqual(["confirmed"]);
+    } finally {
+      stop();
+      queryClient.clear();
+    }
   });
 
   it("reconciles the mirror to the cached entry once the pending write settles", async () => {

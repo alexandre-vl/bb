@@ -571,6 +571,7 @@ function zoomWebContents(
   if (!target) {
     return;
   }
+  if (desktopWindowFactory?.zoom(target.id, command)) return;
   target.setZoomFactor(nextZoomFactor(target.getZoomFactor(), command));
 }
 
@@ -2335,7 +2336,13 @@ async function finishQuit(): Promise<void> {
   desktopAutoUpdateService?.stop();
   desktopBrowserViewManager?.destroyAll();
   desktopFindViewManager?.destroyAll();
-  await desktopWindowFactory?.persistOpenWindows();
+  await desktopWindowFactory
+    ?.persistOpenWindows()
+    .catch((error) =>
+      desktopLogger.error(
+        `Could not save desktop window state: ${String(error)}`,
+      ),
+    );
   await stopOwnedRuntime();
 }
 
@@ -3254,6 +3261,8 @@ async function runDesktopApp(): Promise<void> {
   );
   desktopBrowserBrokerClient = createDesktopBrowserBrokerClient({
     broker: desktopBrowserBroker,
+    fetchImpl: (input, init) =>
+      net.fetch(input instanceof URL ? input.toString() : input, init),
     dataDir,
     homeDir: homedir(),
     getServerUrl() {

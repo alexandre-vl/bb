@@ -1,3 +1,4 @@
+import { useTaggedQuery } from "@bb/query-tags";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type {
@@ -48,7 +49,7 @@ import {
   systemVersionQueryKey,
   uiPreferencesQueryKey,
 } from "./query-keys";
-import { publicApiRoutes } from "@bb/server-contract";
+import { uiPreferencesRoute } from "@bb/server-contract";
 import { routeTaggedRead } from "./route-tags";
 import { requireEnabledQueryArg, type QueryOptions } from "./query-helpers";
 import {
@@ -519,11 +520,14 @@ export function useSystemAiServices(options?: QueryOptions) {
   });
 }
 
-export function uiPreferencesQueryOptions() {
+export function uiPreferencesQueryOptions(client: QueryClient) {
+  const queryKey = uiPreferencesQueryKey();
   return queryOptions({
-    queryKey: uiPreferencesQueryKey(),
+    queryKey,
     ...routeTaggedRead(
-      publicApiRoutes.system.uiPreferences,
+      client,
+      queryKey,
+      uiPreferencesRoute,
       { params: {}, input: undefined },
       (signal) => sdk.system.uiPreferences.list({ signal }),
     ),
@@ -532,11 +536,12 @@ export function uiPreferencesQueryOptions() {
 }
 
 export function useUiPreferences(options?: QueryOptions) {
+  const client = useQueryClient();
   const enabled = options?.enabled ?? true;
   useSystemRealtimeSubscription({ enabled });
 
-  return useQuery({
-    ...uiPreferencesQueryOptions(),
+  return useTaggedQuery({
+    ...uiPreferencesQueryOptions(client),
     enabled,
   });
 }

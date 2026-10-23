@@ -7,7 +7,7 @@ import type {
   UiPreferenceValue,
 } from "@bb/domain";
 import {
-  publicApiRoutes,
+  updateUiPreferenceRoute,
   UI_PREFERENCES_TAG,
   type UiPreferencesResponse,
 } from "@bb/server-contract";
@@ -67,7 +67,7 @@ function getSyncState<Key extends UiPreferenceKey>(
 function getCachedUiPreferences(
   client: QueryClient,
 ): UiPreferencesResponse | undefined {
-  return client.getQueryData(uiPreferencesQueryOptions().queryKey);
+  return client.getQueryData(uiPreferencesQueryOptions(client).queryKey);
 }
 
 function latestEntry<Key extends UiPreferenceKey>(
@@ -185,7 +185,7 @@ function refetchUiPreferences(
   queryClient: QueryClient,
 ): Promise<UiPreferencesResponse> {
   return queryClient.fetchQuery({
-    ...uiPreferencesQueryOptions(),
+    ...uiPreferencesQueryOptions(queryClient),
     staleTime: 0,
   });
 }
@@ -214,7 +214,7 @@ async function writeUiPreference<Key extends UiPreferenceKey>(
       const request = { expectedRevision: base.revision, value };
       const response = await runRouteMutation(
         queryClient,
-        publicApiRoutes.system.updateUiPreference,
+        updateUiPreferenceRoute,
         { params: { key }, input: request },
         () => sdk.system.uiPreferences.set({ ...request, key }),
       );
