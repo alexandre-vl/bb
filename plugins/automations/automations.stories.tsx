@@ -854,6 +854,7 @@ export function FailureStates() {
             onRunNow={noop}
             onDelete={noop}
             onOpenThread={noop}
+            projectDefaultEnvironment={null}
           />
         </div>
       </StoryRow>
