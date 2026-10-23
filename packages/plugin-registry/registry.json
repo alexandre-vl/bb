@@ -71,6 +71,7 @@
     "tabs",
     "textarea",
     "thread-list-empty-state",
+    "toast-clearance",
     "toggle",
     "toggle-group",
     "tooltip",

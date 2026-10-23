@@ -1,15 +1,20 @@
-import type {
-  PluginSidebarThread,
-  PluginSidebarThreadIndicator,
-  PluginSidebarThreadRowStatus,
+import {
+  experimental_resolveThreadListIndicator,
+  experimental_rollUpThreadIndicators,
+  experimental_threadIndicatorRung,
+  type ExperimentalThreadIndicatorRung,
+  type ExperimentalThreadListIndicatorState,
+  type PluginSidebarThread,
+  type PluginSidebarThreadIndicator,
+  type PluginSidebarThreadRowStatus,
 } from "@get-bb/plugin-sdk/app";
 
-type ThreadStatusShape = Pick<
-  PluginSidebarThread,
-  "status" | "isUnread" | "parentThreadId"
->;
+type ThreadStatusShape = Pick<PluginSidebarThread, "status" | "isUnread">;
 type ThreadRuntimeShape = Pick<PluginSidebarThread, "runtimeStatus">;
 type ThreadActivityStateShape = Pick<PluginSidebarThread, "activity">;
+type ThreadHostWorkShape = ThreadRuntimeShape &
+  ThreadActivityStateShape &
+  Pick<PluginSidebarThread, "experimental_hostUnavailable">;
 
 const RUNNING_RUNTIME_STATUSES: Record<
   PluginSidebarThread["runtimeStatus"],
@@ -34,24 +39,43 @@ const DONE_THREAD_STATUSES: Record<PluginSidebarThread["status"], boolean> = {
   pending: false,
 };
 
+function isHostUnavailable(thread: ThreadHostWorkShape): boolean {
+  return thread.experimental_hostUnavailable === true;
+}
+
 export function isRuntimeBusyThread(thread: ThreadRuntimeShape): boolean {
   return RUNNING_RUNTIME_STATUSES[thread.runtimeStatus] ?? false;
 }
 
-function hasActiveWorkflowActivity(thread: ThreadActivityStateShape): boolean {
-  return thread.activity.workflows > 0;
+function hasActiveWorkflowActivity(thread: ThreadHostWorkShape): boolean {
+  return !isHostUnavailable(thread) && thread.activity.workflows > 0;
 }
 
 function hasActiveBackgroundAgentActivity(
-  thread: ThreadActivityStateShape,
+  thread: ThreadHostWorkShape,
 ): boolean {
-  return thread.activity.backgroundAgents > 0;
+  return !isHostUnavailable(thread) && thread.activity.backgroundAgents > 0;
 }
 
 function hasActiveBackgroundCommandActivity(
-  thread: ThreadActivityStateShape,
+  thread: ThreadHostWorkShape,
 ): boolean {
-  return thread.activity.backgroundCommands > 0;
+  return !isHostUnavailable(thread) && thread.activity.backgroundCommands > 0;
+}
+
+function hasBackgroundTaskActivity(thread: ThreadActivityStateShape): boolean {
+  return (
+    thread.activity.workflows > 0 ||
+    thread.activity.backgroundAgents > 0 ||
+    thread.activity.backgroundCommands > 0
+  );
+}
+
+function isWaitingForHostThread(thread: ThreadHostWorkShape): boolean {
+  return (
+    thread.runtimeStatus === "waiting-for-host" ||
+    (isHostUnavailable(thread) && hasBackgroundTaskActivity(thread))
+  );
 }
 
 function hasActivePlanModeActivity(thread: ThreadActivityStateShape): boolean {
@@ -62,34 +86,29 @@ function hasActiveGoalActivity(thread: ThreadActivityStateShape): boolean {
   return thread.activity.goals > 0;
 }
 
-function isBusyThread(
-  thread: ThreadRuntimeShape & ThreadActivityStateShape,
-): boolean {
-  return (
-    isRuntimeBusyThread(thread) ||
-    hasActiveWorkflowActivity(thread) ||
-    hasActiveBackgroundAgentActivity(thread) ||
-    hasActiveBackgroundCommandActivity(thread) ||
-    hasActivePlanModeActivity(thread) ||
-    hasActiveGoalActivity(thread)
-  );
-}
-
-export interface ThreadListIndicatorState {
-  hasPendingInteraction: boolean;
-  hasUnsubmittedDraft: boolean;
-  hasUnreadError: boolean;
-  hasUnreadSuccess: boolean;
-  isBackgroundAgentActive: boolean;
-  isBackgroundCommandActive: boolean;
-  isGoalActive: boolean;
-  isPlanModeActive: boolean;
-  isRuntimeActive: boolean;
-  isWorkflowActive: boolean;
-  queuedWork: PluginSidebarThread["queuedWork"];
-}
+export type ThreadListIndicatorState = ExperimentalThreadListIndicatorState;
 
 export type ThreadListIndicatorKind = PluginSidebarThreadIndicator;
+
+export type ThreadListRung = ExperimentalThreadIndicatorRung;
+
+export const NEEDS_YOU_RUNG: ThreadListRung = 5;
+export const FAILED_RUNG: ThreadListRung = 4;
+export const NEW_RUNG: ThreadListRung = 3;
+export const WORKING_RUNG: ThreadListRung = 2;
+export const ATTENTION_RUNG: ThreadListRung = NEW_RUNG;
+
+export function threadListIndicatorRung(
+  kind: ThreadListIndicatorKind,
+): ThreadListRung {
+  return experimental_threadIndicatorRung(kind);
+}
+
+export function rollUpThreadListIndicators(
+  kinds: Iterable<ThreadListIndicatorKind>,
+): ThreadListIndicatorKind {
+  return experimental_rollUpThreadIndicators(kinds);
+}
 
 const THREAD_LIST_INDICATOR_LABELS: Record<
   Exclude<ThreadListIndicatorKind, "none">,
@@ -104,6 +123,7 @@ const THREAD_LIST_INDICATOR_LABELS: Record<
   "plan-mode": "Plan mode active",
   goal: "Goal active",
   runtime: "Thread working",
+  "waiting-for-host": "Thread waiting for its machine",
   "queued-failed": "Queued message failed to send",
   "queued-waiting": "Thread has a message waiting to send",
   draft: "Thread has unsubmitted draft",
@@ -116,10 +136,38 @@ export function getThreadListIndicatorLabel(
   return kind === "none" ? null : THREAD_LIST_INDICATOR_LABELS[kind];
 }
 
+const THREAD_LIST_STATE_TEXT: Record<ThreadListIndicatorKind, string | null> = {
+  "waiting-for-input": "needs your input",
+  "unread-error": "failed",
+  "queued-failed": "message failed to send",
+  "unread-success": "new result",
+  "plan-mode": "planning",
+  goal: "working toward a goal",
+  runtime: "working",
+  workflow: "running a workflow",
+  "background-agent": "running a background agent",
+  "background-command": "running a background command",
+  "working-draft": "working",
+  "waiting-for-host": "waiting for its machine",
+  "queued-waiting": "queued message",
+  draft: "unsent draft",
+  none: null,
+};
+
+export function getThreadListStateText(
+  kind: ThreadListIndicatorKind,
+): string | null {
+  return THREAD_LIST_STATE_TEXT[kind] ?? null;
+}
+
 interface ThreadStatusResolution {
   accessibleLabel: string | null;
   indicatorKind: ThreadListIndicatorKind;
   rowStatusIsVisible: boolean;
+}
+
+export function isRowStatusVisibleOver(kind: ThreadListIndicatorKind): boolean {
+  return threadListIndicatorRung(kind) <= 1;
 }
 
 export function resolveThreadStatus(
@@ -127,11 +175,15 @@ export function resolveThreadStatus(
   rowStatus: PluginSidebarThreadRowStatus | null,
 ): ThreadStatusResolution {
   const indicatorKind = resolveThreadListIndicator(state);
+  return resolveThreadKindStatus(indicatorKind, rowStatus);
+}
+
+export function resolveThreadKindStatus(
+  indicatorKind: ThreadListIndicatorKind,
+  rowStatus: PluginSidebarThreadRowStatus | null,
+): ThreadStatusResolution {
   const rowStatusIsVisible =
-    rowStatus !== null &&
-    indicatorKind !== "runtime" &&
-    indicatorKind !== "unread-error" &&
-    indicatorKind !== "waiting-for-input";
+    rowStatus !== null && isRowStatusVisibleOver(indicatorKind);
   return {
     accessibleLabel: rowStatusIsVisible
       ? rowStatus.label
@@ -156,11 +208,12 @@ export function hasThreadListWorkingActivity(
   );
 }
 
+type ThreadIndicatorShape = ThreadStatusShape &
+  ThreadHostWorkShape &
+  Pick<PluginSidebarThread, "hasPendingInteraction" | "queuedWork">;
+
 export function threadListIndicatorStateForThread(
-  thread: ThreadStatusShape &
-    ThreadRuntimeShape &
-    ThreadActivityStateShape &
-    Pick<PluginSidebarThread, "hasPendingInteraction" | "queuedWork">,
+  thread: ThreadIndicatorShape,
   hasUnsubmittedDraft: boolean,
 ): ThreadListIndicatorState {
   const unreadDone = isUnreadDoneThread(thread);
@@ -175,6 +228,7 @@ export function threadListIndicatorStateForThread(
     queuedWork: thread.queuedWork,
     isPlanModeActive: hasActivePlanModeActivity(thread),
     isRuntimeActive: isRuntimeBusyThread(thread),
+    isWaitingForHost: isWaitingForHostThread(thread),
     isWorkflowActive: hasActiveWorkflowActivity(thread),
   };
 }
@@ -182,108 +236,150 @@ export function threadListIndicatorStateForThread(
 export function resolveThreadListIndicator(
   state: ThreadListIndicatorState,
 ): ThreadListIndicatorKind {
-  if (state.hasUnreadError) return "unread-error";
-  if (state.hasPendingInteraction) return "waiting-for-input";
-
-  const hasActiveWork = hasThreadListWorkingActivity(state);
-  if (state.hasUnsubmittedDraft && hasActiveWork) return "working-draft";
-  if (state.isPlanModeActive) return "plan-mode";
-  if (state.isGoalActive) return "goal";
-  if (state.isRuntimeActive) return "runtime";
-  if (state.isWorkflowActive) return "workflow";
-  if (state.isBackgroundAgentActive) return "background-agent";
-  if (state.isBackgroundCommandActive) return "background-command";
-  if (state.queuedWork === "failed") return "queued-failed";
-  if (state.hasUnreadSuccess) return "unread-success";
-  if (state.queuedWork === "waiting") return "queued-waiting";
-  if (state.hasUnsubmittedDraft) return "draft";
-  return "none";
+  return experimental_resolveThreadListIndicator(state);
 }
 
-export interface CollapsedChildActivity {
+export function threadIndicatorKind(
+  thread: ThreadIndicatorShape,
+  hasUnsubmittedDraft = false,
+): ThreadListIndicatorKind {
+  return resolveThreadListIndicator(
+    threadListIndicatorStateForThread(thread, hasUnsubmittedDraft),
+  );
+}
+
+export function threadAttentionRung(
+  thread: ThreadIndicatorShape,
+): ThreadListRung {
+  const rung = threadListIndicatorRung(threadIndicatorKind(thread));
+  return rung >= ATTENTION_RUNG ? rung : 0;
+}
+
+export interface ThreadStateCounts {
+  needsYou: number;
+  failed: number;
+  fresh: number;
+  working: number;
+  waitingForHost: number;
+  queued: number;
+}
+
+export interface ThreadRollup {
   threadIds: readonly string[];
-  pending: boolean;
-  working: boolean;
-  runtimeWorking: boolean;
-  workflow: boolean;
-  backgroundAgent: boolean;
-  backgroundCommand: boolean;
-  planMode: boolean;
-  goal: boolean;
-  unread: boolean;
-  unreadError: boolean;
+  kind: ThreadListIndicatorKind;
+  counts: ThreadStateCounts;
 }
 
-export const NO_COLLAPSED_CHILD_ACTIVITY: CollapsedChildActivity = {
-  threadIds: [],
-  pending: false,
-  working: false,
-  runtimeWorking: false,
-  workflow: false,
-  backgroundAgent: false,
-  backgroundCommand: false,
-  planMode: false,
-  goal: false,
-  unread: false,
-  unreadError: false,
+const NO_THREAD_STATE_COUNTS: ThreadStateCounts = {
+  needsYou: 0,
+  failed: 0,
+  fresh: 0,
+  working: 0,
+  waitingForHost: 0,
+  queued: 0,
 };
 
-type ThreadActivityShape = ThreadStatusShape &
-  ThreadRuntimeShape &
-  Pick<PluginSidebarThread, "id" | "activity" | "hasPendingInteraction">;
+export const EMPTY_THREAD_ROLLUP: ThreadRollup = {
+  threadIds: [],
+  kind: "none",
+  counts: NO_THREAD_STATE_COUNTS,
+};
 
-export function getCollapsedChildActivity(
-  threads: readonly ThreadActivityShape[],
-): CollapsedChildActivity {
+function countThreadKind(
+  counts: ThreadStateCounts,
+  kind: ThreadListIndicatorKind,
+): void {
+  if (kind === "waiting-for-host") {
+    counts.waitingForHost += 1;
+    return;
+  }
+  switch (threadListIndicatorRung(kind)) {
+    case 5:
+      counts.needsYou += 1;
+      return;
+    case 4:
+      counts.failed += 1;
+      return;
+    case 3:
+      counts.fresh += 1;
+      return;
+    case 2:
+      counts.working += 1;
+      return;
+    case 1:
+      counts.queued += 1;
+      return;
+    case 0:
+      return;
+  }
+}
+
+export function rollUpThreads(
+  threads: readonly (ThreadIndicatorShape & Pick<PluginSidebarThread, "id">)[],
+): ThreadRollup {
+  if (threads.length === 0) return EMPTY_THREAD_ROLLUP;
+  const counts = { ...NO_THREAD_STATE_COUNTS };
   const threadIds: string[] = [];
-  let pending = false;
-  let working = false;
-  let runtimeWorking = false;
-  let workflow = false;
-  let backgroundAgent = false;
-  let backgroundCommand = false;
-  let planMode = false;
-  let goal = false;
-  let unread = false;
-  let unreadError = false;
+  const kinds: ThreadListIndicatorKind[] = [];
   for (const thread of threads) {
     threadIds.push(thread.id);
-    const childUnreadDone = isUnreadDoneThread(thread);
-    if (childUnreadDone && thread.status === "error") {
-      unreadError = true;
-    } else if (childUnreadDone) {
-      unread = true;
-    }
-
-    if (thread.hasPendingInteraction) {
-      pending = true;
-    }
-    if (isBusyThread(thread)) working = true;
-    if (isRuntimeBusyThread(thread)) runtimeWorking = true;
-    if (hasActiveWorkflowActivity(thread)) workflow = true;
-    if (hasActiveBackgroundAgentActivity(thread)) backgroundAgent = true;
-    if (hasActiveBackgroundCommandActivity(thread)) backgroundCommand = true;
-    if (hasActivePlanModeActivity(thread)) planMode = true;
-    if (hasActiveGoalActivity(thread)) goal = true;
+    const threadKind = threadIndicatorKind(thread);
+    countThreadKind(counts, threadKind);
+    kinds.push(threadKind);
   }
-  return {
-    threadIds,
-    pending,
-    working,
-    runtimeWorking,
-    workflow,
-    backgroundAgent,
-    backgroundCommand,
-    planMode,
-    goal,
-    unread,
-    unreadError,
-  };
+  return { threadIds, kind: rollUpThreadListIndicators(kinds), counts };
+}
+
+export function rollUpWithDraft(
+  rollup: ThreadRollup,
+  hasUnsubmittedDraft: boolean,
+): ThreadListIndicatorKind {
+  return hasUnsubmittedDraft && threadListIndicatorRung(rollup.kind) < 1
+    ? "draft"
+    : rollup.kind;
+}
+
+function pluralize(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function describeThreadStateCounts(counts: ThreadStateCounts): string {
+  const parts: string[] = [];
+  if (counts.needsYou > 0) {
+    parts.push(
+      pluralize(counts.needsYou, "needs your input", "need your input"),
+    );
+  }
+  if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+  if (counts.fresh > 0) {
+    parts.push(pluralize(counts.fresh, "new result", "new results"));
+  }
+  if (counts.working > 0) parts.push(`${counts.working} working`);
+  if (counts.waitingForHost > 0) {
+    parts.push(
+      pluralize(
+        counts.waitingForHost,
+        "waiting for its machine",
+        "waiting for their machines",
+      ),
+    );
+  }
+  if (counts.queued > 0) {
+    parts.push(pluralize(counts.queued, "queued", "queued"));
+  }
+  return parts.join(", ");
+}
+
+export function describeThreadRollup(
+  rollup: ThreadRollup,
+  singular: string,
+  plural: string,
+): string {
+  const total = pluralize(rollup.threadIds.length, singular, plural);
+  const detail = describeThreadStateCounts(rollup.counts);
+  return detail ? `${total}: ${detail}` : total;
 }
 
 export function isUnreadDoneThread(thread: ThreadStatusShape): boolean {
-  if (thread.parentThreadId != null) {
-    return false;
-  }
   return (DONE_THREAD_STATUSES[thread.status] ?? false) && thread.isUnread;
 }

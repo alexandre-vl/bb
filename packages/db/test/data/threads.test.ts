@@ -1479,6 +1479,7 @@ describe("thread lifecycle transitions and read state", () => {
       vi.setSystemTime(3_000);
       const stale = markThreadRead(db, spy, thread.id, {
         throughAttentionAt: 1_000,
+        descendantsThroughAttentionAt: 1_000,
       });
       expect(stale).toMatchObject({
         lastReadAt: 1_000,
@@ -1490,6 +1491,7 @@ describe("thread lifecycle transitions and read state", () => {
       vi.setSystemTime(4_000);
       const current = markThreadRead(db, spy, thread.id, {
         throughAttentionAt: 2_000,
+        descendantsThroughAttentionAt: 2_000,
       });
       expect(current).toMatchObject({ lastReadAt: 4_000, updatedAt: 4_000 });
       expect(spy.notifyThread).toHaveBeenCalledExactlyOnceWith(
@@ -1499,8 +1501,110 @@ describe("thread lifecycle transitions and read state", () => {
       );
 
       expect(
-        markThreadRead(db, spy, "thr_missing", { throughAttentionAt: null }),
+        markThreadRead(db, spy, "thr_missing", {
+          throughAttentionAt: null,
+          descendantsThroughAttentionAt: null,
+        }),
       ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads a thread's unread descendants in the same read, through the attention the reader saw", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const { db, project } = setup();
+      const spy: DbNotifier = {
+        notifyThread: vi.fn(),
+        notifyEnvironment: vi.fn(),
+        notifyHost: vi.fn(),
+        notifyProject: vi.fn(),
+        notifySystem: vi.fn(),
+      };
+      const create = (parentThreadId: string | null) =>
+        createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+          parentThreadId,
+        }).id;
+      const setReadState = (
+        id: string,
+        fields: Partial<typeof threads.$inferInsert>,
+      ) => db.update(threads).set(fields).where(eq(threads.id, id)).run();
+      const parent = create(null);
+      const child = create(parent);
+      const grandchild = create(child);
+      const archivedChild = create(parent);
+      const readChild = create(parent);
+      const laterChild = create(parent);
+      const deletedChild = create(parent);
+      const stranger = create(null);
+      setReadState(parent, { latestAttentionAt: 2_000 });
+      setReadState(child, { latestAttentionAt: 2_500 });
+      setReadState(grandchild, { lastReadAt: null, latestAttentionAt: 2_600 });
+      setReadState(archivedChild, { archivedAt: 1_000, latestAttentionAt: 2_500 });
+      setReadState(laterChild, { latestAttentionAt: 3_500 });
+      setReadState(deletedChild, { deletedAt: 1_000, latestAttentionAt: 2_500 });
+      setReadState(stranger, { latestAttentionAt: 2_500 });
+      const readState = () =>
+        Object.fromEntries(
+          db
+            .select({
+              id: threads.id,
+              lastReadAt: threads.lastReadAt,
+              updatedAt: threads.updatedAt,
+            })
+            .from(threads)
+            .all()
+            .map((row) => [row.id, [row.lastReadAt, row.updatedAt]]),
+        );
+
+      vi.setSystemTime(4_000);
+      markThreadRead(db, spy, parent, {
+        throughAttentionAt: 1_500,
+        descendantsThroughAttentionAt: 3_000,
+      });
+      expect(readState()[child]).toEqual([1_000, 1_000]);
+      expect(spy.notifyThread).not.toHaveBeenCalled();
+
+      vi.setSystemTime(5_000);
+      expect(
+        markThreadRead(db, spy, parent, {
+          throughAttentionAt: 2_000,
+          descendantsThroughAttentionAt: 3_000,
+        }),
+      ).toMatchObject({ id: parent, lastReadAt: 5_000 });
+      expect(readState()).toEqual({
+        [parent]: [5_000, 5_000],
+        [child]: [5_000, 5_000],
+        [grandchild]: [5_000, 5_000],
+        [archivedChild]: [5_000, 5_000],
+        [readChild]: [1_000, 1_000],
+        [laterChild]: [1_000, 1_000],
+        [deletedChild]: [1_000, 1_000],
+        [stranger]: [1_000, 1_000],
+      });
+      expect(vi.mocked(spy.notifyThread).mock.calls).toEqual(
+        expect.arrayContaining(
+          [parent, child, grandchild, archivedChild].map((id) => [
+            id,
+            ["read-state-changed"],
+            { projectId: project.id },
+          ]),
+        ),
+      );
+      expect(spy.notifyThread).toHaveBeenCalledTimes(4);
+
+      vi.setSystemTime(6_000);
+      markThreadRead(db, spy, parent, {
+        throughAttentionAt: null,
+        descendantsThroughAttentionAt: null,
+      });
+      expect(readState()[laterChild]).toEqual([6_000, 6_000]);
+      expect(readState()[deletedChild]).toEqual([1_000, 1_000]);
+      expect(readState()[stranger]).toEqual([1_000, 1_000]);
     } finally {
       vi.useRealTimers();
     }

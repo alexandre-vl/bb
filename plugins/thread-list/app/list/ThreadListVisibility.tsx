@@ -12,12 +12,15 @@ import {
 import { useAtom } from "jotai";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import type { SidebarSectionId } from "../model/sidebar-section-id.js";
-import { getCollapsedChildActivity } from "../model/thread-activity.js";
+import { rollUpThreads } from "../model/thread-activity.js";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
 import { ActionMenuSeparator } from "@/components/ui/action-menu-items";
-import { SidebarContentElementContext } from "../ui/sidebar.js";
+import {
+  SIDEBAR_CONTENT_SELECTOR,
+  SidebarContentElementContext,
+} from "../ui/sidebar.js";
 import { reorderStoredOrder } from "../model/stored-order.js";
 import { sidebarHiddenGroupsAtom } from "../preferences/atoms.js";
 import { CollapsedThreadStatusGlyph } from "../rows/ThreadRow.js";
@@ -58,6 +61,32 @@ interface ThreadListVisibilityState {
 
 const VisibilityContext = createContext<ThreadListVisibilityState | null>(null);
 const GroupContext = createContext<string | null>(null);
+const THREAD_LINK_SELECTOR = "[data-sidebar-thread-id]";
+
+function pickRowActionsThreadId(root: HTMLElement | null): string | null {
+  const links = Array.from(
+    root?.querySelectorAll<HTMLElement>(THREAD_LINK_SELECTOR) ?? [],
+  );
+  const view = root
+    ?.closest<HTMLElement>(SIDEBAR_CONTENT_SELECTOR)
+    ?.getBoundingClientRect();
+  const visible =
+    view === undefined
+      ? []
+      : links.filter((link) => {
+          const rect = link.getBoundingClientRect();
+          return (
+            rect.height > 0 &&
+            rect.top >= view.top &&
+            rect.bottom <= view.bottom
+          );
+        });
+  const candidates = visible.length > 0 ? visible : links;
+  const target =
+    candidates.find((link) => link.getAttribute("aria-current") === "page") ??
+    candidates[0];
+  return target?.dataset.sidebarThreadId ?? null;
+}
 
 export function ThreadListVisibility({
   groups,
@@ -83,6 +112,7 @@ export function ThreadListVisibility({
   const container = useRef<HTMLDivElement>(null);
   const focusTarget = useRef<string | null>(null);
   const rowActionsFocusTarget = useRef<string | null>(null);
+  const rowActionsReturnFocus = useRef<HTMLElement | null>(null);
   const hiddenIds = useMemo(() => new Set(hidden), [hidden]);
   const groupsById = new Map(groups.map((group) => [group.id, group]));
   const orderedGroups = order.flatMap((id) => {
@@ -123,20 +153,21 @@ export function ThreadListVisibility({
     return () => cancelAnimationFrame(frame);
   }, [hidden, customizing]);
   useEffect(() => {
+    if (rowActionsThreadId !== null) return;
     const threadId = rowActionsFocusTarget.current;
-    if (threadId === null || rowActionsThreadId !== null) return;
+    const returnFocus = rowActionsReturnFocus.current;
     rowActionsFocusTarget.current = null;
+    rowActionsReturnFocus.current = null;
+    if (threadId === null) return;
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
         const link = Array.from(
           container.current?.querySelectorAll<HTMLElement>(
-            "[data-sidebar-thread-id]",
+            THREAD_LINK_SELECTOR,
           ) ?? [],
         ).find((element) => element.dataset.sidebarThreadId === threadId);
         const target =
-          link
-            ?.closest("[data-sidebar-rename-row]")
-            ?.querySelector<HTMLElement>("[data-thread-actions-trigger]") ??
+          (returnFocus?.isConnected ? returnFocus : null) ??
           link ??
           container.current;
         target?.focus({ preventScroll: true });
@@ -144,9 +175,12 @@ export function ThreadListVisibility({
     });
     return () => cancelAnimationFrame(frame);
   }, [rowActionsThreadId]);
-  const customizeRowActions = (threadId: string) => {
+  const customizeRowActions = useCallback((returnFocus: HTMLElement | null) => {
+    const threadId = pickRowActionsThreadId(container.current);
+    if (threadId === null) return;
+    rowActionsReturnFocus.current = returnFocus;
     setRowActionsThreadId(threadId);
-  };
+  }, []);
   const finishCustomizingRowActions = useCallback(
     (restoreFocus: boolean) => {
       rowActionsFocusTarget.current = restoreFocus ? rowActionsThreadId : null;
@@ -272,11 +306,9 @@ export function ThreadListVisibilityMenuItems({
 
 function GroupActivity({ threads }: { threads: readonly SidebarThread[] }) {
   const pluginStatus = usePluginThreadRowStatusForThreads(threads);
+  const rollup = useMemo(() => rollUpThreads(threads), [threads]);
   return (
-    <CollapsedThreadStatusGlyph
-      activity={getCollapsedChildActivity(threads)}
-      pluginStatus={pluginStatus}
-    />
+    <CollapsedThreadStatusGlyph rollup={rollup} pluginStatus={pluginStatus} />
   );
 }
 
@@ -330,6 +362,7 @@ export function ThreadListMore() {
         selected={selectedGroupId !== undefined}
         activity={<GroupActivity threads={threads} />}
         testIdPrefix="sidebar-thread-list"
+        treeItem
       >
         {(close) => (
           <SidebarContentElementContext.Provider value={null}>

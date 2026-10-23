@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   screen,
@@ -135,9 +136,22 @@ function renderList(
 
 function sectionHeaders(): string[] {
   return Array.from(
-    document.querySelectorAll('[data-sidebar-sticky-tier="label"] [title]'),
-    (element) => element.getAttribute("title") ?? "",
+    document.querySelectorAll(
+      '[data-sidebar-sticky-tier="label"] [data-sidebar-section-label]',
+    ),
+    (element) => element.textContent ?? "",
   );
+}
+
+function sectionGroup(label: string): HTMLElement {
+  const header = Array.from(
+    document.querySelectorAll("[data-sidebar-section-label]"),
+  ).find((element) => element.textContent === label);
+  const group = header?.closest<HTMLElement>("[data-sidebar-sticky-group]");
+  if (!group) {
+    throw new Error(`Expected a section group labelled ${label}`);
+  }
+  return group;
 }
 
 function threadIds(): string[] {
@@ -168,6 +182,123 @@ describe("thread-list plugin", () => {
     expect(threadIds()).toEqual([]);
   });
 
+  it("draws the loading skeleton only after 300 ms", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      renderList({}, { sidebarThreads: { status: "loading" } });
+      const skeleton = screen.getByLabelText("Loading sidebar navigation");
+      act(() => {
+        vi.advanceTimersByTime(299);
+      });
+      expect(
+        skeleton.querySelectorAll("[data-sidebar-skeleton-row]"),
+      ).toHaveLength(0);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(
+        skeleton.querySelectorAll("[data-sidebar-skeleton-row]").length,
+      ).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("replaces the list with one Retry row when threads fail to load", () => {
+    const refetch = vi.fn(() => Promise.resolve());
+    renderList(
+      {},
+      { sidebarThreads: { status: "error", experimental_refetch: refetch } },
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Couldn't load threads");
+    expect(threadIds()).toEqual([]);
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a thread row's long press away from its project's actions menu", async () => {
+    renderSlot(
+      registration,
+      { ...props(), isCompactViewport: true },
+      {
+        sidebarThreads: {
+          projects: PROJECTS,
+          sections: SECTIONS,
+          threads: THREADS,
+        },
+        rpc: {
+          listPreferences: () => ({
+            preferences: {
+              ...defaultPreferences(),
+              organizationMode: "project",
+            },
+          }),
+          setPreference: (input: unknown) => input,
+        },
+      },
+    );
+    await screen.findByText("Parent thread");
+    const longPress = async (target: Element) => {
+      fireEvent.pointerDown(target, {
+        pointerType: "touch",
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 760));
+      fireEvent.pointerUp(target, { pointerType: "touch", pointerId: 1 });
+    };
+
+    const row = document.querySelector('[data-sidebar-thread-id="thr_parent"]');
+    if (row === null) throw new Error("Expected the parent thread row");
+    await longPress(row);
+    expect(screen.queryByRole("dialog", { name: "App actions" })).toBeNull();
+
+    const header = document.querySelector(
+      '[data-sidebar-row-key="project:proj_app"]',
+    );
+    if (header === null) throw new Error("Expected the App project header");
+    await longPress(header);
+    expect(
+      await screen.findByRole("dialog", { name: "App actions" }),
+    ).not.toBeNull();
+  });
+
+  it("names the live new-thread shortcut when there are no threads", async () => {
+    renderList(
+      { organizationMode: "project" },
+      {
+        sidebarThreads: { projects: PROJECTS, sections: [], threads: [] },
+        sidebarNavigation: {
+          items: [
+            {
+              id: "__bb__/new-thread",
+              label: "New thread",
+              icon: { kind: "host", name: "new-thread" },
+              action: { kind: "new-thread" },
+              isDisabled: false,
+              isVisible: true,
+              isLoading: false,
+              pluginId: null,
+              shortcut: { label: "⇧⌘O", ariaKeyShortcuts: "Shift+Meta+O" },
+              badge: null,
+            },
+          ],
+        },
+      },
+    );
+    await waitFor(() => {
+      expect(
+        document
+          .querySelector("[data-sidebar-no-threads]")
+          ?.textContent?.replaceAll("\u00a0", " "),
+      ).toBe("No threads yet · ⇧⌘O");
+    });
+  });
+
   it("renders pinned, custom sections, and loose threads in chronological mode", async () => {
     setPreferencesMirrorStorageForTest(null);
     const { rpcCalls } = renderList({ organizationMode: "chronological" });
@@ -183,7 +314,7 @@ describe("thread-list plugin", () => {
       "thr_personal",
     ]);
     expect(
-      screen.getByRole("button", { name: "Collapse Parent thread threads" }),
+      screen.getByLabelText("Collapse Parent thread threads"),
     ).not.toBeNull();
   });
 
@@ -248,16 +379,12 @@ describe("thread-list plugin", () => {
 
     await screen.findByText("Pinned thread");
     expect(sectionHeaders()).toEqual(["Pinned", "Laptop", "No machine"]);
-    const laptop = screen
-      .getByTitle("Laptop")
-      .closest("[data-sidebar-sticky-group]");
+    const laptop = sectionGroup("Laptop");
     expect(laptop).not.toBeNull();
     expect(
       within(laptop as HTMLElement).getByText("Later thread"),
     ).not.toBeNull();
-    const noMachine = screen
-      .getByTitle("No machine")
-      .closest("[data-sidebar-sticky-group]");
+    const noMachine = sectionGroup("No machine");
     expect(
       within(noMachine as HTMLElement).getByText("Personal thread"),
     ).not.toBeNull();
@@ -268,7 +395,10 @@ describe("thread-list plugin", () => {
     const { inspection } = renderList({ organizationMode: "machine" });
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "New thread in Laptop" }),
+      await screen.findByRole("button", {
+        hidden: true,
+        name: "New thread in Laptop",
+      }),
     );
 
     expect(inspection.navigateCalls).toContainEqual({
@@ -314,18 +444,12 @@ describe("thread-list plugin", () => {
 
     await screen.findByText("Pinned thread");
     expect(sectionHeaders()).toEqual(["Pinned", "App", "Web", "Threads"]);
-    const appGroup = screen
-      .getByTitle("App")
-      .closest("[data-sidebar-sticky-group]") as HTMLElement;
+    const appGroup = sectionGroup("App");
     expect(within(appGroup).getByText("Parent thread")).not.toBeNull();
     expect(within(appGroup).getByText("Child thread")).not.toBeNull();
-    const webGroup = screen
-      .getByTitle("Web")
-      .closest("[data-sidebar-sticky-group]") as HTMLElement;
+    const webGroup = sectionGroup("Web");
     expect(within(webGroup).getByText("Later thread")).not.toBeNull();
-    const threadsGroup = screen
-      .getByTitle("Threads")
-      .closest("[data-sidebar-sticky-group]") as HTMLElement;
+    const threadsGroup = sectionGroup("Threads");
     expect(within(threadsGroup).getByText("Personal thread")).not.toBeNull();
   });
 
@@ -344,7 +468,7 @@ describe("thread-list plugin", () => {
   });
 
   it.each([true, false])(
-    "renders personal rows once with standard projects: %s",
+    "renders personal rows once, after any empty project, with standard projects: %s",
     async (includeStandardProjects) => {
       setPreferencesMirrorStorageForTest(null);
       renderList(
@@ -362,11 +486,18 @@ describe("thread-list plugin", () => {
         },
       );
 
-      await screen.findByTitle("Threads");
+      await screen.findByRole("treeitem", { name: /^Threads/ });
       expect(threadIds()).toEqual(["thr_personal"]);
       expect(sectionHeaders()).toEqual(
-        includeStandardProjects ? ["App", "Web", "Threads"] : ["Threads"],
+        includeStandardProjects ? ["Threads", "App", "Web"] : ["Threads"],
       );
+      if (includeStandardProjects) {
+        expect(
+          screen
+            .getByRole("treeitem", { name: "App" })
+            .hasAttribute("aria-expanded"),
+        ).toBe(false);
+      }
     },
   );
 
@@ -388,8 +519,8 @@ describe("thread-list plugin", () => {
         }),
       },
     });
-    const link = await screen.findByRole("link", {
-      name: "Open Personal thread",
+    const link = await screen.findByRole("treeitem", {
+      name: /^Personal thread/,
     });
     link.click();
     await waitFor(() => expect(listProps.onNavigate).toHaveBeenCalledOnce());

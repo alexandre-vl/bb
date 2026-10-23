@@ -54,6 +54,11 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "Archive the focused thread.",
       ),
       command(
+        "thread.toggleRead",
+        "Toggle read",
+        "Mark the focused thread read or unread.",
+      ),
+      command(
         "thread.previous",
         "Previous thread",
         "Open the previous visible sidebar thread.",
@@ -62,6 +67,16 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "thread.next",
         "Next thread",
         "Open the next visible sidebar thread.",
+      ),
+      command(
+        "thread.previousAttention",
+        "Previous thread needing attention",
+        "Move to the previous thread that needs you, failed, or has a new result.",
+      ),
+      command(
+        "thread.nextAttention",
+        "Next thread needing attention",
+        "Move to the next thread that needs you, failed, or has a new result.",
       ),
       ...THREAD_JUMP_APP_COMMAND_IDS.map((id, index) =>
         paletteHiddenCommand(
@@ -112,6 +127,11 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "sidebar.toggle",
         "Toggle sidebar",
         "Show or hide the app sidebar.",
+      ),
+      command(
+        "sidebar.focus",
+        "Focus thread list",
+        "Move focus to the sidebar thread list at the open thread.",
       ),
       command(
         "panel.previousTab",

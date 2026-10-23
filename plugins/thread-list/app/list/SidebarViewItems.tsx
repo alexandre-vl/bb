@@ -21,7 +21,9 @@ import {
   sidebarSortDirectionAtom,
   sidebarGroupThreadsByEnvironmentAtom,
   sidebarEnvironmentGroupingAtom,
-  sidebarGroupByReadStatusAtom,
+  sidebarAttentionFirstAtom,
+  sidebarFoldSettledAtom,
+  sidebarParentsStartCollapsedAtom,
   sidebarShowProviderIconsAtom,
 } from "../preferences/atoms.js";
 
@@ -45,6 +47,8 @@ export function SidebarHeaderMenuContents({
   compact,
   page,
   onPageChange,
+  onCustomizeRowActions,
+  onNewThread,
   children,
 }: {
   creation: HeaderCreationActions;
@@ -52,6 +56,8 @@ export function SidebarHeaderMenuContents({
   compact: boolean;
   page: SidebarViewPage | null;
   onPageChange: (page: SidebarViewPage | null) => void;
+  onCustomizeRowActions?: () => void;
+  onNewThread?: { label: string; run: () => void };
   children?: ReactNode;
 }) {
   if (compact && page) {
@@ -67,12 +73,21 @@ export function SidebarHeaderMenuContents({
           Back
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <SidebarViewItems page={page} />
+        <SidebarViewItems
+          page={page}
+          onCustomizeRowActions={onCustomizeRowActions}
+        />
       </>
     );
   }
   return (
     <>
+      {onNewThread ? (
+        <DropdownMenuItem onSelect={onNewThread.run}>
+          <Icon name="MessageSquarePlus" />
+          {onNewThread.label}
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem
         disabled={!creation.onNewSection || creation.isCreatingSection}
         onSelect={() => creation.onNewSection?.(anchorSectionId)}
@@ -115,7 +130,10 @@ export function SidebarHeaderMenuContents({
                     : "w-max min-w-28 max-w-64"
                 }
               >
-                <SidebarViewItems page={item.page} />
+                <SidebarViewItems
+                  page={item.page}
+                  onCustomizeRowActions={onCustomizeRowActions}
+                />
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
@@ -133,15 +151,51 @@ export function SidebarHeaderMenuContents({
   );
 }
 
-function SidebarViewItems({ page }: { page: SidebarViewPage }) {
+function SidebarViewToggleItem({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      onSelect={(event) => {
+        event.preventDefault();
+        onToggle();
+      }}
+    >
+      {label}
+      <span className="ml-auto inline-flex size-4 shrink-0 items-center justify-center">
+        {checked && <Icon name="Check" className="size-4" />}
+      </span>
+    </DropdownMenuItem>
+  );
+}
+
+function SidebarViewItems({
+  page,
+  onCustomizeRowActions,
+}: {
+  page: SidebarViewPage;
+  onCustomizeRowActions?: () => void;
+}) {
   const [lifecycles, setLifecycles] = useAtom(sidebarThreadLifecyclesAtom);
   const [organization, setOrganization] = useAtom(sidebarOrganizationModeAtom);
   const [sort, setSort] = useAtom(sidebarChronologicalSortAtom);
   const [savedDirection, setDirection] = useAtom(sidebarSortDirectionAtom);
   const setEnvironmentGrouping = useSetAtom(sidebarEnvironmentGroupingAtom);
   const groupByEnvironment = useAtomValue(sidebarGroupThreadsByEnvironmentAtom);
-  const [groupByReadStatus, setGroupByReadStatus] = useAtom(
-    sidebarGroupByReadStatusAtom,
+  const [attentionFirst, setAttentionFirst] = useAtom(
+    sidebarAttentionFirstAtom,
+  );
+  const [foldSettled, setFoldSettled] = useAtom(sidebarFoldSettledAtom);
+  const [parentsStartCollapsed, setParentsStartCollapsed] = useAtom(
+    sidebarParentsStartCollapsedAtom,
   );
   const [showProviderIcons, setShowProviderIcons] = useAtom(
     sidebarShowProviderIconsAtom,
@@ -212,7 +266,6 @@ function SidebarViewItems({ page }: { page: SidebarViewPage }) {
             onSelect={(event) => {
               event.preventDefault();
               setEnvironmentGrouping(!groupByEnvironment);
-              if (!groupByEnvironment) setGroupByReadStatus(false);
             }}
           >
             By environment
@@ -220,19 +273,25 @@ function SidebarViewItems({ page }: { page: SidebarViewPage }) {
               {groupByEnvironment && <Icon name="Check" className="size-4" />}
             </span>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            role="menuitemcheckbox"
-            aria-checked={groupByReadStatus}
-            onSelect={(event) => {
-              event.preventDefault();
-              setGroupByReadStatus(!groupByReadStatus);
-            }}
-          >
-            By read status
-            <span className="ml-auto inline-flex size-4 shrink-0 items-center justify-center">
-              {groupByReadStatus && <Icon name="Check" className="size-4" />}
-            </span>
-          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup aria-label="Order">
+          <DropdownMenuLabel>Order</DropdownMenuLabel>
+          <SidebarViewToggleItem
+            label="Attention first"
+            checked={attentionFirst}
+            onToggle={() => setAttentionFirst(!attentionFirst)}
+          />
+          <SidebarViewToggleItem
+            label="Fold settled threads"
+            checked={foldSettled}
+            onToggle={() => setFoldSettled(!foldSettled)}
+          />
+          <SidebarViewToggleItem
+            label="Collapse new parents"
+            checked={parentsStartCollapsed}
+            onToggle={() => setParentsStartCollapsed(!parentsStartCollapsed)}
+          />
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup aria-label="Rows">
@@ -250,6 +309,11 @@ function SidebarViewItems({ page }: { page: SidebarViewPage }) {
               {showProviderIcons && <Icon name="Check" className="size-4" />}
             </span>
           </DropdownMenuItem>
+          {onCustomizeRowActions && (
+            <DropdownMenuItem onSelect={onCustomizeRowActions}>
+              Customize actions
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
       </>
     );

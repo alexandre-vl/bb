@@ -36,6 +36,7 @@ const CONTEXT: AppCommandContext = {
   editableFocus: false,
   terminalFocus: false,
   browserFocus: false,
+  sidebarListFocus: false,
   modelPickerOpen: false,
   questionOpen: false,
   promptAvailable: false,
@@ -234,6 +235,24 @@ describe("app keybindings", () => {
     expect(
       matchesAppCommandContext(binding, { ...CONTEXT, mainSurface: false }),
     ).toBe(false);
+  });
+
+  it("never lets a key that types text run a command from an editable target", () => {
+    const binding = (shortcut: Partial<AppShortcut>): AppKeybinding => ({
+      command: "thread.archive",
+      desktopOnly: false,
+      shortcut: { ...MOD_N, mod: false, key: "e", ...shortcut },
+      when: { all: ["mainSurface"], none: [] },
+    });
+    const editing = { ...CONTEXT, editableFocus: true };
+
+    for (const typed of [{}, { shift: true }, { key: "Space" }]) {
+      expect(matchesAppCommandContext(binding(typed), CONTEXT)).toBe(true);
+      expect(matchesAppCommandContext(binding(typed), editing)).toBe(false);
+    }
+    for (const chord of [{ alt: true }, { control: true }, { key: "F2" }]) {
+      expect(matchesAppCommandContext(binding(chord), editing)).toBe(true);
+    }
   });
 
   it("formats platform-specific shortcut labels", () => {

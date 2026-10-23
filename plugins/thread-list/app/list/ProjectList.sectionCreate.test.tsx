@@ -89,7 +89,7 @@ function renderCustomSections(pinned = false) {
 
 async function createSectionFrom(actionsLabel: string) {
   fireEvent.pointerDown(
-    await screen.findByRole("button", { name: actionsLabel }),
+    await screen.findByRole("button", { hidden: true, name: actionsLabel }),
     { button: 0 },
   );
   fireEvent.click(await screen.findByRole("menuitem", { name: "New section" }));
@@ -102,7 +102,10 @@ describe("creating a sidebar section", () => {
   it("pins new threads from the Pinned header", async () => {
     const { inspection } = renderCustomSections(true);
     fireEvent.click(
-      await screen.findByRole("button", { name: "New thread in Pinned" }),
+      await screen.findByRole("button", {
+        hidden: true,
+        name: "New thread in Pinned",
+      }),
     );
     expect(inspection.navigateCalls).toContainEqual({
       method: "toCompose",
@@ -117,6 +120,7 @@ describe("creating a sidebar section", () => {
     const { inspection } = renderCustomSections();
     fireEvent.click(
       await screen.findByRole("button", {
+        hidden: true,
         name: "New thread in Alpha section",
       }),
     );
@@ -133,7 +137,10 @@ describe("creating a sidebar section", () => {
   it("shows one divider before the built-in section visibility actions", async () => {
     renderCustomSections();
     fireEvent.pointerDown(
-      await screen.findByRole("button", { name: "Threads actions" }),
+      await screen.findByRole("button", {
+        hidden: true,
+        name: "Threads actions",
+      }),
       { button: 0 },
     );
     const menu = screen

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,8 +18,12 @@ import {
   useResolvedSidebarNavigation,
 } from "./sidebarNavigationProvider";
 
+const commandHandlers = vi.hoisted(() => new Map<string, () => boolean>());
+
 vi.mock("@/components/commands/AppCommandProvider", () => ({
-  useAppCommandHandler: () => {},
+  useAppCommandHandler: (command: string, handler: () => boolean) => {
+    commandHandlers.set(command, handler);
+  },
   useAppCommandRunner: () => ({
     dispatch: () => {},
     isCommandAvailable: () => true,
@@ -28,10 +32,20 @@ vi.mock("@/components/commands/AppCommandProvider", () => ({
   useAppCommandShortcuts: () => [],
   useIndexedAppCommandHandlers: () => {},
   useIsAppCommandModifierHeld: () => false,
+  useSidebarListCommandHandler: () => {},
 }));
 
 vi.mock("./PluginThreadList", () => ({
-  PluginThreadList: () => <div data-testid="thread-list" />,
+  PluginThreadList: () => (
+    <div data-testid="thread-list" role="tree" data-sidebar-thread-tree="">
+      <span role="treeitem" tabIndex={-1} data-sidebar-tree-item="">
+        First row
+      </span>
+      <span role="treeitem" tabIndex={0} data-sidebar-tree-item="">
+        Open thread
+      </span>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/plugin/PluginSidebarFooterItems", () => ({
@@ -80,7 +94,7 @@ function Harness() {
   );
 }
 
-function renderSidebar(preference: string, framed = false) {
+function renderSidebar(preference: string, framed = false, open = true) {
   const store = createStore();
   store.set(sidebarNavigationProviderAtom, preference);
   render(
@@ -88,7 +102,7 @@ function renderSidebar(preference: string, framed = false) {
       <MemoryRouter initialEntries={["/"]}>
         <CompactViewportOverrideProvider isCompactViewport={false}>
           <TooltipProvider>
-            <SidebarProvider framed={framed}>
+            <SidebarProvider framed={framed} defaultOpen={open}>
               <Harness />
             </SidebarProvider>
           </TooltipProvider>
@@ -135,6 +149,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup();
+  commandHandlers.clear();
   resetPluginSlotStoreForTest();
   resetPluginFrontendBootStateForTest();
   window.localStorage.clear();
@@ -159,5 +174,23 @@ describe("AppSidebar", () => {
     expect(region.dataset.sidebarNavigationPlacement).toBe("list");
     expect(followingSiblings(region)).toContain(footer());
     expect(screen.getByRole("button", { name: "settings" })).toBeDefined();
+  });
+
+  it("expands a collapsed sidebar on sidebar.focus and focuses the thread list's Tab stop", async () => {
+    renderSidebar("navigation/top-list", false, false);
+    const sidebarState = () =>
+      document
+        .querySelector('[data-side="left"][data-state]')
+        ?.getAttribute("data-state");
+    expect(sidebarState()).toBe("collapsed");
+
+    act(() => {
+      expect(commandHandlers.get("sidebar.focus")?.()).toBe(true);
+    });
+
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("Open thread"),
+    );
+    expect(sidebarState()).toBe("expanded");
   });
 });

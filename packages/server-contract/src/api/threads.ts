@@ -588,7 +588,10 @@ export const threadGetQuerySchema = z.object({
 export type ThreadGetQuery = z.infer<typeof threadGetQuerySchema>;
 
 export const threadReadQuerySchema = z
-  .object({ throughAttentionAt: z.string().regex(/^\d+$/) })
+  .object({
+    throughAttentionAt: z.string().regex(/^\d+$/),
+    descendantsThroughAttentionAt: z.string().regex(/^\d+$/),
+  })
   .partial();
 export type ThreadReadQuery = z.infer<typeof threadReadQuerySchema>;
 

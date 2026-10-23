@@ -179,7 +179,7 @@ describe("buildChronologicalThreadList", () => {
     ]);
   });
 
-  it("rolls collapsed child activity up from all descendants", () => {
+  it("rolls the highest indicator up from all descendants", () => {
     const rootItems = buildList([
       createThread({
         id: "parent",
@@ -187,6 +187,7 @@ describe("buildChronologicalThreadList", () => {
       createThread({
         id: "quiet-child",
         parentThreadId: "parent",
+        lastReadAt: 2,
       }),
       createThread({
         id: "busy-grandchild",
@@ -194,47 +195,95 @@ describe("buildChronologicalThreadList", () => {
         status: "active",
         runtime: {
           displayStatus: "active",
+          hostUnavailable: false,
         },
       }),
       createThread({
         id: "pending-grandchild",
         parentThreadId: "quiet-child",
+        lastReadAt: 2,
         hasPendingInteraction: true,
       }),
     ]);
 
     expect(findNode(rootItems, "parent")?.stats).toEqual({
-      childActivity: {
-        pending: true,
-        working: true,
-        hasUnsubmittedDraft: false,
-        runtimeWorking: true,
-        workflow: false,
-        backgroundAgent: false,
-        backgroundCommand: false,
-        planMode: false,
-        goal: false,
-        unread: false,
-        unreadError: false,
-      },
+      descendantIndicator: "waiting-for-input",
       childCount: 3,
     });
     expect(findNode(rootItems, "quiet-child")?.stats).toEqual({
-      childActivity: {
-        pending: true,
-        working: true,
-        hasUnsubmittedDraft: false,
-        runtimeWorking: true,
-        workflow: false,
-        backgroundAgent: false,
-        backgroundCommand: false,
-        planMode: false,
-        goal: false,
-        unread: false,
-        unreadError: false,
-      },
+      descendantIndicator: "waiting-for-input",
       childCount: 2,
     });
+    expect(findNode(rootItems, "busy-grandchild")?.stats).toEqual({
+      descendantIndicator: "none",
+      childCount: 0,
+    });
+  });
+
+  it("rolls a failed child up past running siblings", () => {
+    const rootItems = buildList([
+      createThread({ id: "parent", lastReadAt: 2 }),
+      createThread({
+        id: "failed-child",
+        parentThreadId: "parent",
+        status: "error",
+      }),
+      createThread({
+        id: "running-child",
+        parentThreadId: "parent",
+        status: "active",
+        runtime: { displayStatus: "active", hostUnavailable: false },
+      }),
+    ]);
+
+    expect(findNode(rootItems, "parent")?.stats.descendantIndicator).toBe(
+      "unread-error",
+    );
+  });
+
+  it("counts a descendant's draft below its running work", () => {
+    const threads = [
+      createThread({ id: "parent", lastReadAt: 2 }),
+      createThread({
+        id: "drafting-child",
+        parentThreadId: "parent",
+        lastReadAt: 2,
+      }),
+      createThread({
+        id: "running-child",
+        parentThreadId: "parent",
+        lastReadAt: 2,
+        activity: {
+          activeWorkflowCount: 1,
+          activeBackgroundAgentCount: 0,
+          activeBackgroundCommandCount: 0,
+          activePlanModeCount: 0,
+          activeGoalCount: 0,
+        },
+      }),
+    ];
+    const drafts = new Set(["drafting-child"]);
+
+    expect(
+      findNode(
+        buildChronologicalThreadList(
+          threads,
+          compareByAttentionDescending,
+          drafts,
+        ),
+        "parent",
+      )?.stats.descendantIndicator,
+    ).toBe("workflow");
+    expect(
+      findNode(
+        buildChronologicalThreadList(
+          threads.filter((thread) => thread.id !== "running-child"),
+          compareByAttentionDescending,
+          drafts,
+        ),
+        "parent",
+      )?.stats.descendantIndicator,
+    ).toBe("draft");
   });
 
   it("nests parent/child threads under globally sorted roots", () => {
