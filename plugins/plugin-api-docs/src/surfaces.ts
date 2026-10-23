@@ -365,7 +365,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "experimental_InfoListRow",
           "ExperimentalInfoListRowProps",
         ],
-        firstParty: ["Automations"],
+        firstParty: ["Automations", "GitHub PR Status"],
         experimental: true,
       },
       {
@@ -575,9 +575,20 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         bullets: [
           "Warn or inform before someone sends, such as a rate limit or a retry",
           "Show only on new threads, open threads, or queued messages",
+          "Add a segment to an open thread's context row, with details below it",
         ],
-        apiSymbols: ["ComposerCustomization", "PluginComposerScope"],
-        firstParty: ["Send later", "Workflows"],
+        apiSymbols: [
+          "ComposerCustomization",
+          "PluginComposerScope",
+          "PluginAppSlots.experimental_threadContextSegment",
+          "experimental_THREAD_CONTEXT_SEGMENT_GROUPS",
+          "ExperimentalThreadContextSegmentRegistration",
+          "ExperimentalThreadContextSegmentProps",
+          "ExperimentalThreadContextSegmentInput",
+          "ExperimentalThreadContextSegmentReference",
+          "ExperimentalThreadEnvironment",
+        ],
+        firstParty: ["Send later", "Workflows", "GitHub PR Status"],
       },
       {
         id: "composer-state",
