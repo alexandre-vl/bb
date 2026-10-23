@@ -45,8 +45,9 @@ a failed sub-agent reports "unread-error"; bb never produces "working-draft".
 
 `PluginSidebarThread.experimental_hostUnavailable` is true while the thread's
 machine is offline. bb then reports "waiting-for-host" where it would report
-"runtime", "workflow" or a background kind, and `activity` keeps the counts it
-last heard. Hosts that predate it leave it out: read a missing value as false.
+"workflow", a background kind or an active turn's "runtime" (a starting or
+stopping thread keeps "runtime"), and `activity` keeps the counts it last
+heard. Hosts that predate it leave it out: read a missing value as false.
 
 ## bb's list keys
 

@@ -213,6 +213,7 @@ describe("rollUpThreadListIndicators", () => {
     [["queued-failed", "waiting-for-input", "none"], "waiting-for-input"],
     [["queued-waiting", "background-command"], "background-command"],
     [["waiting-for-host", "runtime"], "runtime"],
+    [["waiting-for-host", "background-command"], "background-command"],
     [["none", "draft", "none"], "draft"],
   ] satisfies [ThreadListIndicatorKind[], ThreadListIndicatorKind][])(
     "takes the highest rung of %j",

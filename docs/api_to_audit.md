@@ -2520,8 +2520,9 @@ Docs: `frontend-registration.md`.
 **Offline machines (Oct 2026).** `PluginSidebarThread.experimental_hostUnavailable`
 is true while the thread's machine is offline past the reconnect grace,
 whatever the thread's status. It copies the server's `runtime.hostUnavailable`,
-and the `waiting-for-host` indicator then replaces `runtime`, `workflow` and
-the background kinds. Older hosts omit it. bb's thread-list plugin reads it;
+and the `waiting-for-host` indicator then replaces `workflow`, the background
+kinds and an active turn's `runtime`; a starting or stopping thread keeps
+`runtime`. Older hosts omit it. bb's thread-list plugin reads it;
 the palette, related threads and mobile recents resolve the same state through
 `@bb/client-core`.
 
