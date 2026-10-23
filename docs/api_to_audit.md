@@ -2131,7 +2131,7 @@ Docs: `frontend-core-slots.md`.
 ## `ExperimentalTabRegistration.experimental_claimUrl` (`@get-bb/plugin-sdk/app`)
 
 **Added 2026-10-23 (SDK 0.6.74).** One consumer: the GitHub plugin's GitHub
-PR and GitHub issue tabs.
+tab, which claims pull request and issue links.
 
 A thread action tab (`app.slots.experimental_tab` with
 `context: { kind: "thread" }` and `availability: "action"`) claims web links
@@ -2187,8 +2187,8 @@ Docs: `frontend-core-slots.md`.
 ## `BbNavigate.openThreadPanel` `experimental_replace` (`@get-bb/plugin-sdk/app`)
 
 **Added 2026-10-23 (SDK 0.6.74).** One consumer: the GitHub plugin's GitHub
-PR and GitHub issue tabs, when a tab opened without params finds the thread's
-pull request, and when someone picks a pull request or issue in one.
+tab, when a tab opened without params finds the thread's pull request, and
+when someone picks a pull request or issue in one.
 
 `useBbNavigate().openThreadPanel({ actionId, title?, params?,
 experimental_replace: true })` opens the tab in place of the side-panel tab

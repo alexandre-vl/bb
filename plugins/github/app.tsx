@@ -17,10 +17,10 @@ import {
   byLinkKey,
   claimItemUrl,
   isSameItem,
-  itemRefFromParams,
   itemTabOptions,
   itemUrl,
   linkKey,
+  linkedItemFromParams,
   matchesQuery,
   parseQuery,
   parseSubPath,
@@ -1898,10 +1898,7 @@ interface ThreadPull extends ItemRef {
   environmentId: string | null;
 }
 
-const ITEM_PANEL_ACTION_IDS: Record<Item["kind"], string> = {
-  pr: "pull",
-  issue: "issue",
-};
+const GITHUB_TAB_ID = "pull";
 
 function useThreadPull(
   threadId: string,
@@ -1942,7 +1939,7 @@ function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
   return useCallback(
     (item) =>
       navigate.openThreadPanel({
-        actionId: ITEM_PANEL_ACTION_IDS[kind],
+        actionId: GITHUB_TAB_ID,
         ...itemTabOptions(kind, item),
         experimental_replace: true,
       }),
@@ -1950,16 +1947,24 @@ function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
   );
 }
 
-function PullPanelTab({ threadId, params }: ExperimentalThreadActionTabProps) {
-  const linked = itemRefFromParams(params);
-  if (linked === null) return <ThreadPullPanel threadId={threadId} />;
-  return (
-    <LinkedPullPanel
-      key={`${linked.repo}#${linked.number}`}
-      threadId={threadId}
-      pull={linked}
-    />
-  );
+function GithubPanelTab({
+  threadId,
+  params,
+}: ExperimentalThreadActionTabProps) {
+  const linked = linkedItemFromParams(params);
+  if (linked === null) return <ThreadGithubPanel threadId={threadId} />;
+  const key = `${linked.repo}#${linked.number}`;
+  if (linked.kind === "issue") {
+    return (
+      <IssueDetailView
+        key={key}
+        repo={linked.repo}
+        number={linked.number}
+        compact
+      />
+    );
+  }
+  return <LinkedPullPanel key={key} threadId={threadId} pull={linked} />;
 }
 
 function LinkedPullPanel({
@@ -1986,11 +1991,15 @@ function LinkedPullPanel({
   );
 }
 
-function ThreadPullPanel({ threadId }: { threadId: string }) {
-  const showInThisTab = useShowItemInThisTab("pr");
-  const [choice, setChoice] = useState<"picker" | ThreadPull | null>(null);
+type ThreadPanelChoice = "picker" | ThreadPull | { issue: ItemRef };
+
+function ThreadGithubPanel({ threadId }: { threadId: string }) {
+  const showPullInThisTab = useShowItemInThisTab("pr");
+  const showIssueInThisTab = useShowItemInThisTab("issue");
+  const [choice, setChoice] = useState<ThreadPanelChoice | null>(null);
+  const [pickerKind, setPickerKind] = useState<Item["kind"]>("pr");
   const threadPull = useThreadPull(threadId, (pull) => {
-    if (pull !== null && !showInThisTab(pull)) setChoice(pull);
+    if (pull !== null && !showPullInThisTab(pull)) setChoice(pull);
   });
 
   if (threadPull === undefined) {
@@ -2005,17 +2014,44 @@ function ThreadPullPanel({ threadId }: { threadId: string }) {
       <div className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">
           {threadPull === null
-            ? "No pull request is linked to this thread yet — pick one:"
-            : "Pick a pull request to show here:"}
+            ? "No pull request is linked to this thread yet — pick a pull request or an issue:"
+            : "Pick a pull request or an issue to show here:"}
         </p>
+        <Tabs
+          value={pickerKind}
+          onValueChange={(value) =>
+            setPickerKind(value === "issue" ? "issue" : "pr")
+          }
+        >
+          <TabsList>
+            <TabsTrigger value="pr">Pull requests</TabsTrigger>
+            <TabsTrigger value="issue">Issues</TabsTrigger>
+          </TabsList>
+        </Tabs>
         <ItemPickerList
-          kind="pr"
+          key={pickerKind}
+          kind={pickerKind}
           onPick={(repo, number) => {
+            if (pickerKind === "issue") {
+              const issue = { repo, number };
+              if (!showIssueInThisTab(issue)) setChoice({ issue });
+              return;
+            }
             const pull = { repo, number, environmentId: null };
-            if (!showInThisTab(pull)) setChoice(pull);
+            if (!showPullInThisTab(pull)) setChoice(pull);
           }}
         />
       </div>
+    );
+  }
+  if ("issue" in view) {
+    return (
+      <IssueDetailView
+        repo={view.issue.repo}
+        number={view.issue.number}
+        compact
+        onBack={() => setChoice("picker")}
+      />
     );
   }
   return (
@@ -2026,46 +2062,6 @@ function ThreadPullPanel({ threadId }: { threadId: string }) {
       workspaceEnvironmentId={view.environmentId}
       backLabel="All PRs"
       onBack={() => setChoice("picker")}
-    />
-  );
-}
-
-function IssuePanelTab({ params }: ExperimentalThreadActionTabProps) {
-  const linked = itemRefFromParams(params);
-  if (linked === null) return <IssuePickerPanel />;
-  return (
-    <IssueDetailView
-      key={`${linked.repo}#${linked.number}`}
-      repo={linked.repo}
-      number={linked.number}
-      compact
-    />
-  );
-}
-
-function IssuePickerPanel() {
-  const showInThisTab = useShowItemInThisTab("issue");
-  const [shown, setShown] = useState<ItemRef | null>(null);
-  if (shown === null) {
-    return (
-      <div className="flex flex-col gap-3">
-        <p className="text-xs text-muted-foreground">Pick an issue:</p>
-        <ItemPickerList
-          kind="issue"
-          onPick={(repo, number) => {
-            const issue = { repo, number };
-            if (!showInThisTab(issue)) setShown(issue);
-          }}
-        />
-      </div>
-    );
-  }
-  return (
-    <IssueDetailView
-      repo={shown.repo}
-      number={shown.number}
-      compact
-      onBack={() => setShown(null)}
     />
   );
 }
@@ -2407,19 +2403,10 @@ export default definePluginApp((app) => {
   app.slots.experimental_tab({
     context: { kind: "thread" },
     availability: "action",
-    id: "pull",
-    title: "GitHub PR",
+    id: GITHUB_TAB_ID,
+    title: "GitHub",
     icon: "Github",
-    experimental_claimUrl: (url) => claimItemUrl("pr", url),
-    component: PullPanelTab,
-  });
-  app.slots.experimental_tab({
-    context: { kind: "thread" },
-    availability: "action",
-    id: "issue",
-    title: "GitHub issue",
-    icon: "Github",
-    experimental_claimUrl: (url) => claimItemUrl("issue", url),
-    component: IssuePanelTab,
+    experimental_claimUrl: claimItemUrl,
+    component: GithubPanelTab,
   });
 });
