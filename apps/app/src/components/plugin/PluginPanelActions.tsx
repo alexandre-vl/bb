@@ -1,3 +1,4 @@
+import { PluginTabScope } from "./PluginTabs";
 import { useMemo, type ReactNode } from "react";
 import type { PluginPanelActionOpenOptions } from "@get-bb/plugin-sdk";
 import { EmptyStatePanel } from "@bb/shared-ui/empty-state";
@@ -5,7 +6,9 @@ import { usePluginFrontendsSettled } from "@/lib/plugin-frontend-boot-state";
 import {
   usePluginSlots,
   type PluginNewThreadPanelActionSlot,
-  type PluginThreadPanelActionSlot,
+  isThreadTab,
+  isNavTab,
+  type PluginTabSlot,
 } from "@/lib/plugin-slots";
 import type { PluginPanelFixedPanelTab } from "@/lib/fixed-panel-tabs-state";
 import {
@@ -21,6 +24,11 @@ import { PluginPanelTabContext } from "./plugin-thread-panel-navigation";
 import { PluginReplacementSlot } from "./PluginReplacementSlot";
 import { resolveReplacement } from "@/lib/plugin-slot-resolvers";
 
+import {
+  getThreadFixedTabOwnerId,
+  openAppTabFromDestinations,
+  type AppFixedTabDestination,
+} from "@/lib/app-fixed-tab-navigation";
 export interface OpenPluginPanelArgs {
   pluginId: string;
   actionId: string;
@@ -36,6 +44,7 @@ export interface PluginPanelActionEntry {
   pluginId: string;
   icon: string | null;
   title: string;
+  tooltip?: string;
   onSelect: () => void;
 }
 
@@ -44,50 +53,84 @@ function describeError(error: unknown): string {
 }
 
 interface PanelActionOpenPanelArgs {
-  action: { pluginId: string; id: string; title: string };
+  action: {
+    pluginId: string;
+    id: string;
+    title: string;
+    params?: import("@get-bb/plugin-sdk").JsonValue;
+  };
   slot: string;
   openPluginPanel: OpenPluginPanelHandler;
   replaceTabId?: string;
 }
 
-export function createPanelActionOpenPanel({
+export function createPanelActionDestination({
   action,
-  slot,
   openPluginPanel,
   replaceTabId,
-}: PanelActionOpenPanelArgs): (
-  options?: PluginPanelActionOpenOptions,
-) => boolean {
+}: PanelActionOpenPanelArgs): AppFixedTabDestination {
+  return {
+    tab: {
+      ownerId: getThreadFixedTabOwnerId(action.pluginId),
+      tabId: action.id,
+    },
+    availability: "action",
+    open(_target, options) {
+      let paramsJson: string | null;
+      try {
+        paramsJson = serializePluginPanelParams(
+          options?.params === undefined ? action.params : options.params,
+        );
+      } catch {
+        return false;
+      }
+      return openPluginPanel({
+        pluginId: action.pluginId,
+        actionId: action.id,
+        title: options?.title ?? action.title,
+        paramsJson,
+        ...(replaceTabId === undefined ? {} : { replaceTabId }),
+      });
+    },
+  };
+}
+
+export function createPanelActionOpenPanel(
+  args: PanelActionOpenPanelArgs,
+): (options?: PluginPanelActionOpenOptions) => boolean {
   return (options) => {
-    let paramsJson: string | null;
-    try {
-      paramsJson = serializePluginPanelParams(options?.params);
-    } catch (error) {
-      console.warn(
-        `[plugin:${action.pluginId}] ${slot} "${action.id}" openPanel declined: ${describeError(error)}`,
-      );
-      return false;
-    }
-    return openPluginPanel({
-      pluginId: action.pluginId,
-      actionId: action.id,
-      title: options?.title ?? action.title,
-      paramsJson,
-      ...(replaceTabId === undefined ? {} : { replaceTabId }),
+    let reachedOpener = false;
+    const destination = createPanelActionDestination({
+      ...args,
+      openPluginPanel: (openArgs) => {
+        reachedOpener = true;
+        return args.openPluginPanel(openArgs);
+      },
     });
+    const accepted = openAppTabFromDestinations([destination], {
+      surface: { kind: "current" },
+      tab: destination.tab,
+      availability: "action",
+      ...options,
+    });
+    if (!accepted && !reachedOpener)
+      console.warn(
+        `[plugin:${args.action.pluginId}] ${args.slot} "${args.action.id}" openPanel declined: params must be JSON values`,
+      );
+    return accepted;
   };
 }
 
 interface RunPluginPanelActionArgs {
-  action: PluginThreadPanelActionSlot;
+  action: Extract<PluginTabSlot, { availability: "action" }>;
   openPluginPanel: OpenPluginPanelHandler;
-  threadId: string;
+  context: import("./PluginTabs").PluginTabContext;
 }
 
-function runPluginPanelAction({
+export function runPluginPanelAction({
   action,
   openPluginPanel,
-  threadId,
+  context,
 }: RunPluginPanelActionArgs): void {
   const openPanel = createPanelActionOpenPanel({
     action,
@@ -104,7 +147,12 @@ function runPluginPanelAction({
       openPanel();
       return;
     }
-    const result = action.run({ threadId, openPanel });
+    const result =
+      isThreadTab(action) && context.kind === "thread"
+        ? action.run({ threadId: context.threadId, openPanel })
+        : isNavTab(action) && context.kind === "nav-panel"
+          ? action.run({ subPath: context.subPath, openPanel })
+          : undefined;
     if (result instanceof Promise) result.catch(warn);
   } catch (error) {
     warn(error);
@@ -147,24 +195,33 @@ function runPluginNewThreadPanelAction({
 export function usePluginPanelActions({
   openPluginPanel,
   threadId,
+  actions,
 }: {
   openPluginPanel: OpenPluginPanelHandler;
   threadId: string | null | undefined;
+  actions: readonly Extract<
+    PluginTabSlot,
+    { context: { kind: "thread" }; availability: "action" }
+  >[];
 }): readonly PluginPanelActionEntry[] {
-  const { threadPanelActions } = usePluginSlots();
   return useMemo(() => {
     if (threadId === null || threadId === undefined || threadId.length === 0) {
       return [];
     }
-    return threadPanelActions.map((action) => ({
+    return actions.map((action) => ({
       id: `plugin-action:${action.pluginId}:${action.id}`,
       pluginId: action.pluginId,
       icon: action.icon ?? null,
       title: action.title,
+      ...(action.tooltip === undefined ? {} : { tooltip: action.tooltip }),
       onSelect: () =>
-        runPluginPanelAction({ action, openPluginPanel, threadId }),
+        runPluginPanelAction({
+          action,
+          openPluginPanel,
+          context: { kind: "thread", threadId },
+        }),
     }));
-  }, [openPluginPanel, threadId, threadPanelActions]);
+  }, [openPluginPanel, threadId, actions]);
 }
 
 export function usePluginNewThreadPanelActions({
@@ -195,7 +252,8 @@ export function usePluginNewThreadPanelActions({
 
 type PluginPanelSurfaceContext =
   | { kind: "thread"; threadId: string }
-  | { kind: "new-thread"; projectId: string | null };
+  | { kind: "new-thread"; projectId: string | null }
+  | { kind: "nav-panel"; pluginId: string; panelId: string; subPath: string };
 
 export function PluginPanelTabContent({
   tab,
@@ -216,8 +274,8 @@ export function PluginPanelTabContent({
       />
     );
   }
-  return context.kind === "thread" ? (
-    <ThreadActionTabContent tab={tab} threadId={context.threadId} />
+  return context.kind !== "new-thread" ? (
+    <RegisteredActionTabContent tab={tab} context={context} />
   ) : (
     <NewThreadActionTabContent tab={tab} projectId={context.projectId} />
   );
@@ -286,36 +344,47 @@ function PluginPanelTabProvider({
   );
 }
 
-function ThreadActionTabContent({
+function RegisteredActionTabContent({
   tab,
-  threadId,
+  context,
 }: {
   tab: PluginPanelFixedPanelTab;
-  threadId: string;
+  context: Exclude<PluginPanelSurfaceContext, { kind: "new-thread" }>;
 }) {
-  const { threadPanelActions } = usePluginSlots();
-  const action =
-    threadPanelActions.find(
-      (candidate) =>
-        candidate.pluginId === tab.pluginId && candidate.id === tab.actionId,
-    ) ?? null;
+  const { tabs } = usePluginSlots();
+  const action = tabs.find(
+    (candidate) =>
+      candidate.pluginId === tab.pluginId &&
+      candidate.id === tab.actionId &&
+      candidate.availability === "action" &&
+      (candidate.context.kind === "thread"
+        ? context.kind === "thread"
+        : context.kind === "nav-panel" &&
+          candidate.context.panelId === context.panelId &&
+          candidate.pluginId === context.pluginId),
+  );
   const params = usePersistedActionParams(tab);
-  if (action === null) return <UnavailableActionTab />;
+  if (action === undefined && context.kind === "nav-panel")
+    return <NewThreadActionTabContent tab={tab} projectId={null} />;
+  if (action === undefined || action.availability !== "action")
+    return <UnavailableActionTab />;
   return (
     <PanelActionTabFrame
       layout={action.layout}
       testId="plugin-panel-tab-content"
     >
-      <PluginSlotMount
-        key={`thread/${action.pluginId}/${action.id}/${action.generation}`}
-        pluginId={action.pluginId}
-        slotKind="threadPanelAction"
-        slotId={action.id}
+      <PluginTabScope
+        slot={action}
+        instanceId={`${context.kind}/${context.kind === "thread" ? context.threadId : `${context.panelId}/${context.subPath}`}/${tab.id}`}
       >
-        <PluginPanelTabProvider tab={tab}>
-          <action.component threadId={threadId} params={params} />
-        </PluginPanelTabProvider>
-      </PluginSlotMount>
+        {isThreadTab(action) && context.kind === "thread" ? (
+          <PluginPanelTabProvider tab={tab}>
+            <action.component threadId={context.threadId} params={params} />
+          </PluginPanelTabProvider>
+        ) : isNavTab(action) && context.kind === "nav-panel" ? (
+          <action.component subPath={context.subPath} params={params} />
+        ) : null}
+      </PluginTabScope>
     </PanelActionTabFrame>
   );
 }

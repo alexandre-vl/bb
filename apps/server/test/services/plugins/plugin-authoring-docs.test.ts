@@ -12,6 +12,7 @@ import {
   type PluginContentScriptContext,
   type PluginContentScriptRegistration,
   type PluginDiffRendererProps,
+  type ExperimentalComposerProps,
   type PluginFileOpenerProps,
   type PluginHomepageSectionProps,
   type PluginHttpAuthMode,
@@ -44,7 +45,7 @@ import {
   type ExperimentalSidebarHeaderProps,
   type PluginSidebarFooterActionRegistration,
   type PluginThreadEventPayloads,
-  type PluginThreadPanelProps,
+  type ExperimentalThreadActionTabProps,
   type ThreadChatMessageAction,
   type ThreadChatProps,
 } from "@get-bb/plugin-sdk";
@@ -272,7 +273,7 @@ type SlotPropsByName = {
   settingsSection: PluginSettingsSectionProps;
   experimental_appOverlay: ExperimentalAppOverlayProps;
   navPanel: PluginNavPanelProps;
-  threadPanelAction: PluginThreadPanelProps;
+  experimental_tab: ExperimentalThreadActionTabProps | PluginNavPanelProps;
   experimental_newThreadPanelAction: PluginNewThreadPanelProps;
   pendingInteraction: PluginPendingInteractionProps;
   sidebarFooterAction: PluginSidebarFooterActionProps;
@@ -286,6 +287,7 @@ type SlotPropsByName = {
   fileOpener: PluginFileOpenerProps;
   experimental_sourceCodeRenderer: PluginSourceCodeRendererProps;
   experimental_diffRenderer: PluginDiffRendererProps;
+  experimental_composer: ExperimentalComposerProps;
   messageDirective: PluginMessageDirectiveProps;
   experimental_codeFenceRenderer: ExperimentalCodeFenceRendererProps;
   messageAction: PluginMessageActionContext;
@@ -295,6 +297,8 @@ type SlotPropsByName = {
   experimental_environmentProviderInputs: PluginEnvironmentProviderInputsProps;
   experimental_machineProviderInputs: PluginMachineProviderInputsProps;
 };
+
+type SlotPropKeys<T> = T extends unknown ? keyof T : never;
 
 type MissingSlot = Exclude<keyof PluginAppSlots, keyof SlotPropsByName>;
 const _assertAllSlotsListed: MissingSlot extends never ? true : never = true;
@@ -353,7 +357,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   settingsSection: [],
   experimental_appOverlay: [],
   navPanel: ["subPath"],
-  threadPanelAction: ["threadId", "params"],
+  experimental_tab: ["threadId", "subPath", "params"],
   experimental_newThreadPanelAction: ["projectId", "params"],
   pendingInteraction: ["interaction", "submit", "cancel"],
   sidebarFooterAction: [],
@@ -396,6 +400,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "experimental_fullFileContents",
     "Original",
   ],
+  experimental_composer: [],
   messageDirective: ["attributes", "source", "message", "openWorkspaceFile"],
   experimental_codeFenceRenderer: [
     "code",
@@ -434,12 +439,12 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "experimental_Original",
   ],
 } as const satisfies {
-  [S in keyof SlotPropsByName]: readonly (keyof SlotPropsByName[S])[];
+  [S in keyof SlotPropsByName]: readonly SlotPropKeys<SlotPropsByName[S]>[];
 };
 
 type MissingSlotPropField = {
   [S in keyof SlotPropsByName]: Exclude<
-    keyof SlotPropsByName[S],
+    SlotPropKeys<SlotPropsByName[S]>,
     (typeof FRONTEND_SLOT_PROP_FIELDS)[S][number]
   >;
 }[keyof SlotPropsByName];
@@ -487,7 +492,6 @@ const NAV_PANEL_REGISTRATION_FIELDS = [
   "icon",
   "path",
   "component",
-  "fixedTabs",
   "experimental_useBadge",
   "experimental_usePageTitle",
   "headerContent",

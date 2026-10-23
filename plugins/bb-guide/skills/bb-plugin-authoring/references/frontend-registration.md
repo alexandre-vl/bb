@@ -55,19 +55,21 @@ export default definePluginApp((app) => {
     icon: "Columns",
     path: "board",
     component: Board,
-    fixedTabs: [
-      {
-        panelId: "board",
-        id: "navigation",
-        title: "Navigation",
-        icon: "PanelRight",
-        component: BoardNavigation,
-        layout: "flush",
-      },
-    ],
     experimental_useBadge: useOpenIssueBadge,
   });
-  app.slots.threadPanelAction({
+  app.slots.experimental_tab({
+    context: { kind: "nav-panel", panelId: "board" },
+    availability: "fixed",
+    id: "navigation",
+    title: "Navigation",
+    icon: "PanelRight",
+    component: BoardNavigation,
+    layout: "flush",
+  });
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
+    icon: "FileText",
     id: "issue",
     title: "Open issue",
     component: IssuePanel,
@@ -411,10 +413,8 @@ const splitLayout = useSidebarSplitLayout(); // { panes: [{ paneId, rect, thread
 // <experimental_ProviderIcon providerKind="environment" provider={entry} />:
 const { providers: environmentProviders } = useEnvironmentProviders();
 
-// Pull requests are per row and opt-in — a lookup hits the git host, so it is
-// deliberately NOT on the thread payload every sidebar loads:
-const { pullRequest } = experimental_useSidebarThreadPullRequest(thread.id);
-// → { isLoading, pullRequest: { number, title, url, state, attention } | null }
+// Pull requests: read the GitHub PR Status plugin by thread.environment?.id
+// (references/frontend-pull-requests.md).
 
 const navigate = useBbNavigate();
 const sdk = useSdk();
@@ -435,6 +435,9 @@ Unit-test a list with `renderSlot(...)` from `@get-bb/plugin-sdk/testing/app`:
 seed rows with the `sidebarThreads` option (plus `sidebarDraftThreadIds`,
 `sidebarRowStatuses`, and `sidebarShortcuts` for the per-row hooks) and assert against
 `inspection.navigateCalls` and `inspection.sdkCalls`.
+
+**Pull requests on a row.** Read them from the bundled GitHub PR Status
+plugin; see references/frontend-pull-requests.md.
 
 **Splits.** Rows can drag out to the split area:
 
@@ -474,26 +477,7 @@ silently stop working:
 <a data-sidebar-thread-shortcut-target="" data-sidebar-thread-id={thread.id}>
 ```
 
-### The provider directory
+## Tab API migration
 
-`experimental_useProviders()` returns `{ status, providers }` — every
-registered agent provider in picker order, as the same `ProviderInfo` the
-host's composer reads (`id`, `pluginId`, `displayName`, `family`, `icon`,
-`logoUrl`, `available`, `capabilities`, `maintenance`, `extensionKinds`,
-`composerActions`, and the declared `strings`, `reasoningLevels`,
-`serviceTiers`). It reads the host's own cached roster, so
-it costs no extra request. Use it whenever a surface shows a thread's or
-automation's provider: never vendor provider names or copy in a plugin.
-
-```tsx
-const { providers } = experimental_useProviders();
-const name =
-  providers.find((provider) => provider.id === thread.providerId)
-    ?.displayName ?? thread.providerId;
-```
-
-`status` is `"loading"` until the roster arrives and `"error"` when the request
-failed; `providers` is empty in both cases, so fall back to the id. The
-backend counterpart is `bb.sdk.providers.list()`. Keep the hook in the plugin
-entry (`app.tsx`) and pass names down as props, so view components stay pure
-and testable outside the plugin runtime.
+See [the unified tab contract and migration examples](frontend-core-slots.md#tab-api-migration)
+for replacing legacy registrations while preserving published bundles and saved tabs.

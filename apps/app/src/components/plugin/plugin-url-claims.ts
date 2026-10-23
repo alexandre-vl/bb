@@ -4,8 +4,9 @@ import { jsonValueSchema } from "@bb/domain";
 import type { PluginPanelActionOpenOptions } from "@get-bb/plugin-sdk";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import {
+  isThreadTab,
   usePluginSlots,
-  type PluginThreadPanelActionSlot,
+  type PluginTabSlot,
 } from "@/lib/plugin-slots";
 import {
   isPlainPrimaryClick,
@@ -51,26 +52,30 @@ function readClaimedOpenOptions(
 }
 
 function claimUrlForThreadPanel(
-  actions: readonly PluginThreadPanelActionSlot[],
+  tabs: readonly PluginTabSlot[],
   href: string,
 ): PluginUrlClaim | null {
   const url = parseWebUrl(href);
   if (url === null) return null;
-  for (const action of actions) {
-    if (action.experimental_claimUrl === undefined) continue;
+  for (const tab of tabs) {
+    if (
+      !isThreadTab(tab) ||
+      tab.availability !== "action" ||
+      tab.experimental_claimUrl === undefined
+    ) {
+      continue;
+    }
     let options: PluginPanelActionOpenOptions | null;
     try {
-      options = readClaimedOpenOptions(
-        action.experimental_claimUrl(new URL(url)),
-      );
+      options = readClaimedOpenOptions(tab.experimental_claimUrl(new URL(url)));
     } catch (error) {
       console.warn(
-        `[plugin:${action.pluginId}] threadPanelAction "${action.id}" experimental_claimUrl failed: ${describeError(error)}`,
+        `[plugin:${tab.pluginId}] experimental_tab "${tab.id}" experimental_claimUrl failed: ${describeError(error)}`,
       );
       continue;
     }
     if (options !== null) {
-      return { ...options, pluginId: action.pluginId, actionId: action.id };
+      return { ...options, pluginId: tab.pluginId, actionId: tab.id };
     }
   }
   return null;
@@ -79,12 +84,12 @@ function claimUrlForThreadPanel(
 export function useOpenClaimedUrl(
   openThreadPanel: PluginThreadPanelOpenHandler,
 ): (href: string) => boolean {
-  const { threadPanelActions } = usePluginSlots();
-  const latestRef = useLatestRef({ openThreadPanel, threadPanelActions });
+  const { tabs } = usePluginSlots();
+  const latestRef = useLatestRef({ openThreadPanel, tabs });
   return useCallback(
     (href: string) => {
       const latest = latestRef.current;
-      const claim = claimUrlForThreadPanel(latest.threadPanelActions, href);
+      const claim = claimUrlForThreadPanel(latest.tabs, href);
       return claim !== null && latest.openThreadPanel(claim);
     },
     [latestRef],
