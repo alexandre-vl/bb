@@ -25,7 +25,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Item } from "../app-logic.js";
+import { byLinkKey, type Item } from "../app-logic.js";
 import type { PullTone } from "../pull-status.js";
 import type { githubRpcContract } from "../server.js";
 
@@ -288,6 +288,16 @@ export function useStatus(): Status | null {
   return useShared(status, "data-changed").value;
 }
 
+export function useTrackedRepo(repo: string): string | null {
+  const { value, error } = useShared(status, "data-changed");
+  if (value === null) return error === null ? null : repo;
+  const name = repo.toLowerCase();
+  return (
+    value.repos.find((tracked) => tracked.repo.toLowerCase() === name)?.repo ??
+    repo
+  );
+}
+
 export function useViewer(): string | null {
   return useShared(viewer, "data-changed").value;
 }
@@ -403,7 +413,7 @@ export function useAgents(): ReadonlyMap<string, AgentInfo> {
   return useMemo(() => {
     const byId = new Map(threads.map((thread) => [thread.id, thread]));
     const agents = new Map<string, AgentInfo>();
-    for (const [key, entries] of Object.entries(links)) {
+    for (const [key, entries] of Object.entries(byLinkKey(links))) {
       const newest = [...entries].sort((a, b) =>
         b.createdAt.localeCompare(a.createdAt),
       );

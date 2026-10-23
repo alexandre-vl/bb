@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   definePluginApp,
   experimental_Icon as Icon,
@@ -12,13 +19,20 @@ import { Button } from "@/components/ui/button";
 import { DelayedLoading } from "@/components/ui/delayed-loading";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  claimItemUrl,
+  isSameItem,
+  itemRefFromParams,
+  itemTabOptions,
+  itemUrl,
   parseSubPath,
   pullRowModels,
   routeToSubPath,
   splitTitle,
-  type PullRowModel,
+  type Item,
+  type ItemRef,
   type Route,
 } from "./app-logic.js";
+import type { PullGlyph } from "./pull-status.js";
 import type { githubRpcContract } from "./server.js";
 import { AgentSheet, type AgentTarget } from "./components/agent-sheet.js";
 import { GithubHomeSection, useInboxBadge } from "./components/home-section.js";
@@ -34,6 +48,7 @@ import {
   useItems,
   useStatus,
   useSync,
+  useTrackedRepo,
   useViewer,
   type Status,
 } from "./components/shared.js";
@@ -216,7 +231,9 @@ function PullPicker({
         {rows.map((row) => (
           <PickerRow
             key={row.key}
-            row={row}
+            glyph={rowGlyph(row, null)}
+            title={splitTitle(row.item.title).text}
+            detail={`${row.item.repo}#${row.item.number}`}
             onPick={() => onPick(row.item.repo, row.item.number)}
           />
         ))}
@@ -225,8 +242,82 @@ function PullPicker({
   );
 }
 
-function PickerRow({ row, onPick }: { row: PullRowModel; onPick: () => void }) {
-  const glyph = rowGlyph(row, null);
+const OPEN_ISSUE_GLYPH: PullGlyph = {
+  icon: "Circle",
+  tone: "ready",
+  label: "Open",
+};
+
+function IssuePicker({
+  onPick,
+}: {
+  onPick: (repo: string, number: number) => void;
+}) {
+  const { items, error, refetch } = useItems("issue");
+  const issues = useMemo(
+    () =>
+      items === null
+        ? null
+        : items
+            .filter((item) => item.state === "OPEN")
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [items],
+  );
+  if (error !== null && issues === null) {
+    return (
+      <ListMessage
+        icon="CloudOff"
+        title="Can't reach GitHub"
+        detail={error}
+        action={
+          <Button type="button" size="sm" variant="ghost" onClick={refetch}>
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+  if (issues === null) return <PanelSkeleton />;
+  if (issues.length === 0) {
+    return (
+      <ListMessage
+        icon="Circle"
+        title="No open issues"
+        detail="Issues in the tracked repositories show up here."
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-subtle-foreground">
+        Pick an issue to show here.
+      </p>
+      <div className="flex flex-col">
+        {issues.map((item) => (
+          <PickerRow
+            key={`${item.repo}#${item.number}`}
+            glyph={OPEN_ISSUE_GLYPH}
+            title={splitTitle(item.title).text}
+            detail={`${item.repo}#${item.number}`}
+            onPick={() => onPick(item.repo, item.number)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PickerRow({
+  glyph,
+  title,
+  detail,
+  onPick,
+}: {
+  glyph: PullGlyph;
+  title: string;
+  detail: string;
+  onPick: () => void;
+}) {
   return (
     <button
       type="button"
@@ -245,131 +336,218 @@ function PickerRow({ row, onPick }: { row: PullRowModel; onPick: () => void }) {
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm font-medium text-foreground">
-          {splitTitle(row.item.title).text}
+          {title}
         </span>
         <span className="truncate text-xs text-subtle-foreground">
-          {row.item.repo}#{row.item.number}
+          {detail}
         </span>
       </span>
     </button>
   );
 }
 
-interface PanelPull {
-  repo: string;
-  number: number;
+interface ThreadPull extends ItemRef {
   environmentId: string | null;
 }
 
-function PullPanelTab({ threadId }: ExperimentalThreadActionTabProps) {
-  return <PullPanelBody key={threadId} threadId={threadId} />;
-}
+type ThreadPullLookup =
+  | { status: "loading" }
+  | { status: "failed"; error: string; retry: () => void }
+  | { status: "resolved"; pull: ThreadPull | null };
 
-function PullPanelBody({ threadId }: { threadId: string }) {
+const ITEM_PANEL_ACTION_IDS: Record<Item["kind"], string> = {
+  pr: "pull",
+  issue: "issue",
+};
+
+function useThreadPull(
+  threadId: string,
+  onResolved?: (pull: ThreadPull | null) => void,
+): ThreadPullLookup {
   const rpc = useRpc<typeof githubRpcContract>();
-  const viewer = useViewer();
-  const { items } = useItems("pr");
+  const onResolvedRef = useRef(onResolved);
+  const [attempt, setAttempt] = useState(0);
   const [lookup, setLookup] = useState<{
-    attempt: number;
-    resolved: boolean;
-    linked: boolean;
-    error: string | null;
-  }>({ attempt: 0, resolved: false, linked: false, error: null });
-  const [selected, setSelected] = useState<PanelPull | null>(null);
-  const [agentTarget, setAgentTarget] = useState<AgentTarget | null>(null);
+    key: string;
+    result: { pull: ThreadPull | null } | { error: string };
+  } | null>(null);
+  const key = `${threadId}:${attempt}`;
+
+  useEffect(() => {
+    onResolvedRef.current = onResolved;
+  });
 
   useEffect(() => {
     let cancelled = false;
     rpc.call("pullForThread", { threadId }).then(
       (result) => {
         if (cancelled) return;
-        setSelected(result.pull);
-        setLookup((current) => ({
-          ...current,
-          resolved: true,
-          linked: result.pull !== null,
-          error: null,
-        }));
+        setLookup({ key, result: { pull: result.pull } });
+        onResolvedRef.current?.(result.pull);
       },
       (failure: unknown) => {
         if (cancelled) return;
-        setLookup((current) => ({
-          ...current,
-          resolved: true,
-          error: errorText(failure),
-        }));
+        setLookup({ key, result: { error: errorText(failure) } });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [lookup.attempt, rpc, threadId]);
+  }, [key, rpc, threadId]);
 
-  if (!lookup.resolved) return <PanelSkeleton />;
-  if (selected === null) {
-    if (lookup.error !== null) {
-      return (
-        <ListMessage
-          icon="CloudOff"
-          title="Can't reach GitHub"
-          detail={lookup.error}
-          action={
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                setLookup((current) => ({
-                  attempt: current.attempt + 1,
-                  resolved: false,
-                  linked: false,
-                  error: null,
-                }))
-              }
-            >
-              Try again
-            </Button>
-          }
-        />
-      );
-    }
+  if (lookup === null || lookup.key !== key) return { status: "loading" };
+  if ("error" in lookup.result) {
+    return {
+      status: "failed",
+      error: lookup.result.error,
+      retry: () => setAttempt((current) => current + 1),
+    };
+  }
+  return { status: "resolved", pull: lookup.result.pull };
+}
+
+function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
+  const navigate = useBbNavigate();
+  return useCallback(
+    (item) =>
+      navigate.openThreadPanel({
+        actionId: ITEM_PANEL_ACTION_IDS[kind],
+        ...itemTabOptions(kind, item),
+        experimental_replace: true,
+      }),
+    [kind, navigate],
+  );
+}
+
+function PullPanelTab({ threadId, params }: ExperimentalThreadActionTabProps) {
+  const linked = itemRefFromParams(params);
+  if (linked === null) {
+    return <ThreadPullPanel key={threadId} threadId={threadId} />;
+  }
+  return (
+    <LinkedPullPanel
+      key={`${threadId}:${linked.repo}#${linked.number}`}
+      threadId={threadId}
+      pull={linked}
+    />
+  );
+}
+
+function LinkedPullPanel({
+  threadId,
+  pull,
+}: {
+  threadId: string;
+  pull: ItemRef;
+}) {
+  const threadPull = useThreadPull(threadId);
+  return (
+    <PullTabDetail
+      pull={pull}
+      environmentId={
+        threadPull.status === "resolved" &&
+        threadPull.pull !== null &&
+        isSameItem(threadPull.pull, pull)
+          ? threadPull.pull.environmentId
+          : null
+      }
+      onBack={null}
+    />
+  );
+}
+
+function ThreadPullPanel({ threadId }: { threadId: string }) {
+  const showInThisTab = useShowItemInThisTab("pr");
+  const [choice, setChoice] = useState<"picker" | ThreadPull | null>(null);
+  const lookup = useThreadPull(threadId, (pull) => {
+    if (pull !== null && !showInThisTab(pull)) setChoice(pull);
+  });
+
+  if (lookup.status === "loading") return <PanelSkeleton />;
+  if (lookup.status === "failed") {
     return (
-      <PullPicker
-        intro={
-          lookup.linked
-            ? "Pick a pull request to show here."
-            : "No pull request is linked to this thread. Pick one to show it here."
-        }
-        onPick={(repo, number) =>
-          setSelected({ repo, number, environmentId: null })
+      <ListMessage
+        icon="CloudOff"
+        title="Can't reach GitHub"
+        detail={lookup.error}
+        action={
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={lookup.retry}
+          >
+            Try again
+          </Button>
         }
       />
     );
   }
-  const item =
-    items?.find(
-      (entry) =>
-        entry.repo === selected.repo && entry.number === selected.number,
-    ) ?? null;
+  const view = choice ?? (lookup.pull === null ? "picker" : null);
+  if (view === null) return <PanelSkeleton />;
+  if (view === "picker") {
+    return (
+      <PullPicker
+        intro={
+          lookup.pull === null
+            ? "No pull request is linked to this thread. Pick one to show it here."
+            : "Pick a pull request to show here."
+        }
+        onPick={(repo, number) => {
+          const pull = { repo, number, environmentId: null };
+          if (!showInThisTab(pull)) setChoice(pull);
+        }}
+      />
+    );
+  }
+  return (
+    <PullTabDetail
+      pull={view}
+      environmentId={view.environmentId}
+      onBack={() => setChoice("picker")}
+    />
+  );
+}
+
+function PullTabDetail({
+  pull,
+  environmentId,
+  onBack,
+}: {
+  pull: ItemRef;
+  environmentId: string | null;
+  onBack: (() => void) | null;
+}) {
+  const navigate = useBbNavigate();
+  const viewer = useViewer();
+  const { items } = useItems("pr");
+  const repo = useTrackedRepo(pull.repo);
+  const [agentTarget, setAgentTarget] = useState<AgentTarget | null>(null);
+  if (repo === null) return <PanelSkeleton />;
+  const item = items?.find((entry) => isSameItem(entry, pull)) ?? null;
   const row = item === null ? null : (pullRowModels([item], viewer)[0] ?? null);
   return (
     <div className="-m-4 flex min-h-0 flex-1 flex-col @container/github">
       <PullDetailView
-        key={`${selected.repo}#${selected.number}`}
-        repo={selected.repo}
-        number={selected.number}
+        key={`${repo}#${pull.number}`}
+        repo={repo}
+        number={pull.number}
         row={row}
         chain={null}
         viewer={viewer}
         layout="panel"
-        environmentId={selected.environmentId}
+        environmentId={environmentId}
         handle={null}
         pendingRequest={null}
-        onBack={() => setSelected(null)}
+        onBack={onBack}
         onClose={null}
-        onOpenPull={(repo, number) =>
-          setSelected({ repo, number, environmentId: null })
-        }
+        onOpenPull={(repo, number) => {
+          const opened = navigate.openThreadPanel({
+            actionId: ITEM_PANEL_ACTION_IDS.pr,
+            ...itemTabOptions("pr", { repo, number }),
+          });
+          if (!opened) navigate.openUrl(itemUrl("pr", { repo, number }));
+        }}
         onStartAgent={setAgentTarget}
       />
       <AgentSheet
@@ -377,6 +555,55 @@ function PullPanelBody({ threadId }: { threadId: string }) {
         onOpenChange={(open) => {
           if (!open) setAgentTarget(null);
         }}
+      />
+    </div>
+  );
+}
+
+function IssuePanelTab({ params }: ExperimentalThreadActionTabProps) {
+  const linked = itemRefFromParams(params);
+  if (linked === null) return <IssuePickerPanel />;
+  return (
+    <IssueTabDetail
+      key={`${linked.repo}#${linked.number}`}
+      issue={linked}
+      onBack={null}
+    />
+  );
+}
+
+function IssuePickerPanel() {
+  const showInThisTab = useShowItemInThisTab("issue");
+  const [shown, setShown] = useState<ItemRef | null>(null);
+  if (shown === null) {
+    return (
+      <IssuePicker
+        onPick={(repo, number) => {
+          const issue = { repo, number };
+          if (!showInThisTab(issue)) setShown(issue);
+        }}
+      />
+    );
+  }
+  return <IssueTabDetail issue={shown} onBack={() => setShown(null)} />;
+}
+
+function IssueTabDetail({
+  issue,
+  onBack,
+}: {
+  issue: ItemRef;
+  onBack: (() => void) | null;
+}) {
+  const repo = useTrackedRepo(issue.repo);
+  if (repo === null) return <PanelSkeleton />;
+  return (
+    <div className="-m-4 flex min-h-0 flex-1 flex-col @container/github">
+      <IssueDetailView
+        key={`${repo}#${issue.number}`}
+        repo={repo}
+        number={issue.number}
+        onBack={onBack}
       />
     </div>
   );
@@ -408,6 +635,16 @@ export default definePluginApp((app) => {
     title: "GitHub",
     icon: "Github",
     component: PullPanelTab,
+    experimental_claimUrl: (url) => claimItemUrl("pr", url),
+  });
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
+    id: "issue",
+    title: "GitHub issue",
+    icon: "Github",
+    component: IssuePanelTab,
+    experimental_claimUrl: (url) => claimItemUrl("issue", url),
   });
   app.slots.homepageSection({
     id: "inbox",
