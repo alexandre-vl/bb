@@ -411,10 +411,8 @@ const splitLayout = useSidebarSplitLayout(); // { panes: [{ paneId, rect, thread
 // <experimental_ProviderIcon providerKind="environment" provider={entry} />:
 const { providers: environmentProviders } = useEnvironmentProviders();
 
-// Pull requests are per row and opt-in — a lookup hits the git host, so it is
-// deliberately NOT on the thread payload every sidebar loads:
-const { pullRequest } = experimental_useSidebarThreadPullRequest(thread.id);
-// → { isLoading, pullRequest: { number, title, url, state, attention } | null }
+// Pull requests: read the GitHub PR Status plugin by thread.environment?.id
+// (references/frontend-pull-requests.md).
 
 const navigate = useBbNavigate();
 const sdk = useSdk();
@@ -435,6 +433,9 @@ Unit-test a list with `renderSlot(...)` from `@get-bb/plugin-sdk/testing/app`:
 seed rows with the `sidebarThreads` option (plus `sidebarDraftThreadIds`,
 `sidebarRowStatuses`, and `sidebarShortcuts` for the per-row hooks) and assert against
 `inspection.navigateCalls` and `inspection.sdkCalls`.
+
+**Pull requests on a row.** Read them from the bundled GitHub PR Status
+plugin; see references/frontend-pull-requests.md.
 
 **Splits.** Rows can drag out to the split area:
 

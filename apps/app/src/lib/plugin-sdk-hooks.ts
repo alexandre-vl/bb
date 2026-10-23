@@ -31,6 +31,7 @@ import type {
 } from "@get-bb/plugin-sdk";
 import { jsonValueSchema } from "@bb/domain";
 import {
+  PluginContext,
   PluginSlotOwnershipContext,
   usePluginId,
 } from "@/components/plugin/plugin-context";
@@ -784,7 +785,7 @@ export const {
   experimental_useRpcMutation,
   experimental_useRpcRefresh,
 } = createRpcQueryHooks(() => {
-  const pluginId = usePluginId();
+  const pluginId = useContext(PluginContext);
   const queryClient = useQueryClient();
   return useMemo(
     () => ({
@@ -795,6 +796,20 @@ export const {
         method: string,
         input: import("@bb/domain").JsonValue,
       ) => callPluginRpc(fetch, id, method, input),
+      watch: (
+        id: string,
+        method: string,
+        read: { input: import("@bb/domain").JsonValue } | { key: string },
+      ) => {
+        const target = {
+          kind: "plugin-read",
+          pluginId: id,
+          method,
+          read,
+        } as const;
+        wsManager.subscribe(target);
+        return () => wsManager.unsubscribe(target);
+      },
       subscribe: (id: string) => {
         const target = { kind: "plugin", pluginId: id } as const;
         wsManager.subscribe(target);

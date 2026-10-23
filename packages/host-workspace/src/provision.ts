@@ -10,17 +10,11 @@ import type {
   DiffFilesResult,
   DiffPatchArgs,
   DiffPatchEntry,
-  PullRequestActionOptions,
   StatusOptions,
 } from "./workspace.js";
 import { Workspace } from "./workspace.js";
-import type {
-  GitHostCliOptions,
-  GitHostPullRequestLookup,
-} from "./git-host.js";
 import {
-  detectGitRepo,
-  detectLinkedWorktree,
+  inspectGitRepository,
   readDefaultBranch,
   WorkspaceError,
   type SharedGitRefsSnapshot,
@@ -73,13 +67,6 @@ export interface HostWorkspace {
   getDiff(options?: DiffOptions): Promise<DiffResult>;
   diffFiles(args: DiffFilesArgs): Promise<DiffFilesResult>;
   diffPatch(args: DiffPatchArgs): Promise<DiffPatchEntry[]>;
-  getPullRequest(
-    options?: GitHostCliOptions,
-  ): Promise<GitHostPullRequestLookup>;
-  runPullRequestAction(
-    action: PullRequestActionOptions,
-    options?: GitHostCliOptions,
-  ): Promise<void>;
 
   commit(options: CommitOptions): Promise<CommitResult>;
 }
@@ -104,7 +91,7 @@ class ProvisionedHostWorkspace implements HostWorkspace {
     this.gitProcessOptions = {
       ...(opts.shellPath !== undefined ? { shellPath: opts.shellPath } : {}),
     };
-    this.ws = new Workspace(opts.path, this.gitProcessOptions);
+    this.ws = new Workspace(opts.path, this.gitProcessOptions, opts.isGitRepo);
   }
 
   async getCurrentBranch(): Promise<string | null> {
@@ -161,19 +148,6 @@ class ProvisionedHostWorkspace implements HostWorkspace {
     return this.ws.diffPatch(args);
   }
 
-  getPullRequest(
-    options?: GitHostCliOptions,
-  ): Promise<GitHostPullRequestLookup> {
-    return this.ws.getPullRequest(options);
-  }
-
-  runPullRequestAction(
-    action: PullRequestActionOptions,
-    options?: GitHostCliOptions,
-  ): Promise<void> {
-    return this.ws.runPullRequestAction(action, options);
-  }
-
   commit(options: CommitOptions): Promise<CommitResult> {
     return this.ws.commit(options);
   }
@@ -195,14 +169,9 @@ async function provisionUnmanaged(
       `Unmanaged workspace path does not exist: ${opts.path}`,
     );
   }
-  const isGitRepo = await detectGitRepo(opts.path, {
+  const { isGitRepo, isWorktree } = await inspectGitRepository(opts.path, {
     ...(opts.shellPath !== undefined ? { shellPath: opts.shellPath } : {}),
   });
-  const gitProcessOptions =
-    opts.shellPath === undefined ? {} : { shellPath: opts.shellPath };
-  const isWorktree = isGitRepo
-    ? await detectLinkedWorktree(opts.path, gitProcessOptions)
-    : false;
 
   return new ProvisionedHostWorkspace({
     path: opts.path,

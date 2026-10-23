@@ -36,11 +36,8 @@ import {
   type ThreadListEntry,
   type ThreadWithRuntime,
 } from "@bb/domain";
-import type {
-  PullRequestMergeMethod,
-  TerminalSession,
-  TimelineRow,
-} from "@bb/server-contract";
+import type { TerminalSession, TimelineRow } from "@bb/server-contract";
+import type { PullRequestMergeMethod } from "bb-plugin-bb--github-pr-status/contract";
 import type { WorkspaceOpenTarget } from "@bb/host-daemon-contract";
 import { appToast } from "@/components/ui/app-toast";
 import { copyToClipboardWithToast } from "@/lib/clipboard";
@@ -64,10 +61,12 @@ import {
 import { useUpdateEnvironment } from "../../hooks/mutations/environment-mutations";
 import {
   useEnvironment,
-  getEnvironmentPullRequestFromResponse,
-  useEnvironmentPullRequest,
   useEnvironmentWorkStatus,
 } from "../../hooks/queries/environment-queries";
+import {
+  useEnvironmentPullRequest,
+  usePullRequestActions,
+} from "../../hooks/queries/pull-request-queries";
 import {
   useChildThreadPendingAttention,
   type ChildThreadPendingAttentionSource,
@@ -1605,12 +1604,11 @@ function ThreadDetailViewInternal(
     workStatusResponse?.outcome === "unavailable"
       ? workStatusResponse.failure
       : undefined;
-  const pullRequestQuery = useEnvironmentPullRequest(thread?.environmentId, {
+  const { pullRequest } = useEnvironmentPullRequest(thread?.environmentId, {
     enabled: canUseGitUi && environment !== undefined,
   });
-  const pullRequest = getEnvironmentPullRequestFromResponse(
-    pullRequestQuery.data,
-  );
+  const pullRequestActions = usePullRequestActions();
+  const { markReady, markDraft, merge } = pullRequestActions;
   const handlePullRequestReady = useCallback(async () => {
     const environmentId = thread?.environmentId;
     if (!environmentId) {
@@ -1618,13 +1616,7 @@ function ThreadDetailViewInternal(
     }
     const toastId = appToast.loading("Marking pull request ready");
     try {
-      const response = await requestEnvironmentAction.mutateAsync({
-        id: environmentId,
-        action: "pull_request_ready",
-      });
-      if (response.action !== "pull_request_ready") {
-        throw new Error("Expected pull request ready action response.");
-      }
+      const response = await markReady({ environmentId });
       appToast.success(response.message, { id: toastId });
     } catch (error) {
       appToast.error("Failed to update pull request", {
@@ -1635,7 +1627,7 @@ function ThreadDetailViewInternal(
         }),
       });
     }
-  }, [requestEnvironmentAction, thread?.environmentId]);
+  }, [markReady, thread?.environmentId]);
   const handlePullRequestDraft = useCallback(async () => {
     const environmentId = thread?.environmentId;
     if (!environmentId) {
@@ -1643,13 +1635,7 @@ function ThreadDetailViewInternal(
     }
     const toastId = appToast.loading("Converting pull request to draft");
     try {
-      const response = await requestEnvironmentAction.mutateAsync({
-        id: environmentId,
-        action: "pull_request_draft",
-      });
-      if (response.action !== "pull_request_draft") {
-        throw new Error("Expected pull request draft action response.");
-      }
+      const response = await markDraft({ environmentId });
       appToast.success(response.message, { id: toastId });
     } catch (error) {
       appToast.error("Failed to update pull request", {
@@ -1660,7 +1646,7 @@ function ThreadDetailViewInternal(
         }),
       });
     }
-  }, [requestEnvironmentAction, thread?.environmentId]);
+  }, [markDraft, thread?.environmentId]);
   const handlePullRequestMerge = useCallback(
     async (method: PullRequestMergeMethod) => {
       const environmentId = thread?.environmentId;
@@ -1670,14 +1656,7 @@ function ThreadDetailViewInternal(
       setPullRequestMergeMethod(method);
       const toastId = appToast.loading(getPullRequestMergeLoadingTitle(method));
       try {
-        const response = await requestEnvironmentAction.mutateAsync({
-          id: environmentId,
-          action: "pull_request_merge",
-          options: { method },
-        });
-        if (response.action !== "pull_request_merge") {
-          throw new Error("Expected pull request merge action response.");
-        }
+        const response = await merge({ environmentId, method });
         appToast.success(response.message, { id: toastId });
       } catch (error) {
         appToast.error("Failed to merge pull request", {
@@ -1689,11 +1668,7 @@ function ThreadDetailViewInternal(
         });
       }
     },
-    [
-      requestEnvironmentAction,
-      setPullRequestMergeMethod,
-      thread?.environmentId,
-    ],
+    [merge, setPullRequestMergeMethod, thread?.environmentId],
   );
   const workspaceBranch = workspaceStatus?.branch;
   const workspaceChangedFilesSection = useMemo(
@@ -2426,7 +2401,9 @@ function ThreadDetailViewInternal(
       canRestoreEnvironment={thread.canRestoreEnvironment}
       environmentGoneStatus={threadEnvironmentGoneStatus}
       environmentHostId={environment?.hostId}
-      isEnvironmentActionPending={requestEnvironmentAction.isPending}
+      isEnvironmentActionPending={
+        requestEnvironmentAction.isPending || pullRequestActions.isPending
+      }
       onCreateNewThreadInEnvironment={onCreateNewThreadInEnvironment}
       onOpenThreadInfo={openThreadInfo}
       onPullRequestMerge={handlePullRequestMerge}
