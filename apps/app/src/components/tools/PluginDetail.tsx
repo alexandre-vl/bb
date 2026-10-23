@@ -30,6 +30,7 @@ import {
   PluginDetailReleaseStatus,
   pluginHasUpdateSurfaces,
 } from "@/components/plugin/management/PluginUpdatesCard";
+import { PluginDetailRollback } from "@/components/plugin/management/RollbackPluginDialog";
 import {
   PluginTrackingRangeControl,
   pluginTrackingSpec,
@@ -598,6 +599,14 @@ export function PluginDetail({
               <PluginDetailReleaseStatus plugin={plugin} />
             </div>
           ) : null}
+          {plugin.updateState.rollback === null ? null : (
+            <div className="space-y-1">
+              <p className="text-2xs font-medium text-subtle-foreground">
+                Rollback
+              </p>
+              <PluginDetailRollback plugin={plugin} />
+            </div>
+          )}
         </ResourceDetailReleaseSection>
         <PluginIncludes plugin={plugin} configurationPath={configurationPath} />
         {plugin.services.length > 0 ? (
