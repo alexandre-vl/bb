@@ -1269,6 +1269,11 @@ export interface ExperimentalSidebarFooter {
  * one. "queued-failed" and "queued-waiting" are reported, with the same
  * precedence bb's list uses (a failed send outranks the unread dot; a waiting
  * message ranks just below it).
+ *
+ * "waiting-for-host" takes the place of "runtime", "workflow",
+ * "background-agent" and "background-command" while the thread's machine is
+ * offline (`experimental_hostUnavailable`): bb cannot tell whether that work
+ * still runs until the machine is back.
  */
 export type PluginSidebarThreadIndicator =
   | "unread-error"
@@ -1280,13 +1285,18 @@ export type PluginSidebarThreadIndicator =
   | "plan-mode"
   | "goal"
   | "runtime"
+  | "waiting-for-host"
   | "queued-failed"
   | "draft"
   | "unread-success"
   | "queued-waiting"
   | "none";
 
-/** Live work counts on a thread. All zero means nothing is running. */
+/**
+ * Live work counts on a thread. All zero means nothing is running. They are
+ * what bb last heard from the thread's machine: while
+ * `experimental_hostUnavailable` is true, work they count may have ended.
+ */
 export interface PluginSidebarThreadActivity {
   workflows: number;
   backgroundAgents: number;
@@ -1345,6 +1355,13 @@ export interface PluginSidebarThread {
    * unknown value as `status`.
    */
   runtimeStatus: ThreadRuntimeDisplayStatus;
+  /**
+   * True while the machine this thread runs on is offline: no daemon is
+   * connected and the reconnect grace has passed, whatever the thread's
+   * status. False for a thread without a machine. Older hosts omit it; treat
+   * a missing value as false.
+   */
+  experimental_hostUnavailable?: boolean;
   /**
    * Whether a message is queued behind the running turn ("waiting") or a
    * queued message failed to send ("failed"). "none" otherwise.

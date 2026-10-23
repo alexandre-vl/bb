@@ -29,14 +29,14 @@ function makeChild(
       activePlanModeCount: 0,
       activeGoalCount: 0,
     },
-    runtime: { displayStatus: "idle" },
+    runtime: { displayStatus: "idle", hostUnavailable: false },
     ...overrides,
   };
 }
 
 const busyChild = makeChild({
   status: "active",
-  runtime: { displayStatus: "active" },
+  runtime: { displayStatus: "active", hostUnavailable: false },
 });
 const pendingChild = makeChild({ hasPendingInteraction: true });
 const unreadChild = makeChild({ latestAttentionAt: 20, lastReadAt: 10 });
@@ -57,6 +57,7 @@ const idleIndicatorState: ThreadListIndicatorState = {
   queuedWork: "none",
   isPlanModeActive: false,
   isRuntimeActive: false,
+  isWaitingForHost: false,
   isWorkflowActive: false,
 };
 
@@ -180,6 +181,35 @@ describe("thread-activity", () => {
         ).toBe(expectedIndicator);
       },
     );
+
+    it("shows waiting-for-host where background work would show", () => {
+      const waitingForHost = { ...idleIndicatorState, isWaitingForHost: true };
+
+      expect(resolveThreadListIndicator(waitingForHost)).toBe(
+        "waiting-for-host",
+      );
+      expect(
+        resolveThreadListIndicator({
+          ...waitingForHost,
+          hasUnreadSuccess: true,
+        }),
+      ).toBe("waiting-for-host");
+      expect(
+        resolveThreadListIndicator({ ...waitingForHost, queuedWork: "failed" }),
+      ).toBe("waiting-for-host");
+      expect(
+        resolveThreadListIndicator({
+          ...waitingForHost,
+          hasUnsubmittedDraft: true,
+        }),
+      ).toBe("waiting-for-host");
+      expect(
+        resolveThreadListIndicator({ ...waitingForHost, isGoalActive: true }),
+      ).toBe("goal");
+      expect(
+        resolveThreadListIndicator({ ...waitingForHost, hasUnreadError: true }),
+      ).toBe("unread-error");
+    });
 
     it("keeps Plan and Goal independent and applies Plan precedence", () => {
       expect(
@@ -332,8 +362,54 @@ describe("thread-activity", () => {
         queuedWork: "waiting",
         isPlanModeActive: false,
         isRuntimeActive: true,
+        isWaitingForHost: false,
         isWorkflowActive: true,
       });
+    });
+
+    it("trades background work for waiting-for-host while the machine is offline", () => {
+      const backgroundOnly = {
+        activeWorkflowCount: 1,
+        activeBackgroundAgentCount: 1,
+        activeBackgroundCommandCount: 1,
+        activePlanModeCount: 0,
+        activeGoalCount: 0,
+      };
+
+      expect(
+        threadListIndicatorStateForThread(
+          makeThreadListEntry({
+            activity: backgroundOnly,
+            runtime: { displayStatus: "idle", hostUnavailable: true },
+          }),
+          false,
+        ),
+      ).toMatchObject({
+        isBackgroundAgentActive: false,
+        isBackgroundCommandActive: false,
+        isWaitingForHost: true,
+        isWorkflowActive: false,
+      });
+      expect(
+        threadListIndicatorStateForThread(
+          makeThreadListEntry({
+            status: "active",
+            runtime: {
+              displayStatus: "waiting-for-host",
+              hostUnavailable: true,
+            },
+          }),
+          false,
+        ),
+      ).toMatchObject({ isRuntimeActive: false, isWaitingForHost: true });
+      expect(
+        threadListIndicatorStateForThread(
+          makeThreadListEntry({
+            runtime: { displayStatus: "idle", hostUnavailable: true },
+          }),
+          false,
+        ),
+      ).toMatchObject({ isWaitingForHost: false });
     });
   });
 
@@ -349,6 +425,7 @@ describe("thread-activity", () => {
         working: true,
         hasUnsubmittedDraft: true,
         runtimeWorking: true,
+        waitingForHost: false,
       });
     });
 
@@ -358,6 +435,7 @@ describe("thread-activity", () => {
         working: false,
         hasUnsubmittedDraft: false,
         runtimeWorking: false,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -371,6 +449,7 @@ describe("thread-activity", () => {
         working: false,
         hasUnsubmittedDraft: false,
         runtimeWorking: false,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -387,6 +466,7 @@ describe("thread-activity", () => {
         working: true,
         hasUnsubmittedDraft: false,
         runtimeWorking: true,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -400,6 +480,7 @@ describe("thread-activity", () => {
         working: false,
         hasUnsubmittedDraft: false,
         runtimeWorking: false,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -413,6 +494,7 @@ describe("thread-activity", () => {
         working: false,
         hasUnsubmittedDraft: false,
         runtimeWorking: false,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -426,6 +508,7 @@ describe("thread-activity", () => {
         working: false,
         hasUnsubmittedDraft: false,
         runtimeWorking: false,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -433,6 +516,25 @@ describe("thread-activity", () => {
         goal: false,
         unread: false,
         unreadError: true,
+      });
+    });
+
+    it("flags a child whose machine is offline as waiting, not working", () => {
+      const offlineChild = makeChild({
+        activity: {
+          activeWorkflowCount: 0,
+          activeBackgroundAgentCount: 0,
+          activeBackgroundCommandCount: 1,
+          activePlanModeCount: 0,
+          activeGoalCount: 0,
+        },
+        runtime: { displayStatus: "idle", hostUnavailable: true },
+      });
+
+      expect(getCollapsedChildActivity([offlineChild])).toMatchObject({
+        backgroundCommand: false,
+        waitingForHost: true,
+        working: false,
       });
     });
 
@@ -444,6 +546,7 @@ describe("thread-activity", () => {
         working: true,
         hasUnsubmittedDraft: false,
         runtimeWorking: true,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -464,6 +567,7 @@ describe("thread-activity", () => {
         working: true,
         hasUnsubmittedDraft: false,
         runtimeWorking: true,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -486,7 +590,7 @@ describe("thread-activity", () => {
           activePlanModeCount: 0,
           activeGoalCount: 0,
         },
-        runtime: { displayStatus: "active" },
+        runtime: { displayStatus: "active", hostUnavailable: false },
       });
 
       expect(getCollapsedChildActivity([busyUnreadErrorChild])).toEqual({
@@ -494,6 +598,7 @@ describe("thread-activity", () => {
         working: true,
         hasUnsubmittedDraft: false,
         runtimeWorking: true,
+        waitingForHost: false,
         workflow: true,
         backgroundAgent: true,
         backgroundCommand: true,
@@ -508,13 +613,14 @@ describe("thread-activity", () => {
       const busyAndPending = makeChild({
         status: "active",
         hasPendingInteraction: true,
-        runtime: { displayStatus: "active" },
+        runtime: { displayStatus: "active", hostUnavailable: false },
       });
       expect(getCollapsedChildActivity([busyAndPending])).toEqual({
         pending: true,
         working: true,
         hasUnsubmittedDraft: false,
         runtimeWorking: true,
+        waitingForHost: false,
         workflow: false,
         backgroundAgent: false,
         backgroundCommand: false,
@@ -558,6 +664,7 @@ describe("thread-activity", () => {
           working: true,
           hasUnsubmittedDraft: false,
           runtimeWorking: false,
+          waitingForHost: false,
           workflow: false,
           backgroundAgent: false,
           backgroundCommand: false,
