@@ -1555,6 +1555,13 @@ function RootComposeSurface({
                   }
                   isSecondaryPanelOpen={isSecondaryPanelOpen}
                   onToggleSecondaryPanel={handleToggleSecondaryPanel}
+                  renderHostedPanel={(panel) => (
+                    <PluginThreadPanelNavigationProvider
+                      openThreadPanel={handleOpenPluginPanel}
+                    >
+                      {panel}
+                    </PluginThreadPanelNavigationProvider>
+                  )}
                   secondaryPanel={{
                     activeTab: activeFixedSecondaryTab,
                     canUseGitUi: false,
