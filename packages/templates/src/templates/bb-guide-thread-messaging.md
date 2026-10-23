@@ -69,8 +69,8 @@ Ownership:
   validates them against that provider's current model catalog, applies them on
   the next turn, and keeps using them on later turns until changed.
 
-  bb thread read [id]                      Mark read
-  bb thread unread [id]                    Mark unread
+  bb thread read [id]                      Mark read, with its unread descendants
+  bb thread unread [id]                    Mark unread (only this thread)
   bb thread reorder-pinned <id> [--after <id>] [--before <id>]
 
 Interactions:

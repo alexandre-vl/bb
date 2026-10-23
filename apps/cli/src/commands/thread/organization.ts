@@ -275,13 +275,17 @@ export function registerOrganizationCommands(
       }),
     );
 
-  for (const [name, markRead] of [
-    ["read", true],
-    ["unread", false],
+  for (const [name, markRead, description] of [
+    ["read", true, "Mark a thread and its unread descendant threads read"],
+    [
+      "unread",
+      false,
+      "Mark a thread unread, leaving its descendants as they are",
+    ],
   ] as const) {
     parent
       .command(`${name} [id]`)
-      .description(`Mark a thread ${name}`)
+      .description(description)
       .option("--self", "Target the current thread (from BB_THREAD_ID)")
       .option("--json", "Print machine-readable JSON output")
       .action(

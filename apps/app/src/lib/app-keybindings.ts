@@ -26,13 +26,35 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   );
 }
 
+export const SIDEBAR_THREAD_TREE_SELECTOR = "[data-sidebar-thread-tree]";
+
+export function isSidebarListTarget(
+  target: EventTarget | null,
+): target is HTMLElement {
+  return (
+    target instanceof HTMLElement &&
+    target.closest(SIDEBAR_THREAD_TREE_SELECTOR) !== null
+  );
+}
+
+export function isTextEntryShortcut(shortcut: AppShortcut): boolean {
+  return (
+    !shortcut.mod &&
+    !shortcut.meta &&
+    !shortcut.control &&
+    !shortcut.alt &&
+    (shortcut.key.length === 1 || shortcut.key === "Space")
+  );
+}
+
 export function matchesAppCommandContext(
   binding: AppKeybinding,
   context: AppCommandContext,
 ): boolean {
   return (
     binding.when.all.every((key) => context[key]) &&
-    binding.when.none.every((key) => !context[key])
+    binding.when.none.every((key) => !context[key]) &&
+    !(context.editableFocus && isTextEntryShortcut(binding.shortcut))
   );
 }
 

@@ -321,7 +321,7 @@ function makeThread(
     environmentName: null,
     environmentBranchName: null,
     environmentWorkspaceDisplayKind: "other",
-    runtime: { displayStatus: "idle" },
+    runtime: { displayStatus: "idle", hostUnavailable: false },
     queuedWork: "none",
     ...overrides,
   };
@@ -1060,7 +1060,7 @@ describe("CommandPalette", () => {
         name: "Thread has unsubmitted draft",
       }),
     ).toBeTruthy();
-    expect(rows[0].querySelector('[data-icon="Edit"]')).not.toBeNull();
+    expect(rows[0].querySelector('[data-status-glyph="draft"]')).not.toBeNull();
     expect(results.querySelectorAll('[data-icon="Folder"]')).toHaveLength(3);
     expectClasses(results, "p-1");
     expectClasses(within(results).getByText("Active"), "px-2", "py-1");
@@ -1749,6 +1749,7 @@ describe("CommandPalette", () => {
           lastReadAt: Date.now(),
           runtime: {
             displayStatus: "active",
+            hostUnavailable: false,
           },
         }),
         makeThread("draft", { lastReadAt: Date.now() }),
@@ -1788,11 +1789,11 @@ describe("CommandPalette", () => {
       expect(
         idleRow.querySelector("[data-palette-thread-details]")?.children,
       ).toHaveLength(1);
-      for (const [title, label, icon] of [
-        ["Title working", "Thread working", "Loading"],
-        ["Title draft", "Thread has unsubmitted draft", "Edit"],
-        ["Title waiting", "Thread needs user input", "CircleQuestion"],
-        ["Title workflow", "Workflow running", "Workflow"],
+      for (const [title, label, glyph] of [
+        ["Title working", "Thread working", "running"],
+        ["Title draft", "Thread has unsubmitted draft", "draft"],
+        ["Title waiting", "Thread needs user input", "needs-you"],
+        ["Title workflow", "Workflow running", "running"],
       ]) {
         const row = within(results).getByRole("option", {
           name: new RegExp(title),
@@ -1812,16 +1813,16 @@ describe("CommandPalette", () => {
         expect(separator?.nextElementSibling).toBe(status);
         expectClasses(status, "size-3.5", "shrink-0", "cursor-default");
         expectClasses(
-          status.querySelector(`[data-icon="${icon}"]`),
+          status.querySelector(`[data-status-glyph="${glyph}"]`),
           "size-3.5",
         );
         expect(status.hasAttribute("tabindex")).toBe(false);
         expect(status.closest('button, [role="button"]')).toBeNull();
         expect(
-          status
-            .querySelector(".animate-shine-icon")
-            ?.closest('[aria-hidden="true"]') ?? null,
-        ).toBeNull();
+          Array.from(status.querySelectorAll('[class*="animate"]'), (element) =>
+            element.getAttribute("data-status-glyph"),
+          ),
+        ).toEqual(glyph === "running" ? ["running"] : []);
         const projectIcon = metadata?.querySelector('[data-icon="Folder"]');
         expectClasses(projectIcon, "size-3.5");
         expect(projectIcon?.getAttribute("aria-hidden")).toBe("true");

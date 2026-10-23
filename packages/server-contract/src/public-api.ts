@@ -1772,11 +1772,16 @@ export const publicApiRoutes = {
       response: jsonResponse<ThreadResponse>(),
     }),
     /**
-     * Marks the thread read. With `throughAttentionAt`, the read only covers
-     * attention up to that timestamp: when the thread has newer attention,
-     * nothing changes, no change event is sent, and the response is the
-     * thread as it stands, newer `latestAttentionAt` included. Retrying the
-     * same request is safe.
+     * Marks the thread read, along with every unread descendant thread that
+     * is not deleted.
+     * With `throughAttentionAt`, the read only covers attention up to that
+     * timestamp: when the thread has newer attention, nothing changes, no
+     * change event is sent, and the response is the thread as it stands,
+     * newer `latestAttentionAt` included. Descendants are marked read only
+     * when their attention is at most `descendantsThroughAttentionAt`, which
+     * defaults to `throughAttentionAt`; without either, every unread
+     * descendant is marked read. Each thread whose read state changes gets a
+     * `read-state-changed` event. Retrying the same request is safe.
      */
     read: defineRoute({
       path: "/threads/:id/read",

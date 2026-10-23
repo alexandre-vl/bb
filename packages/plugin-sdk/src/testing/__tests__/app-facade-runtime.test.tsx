@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   definePluginApp,
   experimental_Icon,
+  experimental_resolveThreadListIndicator,
+  experimental_rollUpThreadIndicators,
+  experimental_threadIndicatorRung,
   experimental_usePluginId,
   experimental_useQuestionFormHost,
   useBbContext,
@@ -114,6 +117,43 @@ describe("@get-bb/plugin-sdk/app without a runtime at import time", () => {
     installTestPluginRuntime();
     render(<Icon name="Zap" aria-label="zap" />);
     expect(screen.getByLabelText("zap").getAttribute("data-icon")).toBe("Zap");
+  });
+
+  it("ranks thread indicators with bb's ladder once a runtime is installed", () => {
+    host.__bbPluginRuntime = undefined;
+    expect(() => experimental_threadIndicatorRung("draft")).toThrow(
+      /experimental_threadIndicatorRung needs the bb app's plugin runtime/,
+    );
+
+    installTestPluginRuntime();
+    expect(
+      experimental_resolveThreadListIndicator({
+        hasPendingInteraction: true,
+        hasUnsubmittedDraft: true,
+        hasUnreadError: true,
+        hasUnreadSuccess: false,
+        isBackgroundAgentActive: false,
+        isBackgroundCommandActive: false,
+        isGoalActive: false,
+        isPlanModeActive: false,
+        isRuntimeActive: true,
+        isWaitingForHost: false,
+        isWorkflowActive: false,
+        queuedWork: "failed",
+      }),
+    ).toBe("waiting-for-input");
+    expect(
+      experimental_rollUpThreadIndicators([
+        "draft",
+        "runtime",
+        "queued-failed",
+      ]),
+    ).toBe("queued-failed");
+    expect(experimental_rollUpThreadIndicators(["none", "draft"])).toBe(
+      "draft",
+    );
+    expect(experimental_threadIndicatorRung("unread-success")).toBe(3);
+    expect(experimental_threadIndicatorRung("working-draft")).toBe(2);
   });
 });
 

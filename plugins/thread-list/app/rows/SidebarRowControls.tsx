@@ -2,7 +2,6 @@ import { type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { COARSE_POINTER_ICON_SIZE_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import {
   Tooltip,
   TooltipContent,
@@ -12,6 +11,7 @@ import {
   SIDEBAR_CONTROL_PAIR_GAP_CLASS,
   SIDEBAR_CONTROL_PRIMARY_BUTTON_CLASS,
 } from "@/components/ui/sidebar-row-classes";
+import { SIDEBAR_TREE_ICON_SIZE_CLASS } from "../ui/tree-row.js";
 
 export function SidebarRowControls({
   primaryAction,
@@ -23,8 +23,9 @@ export function SidebarRowControls({
   return (
     <span
       data-sidebar-row-controls=""
+      aria-hidden="true"
       className={cn(
-        "inline-flex shrink-0 items-center",
+        "inline-flex shrink-0 items-center pointer-coarse:gap-0",
         SIDEBAR_CONTROL_PAIR_GAP_CLASS,
       )}
       onClick={(event) => event.stopPropagation()}
@@ -48,11 +49,13 @@ export function SidebarControlButton({
   icon,
   onClick,
   disabled = false,
+  className,
 }: {
   label: string;
   icon: IconName;
   onClick: () => void;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <Tooltip delayDuration={350} disableHoverableContent>
@@ -62,15 +65,20 @@ export function SidebarControlButton({
           variant="ghost"
           size="icon"
           aria-label={label}
+          tabIndex={-1}
           disabled={disabled}
-          className={SIDEBAR_CONTROL_PRIMARY_BUTTON_CLASS}
+          className={cn(
+            SIDEBAR_CONTROL_PRIMARY_BUTTON_CLASS,
+            "pointer-coarse:h-9 pointer-coarse:w-8",
+            className,
+          )}
           onClick={(event) => {
             event.stopPropagation();
             if (event.detail > 0) event.currentTarget.blur();
             onClick();
           }}
         >
-          <Icon name={icon} className={COARSE_POINTER_ICON_SIZE_CLASS} />
+          <Icon name={icon} className={SIDEBAR_TREE_ICON_SIZE_CLASS} />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>

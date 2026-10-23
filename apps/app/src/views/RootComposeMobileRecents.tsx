@@ -25,11 +25,11 @@ import { getThreadRoutePath, isProjectlessProjectId } from "@/lib/route-paths";
 import {
   getThreadListIndicatorLabel,
   resolveThreadListIndicator,
+  rollUpThreadListIndicators,
   threadListIndicatorStateForThread,
   buildChronologicalThreadList,
-  type CollapsedChildActivity,
   type ProjectThreadItem,
-  type ThreadListIndicatorState,
+  type ThreadListIndicatorKind,
 } from "@bb/client-core";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import {
@@ -145,7 +145,7 @@ const compareMobileRecentThreads: ThreadListEntryComparator = (left, right) => {
 export interface MobileRecentThreadRow {
   thread: ThreadListEntry;
   depth: number;
-  childActivity: CollapsedChildActivity;
+  descendantIndicator: ThreadListIndicatorKind;
   hasUnsubmittedDraft: boolean;
   hasChildren: boolean;
   isCollapsed: boolean;
@@ -168,7 +168,7 @@ function flattenMobileRecentNodes({
     rows.push({
       thread: node.thread,
       depth: node.depth,
-      childActivity: node.stats.childActivity,
+      descendantIndicator: node.stats.descendantIndicator,
       hasUnsubmittedDraft: draftThreadIds.has(node.thread.id),
       hasChildren,
       isCollapsed,
@@ -245,7 +245,7 @@ function MobileRecentThreadRow({
   const {
     thread,
     depth,
-    childActivity,
+    descendantIndicator,
     hasUnsubmittedDraft,
     hasChildren,
     isCollapsed,
@@ -253,38 +253,13 @@ function MobileRecentThreadRow({
   const touchStartedBeforeLink = useRef(false);
   const { providers: environmentProviders } = useSystemEnvironmentProviders();
   const threadTitle = useThreadTitleDisplayText(getThreadDisplayTitle(thread));
-  const indicatorState: ThreadListIndicatorState =
-    threadListIndicatorStateForThread(thread, hasUnsubmittedDraft);
-  const hasHiddenChildren = hasChildren && isCollapsed;
-  const trailingIndicatorState: ThreadListIndicatorState = hasHiddenChildren
-    ? {
-        hasPendingInteraction:
-          indicatorState.hasPendingInteraction || childActivity.pending,
-        hasUnsubmittedDraft:
-          indicatorState.hasUnsubmittedDraft ||
-          childActivity.hasUnsubmittedDraft,
-        hasUnreadError:
-          indicatorState.hasUnreadError || childActivity.unreadError,
-        hasUnreadSuccess:
-          indicatorState.hasUnreadSuccess ||
-          (childActivity.unread && !childActivity.unreadError),
-        isBackgroundAgentActive:
-          indicatorState.isBackgroundAgentActive ||
-          childActivity.backgroundAgent,
-        isBackgroundCommandActive:
-          indicatorState.isBackgroundCommandActive ||
-          childActivity.backgroundCommand,
-        isGoalActive: indicatorState.isGoalActive || childActivity.goal,
-        queuedWork: indicatorState.queuedWork,
-        isPlanModeActive:
-          indicatorState.isPlanModeActive || childActivity.planMode,
-        isRuntimeActive:
-          indicatorState.isRuntimeActive || childActivity.runtimeWorking,
-        isWorkflowActive:
-          indicatorState.isWorkflowActive || childActivity.workflow,
-      }
-    : indicatorState;
-  const indicatorKind = resolveThreadListIndicator(trailingIndicatorState);
+  const ownIndicator = resolveThreadListIndicator(
+    threadListIndicatorStateForThread(thread, hasUnsubmittedDraft),
+  );
+  const indicatorKind =
+    hasChildren && isCollapsed
+      ? rollUpThreadListIndicators([ownIndicator, descendantIndicator])
+      : ownIndicator;
   const indicatorLabel = getThreadListIndicatorLabel(indicatorKind);
   const environmentProviderLookup = findEnvironmentDisplayProvider(
     environmentProviders,

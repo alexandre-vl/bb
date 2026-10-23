@@ -10,6 +10,7 @@ import { cn } from "@bb/shared-ui/lib/utils";
 const ROW_CLASS =
   "flex h-8 w-full min-w-0 items-center gap-2 px-3 text-left text-xs";
 const OLDER_ROW_STAGGER_MS = 40;
+const MACHINE_OFFLINE_SUFFIX = ", machine offline";
 
 function backgroundActivityGroupLabel(
   rows: readonly TimelineWorkflowWorkRow[],
@@ -31,9 +32,11 @@ function backgroundActivityModel(row: TimelineWorkflowWorkRow): string | null {
 function BackgroundActivityRow({
   row,
   showDuration,
+  hostUnavailable,
 }: {
   row: TimelineWorkflowWorkRow;
   showDuration: boolean;
+  hostUnavailable: boolean;
 }) {
   const isAgent = isBackgroundAgentTaskType(row.taskType);
   const model = backgroundActivityModel(row);
@@ -41,7 +44,10 @@ function BackgroundActivityRow({
     <>
       <Icon
         name={isAgent ? "UserRoundPlus" : "Terminal"}
-        className={activityIconClass("active", "size-3.5 shrink-0")}
+        className={activityIconClass(
+          hostUnavailable ? "pending" : "active",
+          "size-3.5 shrink-0",
+        )}
         aria-hidden="true"
       />
       <span
@@ -59,7 +65,13 @@ function BackgroundActivityRow({
         </span>
       ) : null}
       <span className="shrink-0 whitespace-nowrap tabular-nums text-subtle-foreground">
-        {showDuration ? <LiveDurationText startedAt={row.startedAt} /> : null}
+        {showDuration ? (
+          hostUnavailable ? (
+            "machine offline"
+          ) : (
+            <LiveDurationText startedAt={row.startedAt} />
+          )
+        ) : null}
       </span>
     </>
   );
@@ -67,12 +79,14 @@ function BackgroundActivityRow({
 
 interface ThreadBackgroundCommandsCardProps {
   commands: TimelineWorkflowWorkRow[];
+  hostUnavailable: boolean;
   isExpanded: boolean;
   onToggle: () => void;
 }
 
 export function ThreadBackgroundCommandsCard({
   commands,
+  hostUnavailable,
   isExpanded,
   onToggle,
 }: ThreadBackgroundCommandsCardProps) {
@@ -97,7 +111,11 @@ export function ThreadBackgroundCommandsCard({
     >
       {older.length === 0 ? (
         <div className={ROW_CLASS}>
-          <BackgroundActivityRow row={newest} showDuration />
+          <BackgroundActivityRow
+            row={newest}
+            showDuration
+            hostUnavailable={hostUnavailable}
+          />
         </div>
       ) : (
         <>
@@ -135,6 +153,7 @@ export function ThreadBackgroundCommandsCard({
                       <BackgroundActivityRow
                         row={row}
                         showDuration={isExpanded}
+                        hostUnavailable={hostUnavailable}
                       />
                     </li>
                   ))
@@ -145,14 +164,18 @@ export function ThreadBackgroundCommandsCard({
             type="button"
             aria-expanded={isExpanded}
             aria-controls={olderListId}
-            aria-label={`${groupLabel} (${commands.length}): ${newest.description}${newestModel ? ` · Model ${newestModel}` : ""}`}
+            aria-label={`${groupLabel}${hostUnavailable ? MACHINE_OFFLINE_SUFFIX : ""} (${commands.length}): ${newest.description}${newestModel ? ` · Model ${newestModel}` : ""}`}
             onClick={onToggle}
             className={cn(
               ROW_CLASS,
               "group/toggle cursor-pointer transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
             )}
           >
-            <BackgroundActivityRow row={newest} showDuration />
+            <BackgroundActivityRow
+              row={newest}
+              showDuration
+              hostUnavailable={hostUnavailable}
+            />
             <span className="ml-auto inline-flex h-4.5 shrink-0 items-center gap-0.5 rounded-full bg-surface-recessed pr-1 pl-1.5 text-2xs leading-none tabular-nums text-muted-foreground transition-colors group-hover/toggle:bg-state-active group-hover/toggle:text-foreground">
               {commands.length}
               <Icon
