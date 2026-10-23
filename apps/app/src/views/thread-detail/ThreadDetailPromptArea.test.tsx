@@ -193,6 +193,7 @@ function buildPromptAreaElement({
         onChangedFileClick={vi.fn()}
         parentThreadSection={null}
         pendingInteractions={pendingInteractions}
+        provisioningEstimate={null}
         queuedMessageCount={queuedMessageCount}
         pendingTodos={null}
         projectId="proj_1"
