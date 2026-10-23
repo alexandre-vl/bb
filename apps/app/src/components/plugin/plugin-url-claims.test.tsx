@@ -78,7 +78,7 @@ describe("useOpenClaimedUrl", () => {
     });
     const { openClaimedUrl, openThreadPanel } = renderOpener();
 
-    expect(openClaimedUrl(PULL_URL)).toBe(true);
+    expect(openClaimedUrl(PULL_URL, null)).toBe(true);
     expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
       pluginId: "acme",
       actionId: "review",
@@ -97,8 +97,33 @@ describe("useOpenClaimedUrl", () => {
       (tab) => tab.pluginId !== "acme",
     );
 
-    expect(openClaimedUrl(PULL_URL)).toBe(true);
+    expect(openClaimedUrl(PULL_URL, null)).toBe(true);
     expect(hidden).not.toHaveBeenCalled();
+    expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
+      pluginId: "github",
+      actionId: "pull",
+      title: "PR #7",
+    });
+  });
+
+  it("leaves a plugin's own links to the browser", () => {
+    const own = vi.fn(() => ({ title: "PR #7" }));
+    registerClaims("github", { pull: own });
+    const { openClaimedUrl, openThreadPanel } = renderOpener();
+
+    expect(openClaimedUrl(PULL_URL, "github")).toBe(false);
+    expect(own).not.toHaveBeenCalled();
+    expect(openThreadPanel).not.toHaveBeenCalled();
+  });
+
+  it("offers a plugin's links to other plugins' tabs", () => {
+    const own = vi.fn(() => ({ title: "Review" }));
+    registerClaims("acme", { review: own });
+    registerClaims("github", { pull: () => ({ title: "PR #7" }) });
+    const { openClaimedUrl, openThreadPanel } = renderOpener();
+
+    expect(openClaimedUrl(PULL_URL, "acme")).toBe(true);
+    expect(own).not.toHaveBeenCalled();
     expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
       pluginId: "github",
       actionId: "pull",
@@ -110,7 +135,7 @@ describe("useOpenClaimedUrl", () => {
     registerClaims("github", { pull: () => ({}) });
     const { openClaimedUrl, openThreadPanel } = renderOpener(false);
 
-    expect(openClaimedUrl(PULL_URL)).toBe(false);
+    expect(openClaimedUrl(PULL_URL, null)).toBe(false);
     expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
       pluginId: "github",
       actionId: "pull",
@@ -124,7 +149,7 @@ describe("useOpenClaimedUrl", () => {
       registerClaims("github", { pull: claim });
       const { openClaimedUrl, openThreadPanel } = renderOpener();
 
-      expect(openClaimedUrl(href)).toBe(false);
+      expect(openClaimedUrl(href, null)).toBe(false);
       expect(claim).not.toHaveBeenCalled();
       expect(openThreadPanel).not.toHaveBeenCalled();
     },
@@ -152,7 +177,7 @@ describe("useOpenClaimedUrl", () => {
     registerClaims("github", { pull: () => ({ title: "PR #7" }) });
     const { openClaimedUrl, openThreadPanel } = renderOpener();
 
-    expect(openClaimedUrl(PULL_URL)).toBe(true);
+    expect(openClaimedUrl(PULL_URL, null)).toBe(true);
     expect(openThreadPanel).toHaveBeenCalledExactlyOnceWith({
       pluginId: "github",
       actionId: "pull",
@@ -177,7 +202,7 @@ describe("useOpenClaimedUrl", () => {
     registerClaims("github", { pull: (url) => seen(url.href) });
     const { openClaimedUrl } = renderOpener();
 
-    openClaimedUrl(PULL_URL);
+    openClaimedUrl(PULL_URL, null);
     expect(seen).toHaveBeenCalledExactlyOnceWith(PULL_URL);
   });
 });

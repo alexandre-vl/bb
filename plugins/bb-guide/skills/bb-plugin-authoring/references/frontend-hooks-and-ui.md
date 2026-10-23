@@ -64,7 +64,11 @@ terminalId }) }`.
   replace themselves), or once that tab has closed; `experimental_openTab`
   does not replace. Experimental: see `docs/api_to_audit.md`.
   `openUrl` owns HTTP(S) only and returns false for schemes BB
-  leaves to normal anchor behavior. The two file methods accept an
+  leaves to normal anchor behavior. In a thread view it first offers the URL
+  to other plugins' thread action tabs that claim it (`experimental_claimUrl`,
+  in [core slots](frontend-core-slots.md)), as a plain click on a link there
+  does. The calling plugin's own claims are skipped, so it can still open a
+  URL its tabs claim in the browser. The two file methods accept an
   `ExperimentalFileOpenOptions` live-file target.
   `experimental_openTerminal` shows a terminal the plugin created with
   `useSdk().terminals.create` in the current surface's terminal panel; the
@@ -275,9 +279,10 @@ composer.
   files, and drop `@hugeicons/core-free-icons` and `@hugeicons/react` from
   `dependencies`. A git install keeps every version's `node_modules` on the
   user's disk, and the full hugeicons set is over 100 MB per copy.
-- `toast`: `import { toast } from "sonner"` — runtime-shimmed to the host's
-  Toaster (`toast.success("Saved")` just works; never mount your own
-  `<Toaster>`).
+- `toast`: `import { toast } from "sonner"` — runtime-shimmed to bb's own
+  toast, so `toast.success("Saved")` looks like bb's toasts and lands in the
+  notification center; `toast.custom` keeps your rendering. Never mount your
+  own `<Toaster>`.
 - Never bundled (runtime-shimmed, import freely): react, the portaling
   radix families (`@radix-ui/react-dialog`, `-alert-dialog`, `-popover`,
   `-select`, `-dropdown-menu`, `-context-menu`, `-menubar`, `-hover-card`,

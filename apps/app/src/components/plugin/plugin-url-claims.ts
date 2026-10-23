@@ -6,9 +6,7 @@ import { useLatestRef } from "@/hooks/useLatestRef";
 import type { PluginTabSlot } from "@/lib/plugin-slots";
 import {
   isPlainPrimaryClick,
-  useUrlAnchorClickHandler,
   type UrlAnchorClickEvent,
-  type UrlAnchorClickHandler,
 } from "@/lib/url-open-routing";
 import type { PluginThreadPanelOpenHandler } from "./plugin-thread-panel-navigation";
 
@@ -19,9 +17,12 @@ export type PluginThreadActionTabSlot = Extract<
   { context: { kind: "thread" }; availability: "action" }
 >;
 
-export const PluginUrlClaimContext = createContext<
-  ((href: string) => boolean) | null
->(null);
+export type OpenClaimedUrl = (
+  href: string,
+  callerPluginId: string | null,
+) => boolean;
+
+export const PluginUrlClaimContext = createContext<OpenClaimedUrl | null>(null);
 
 const claimedOpenOptionsSchema = z.object({
   title: z.string().optional(),
@@ -55,11 +56,17 @@ function readClaimedOpenOptions(
 function claimUrlForThreadPanel(
   tabs: readonly PluginThreadActionTabSlot[],
   href: string,
+  callerPluginId: string | null,
 ): PluginUrlClaim | null {
   const url = parseWebUrl(href);
   if (url === null) return null;
   for (const tab of tabs) {
-    if (tab.experimental_claimUrl === undefined) continue;
+    if (
+      tab.pluginId === callerPluginId ||
+      tab.experimental_claimUrl === undefined
+    ) {
+      continue;
+    }
     let options: PluginPanelActionOpenOptions | null;
     try {
       options = readClaimedOpenOptions(tab.experimental_claimUrl(new URL(url)));
@@ -79,12 +86,12 @@ function claimUrlForThreadPanel(
 export function useOpenClaimedUrl(
   openThreadPanel: PluginThreadPanelOpenHandler,
   tabs: readonly PluginThreadActionTabSlot[],
-): (href: string) => boolean {
+): OpenClaimedUrl {
   const latestRef = useLatestRef({ openThreadPanel, tabs });
-  return useCallback(
-    (href: string) => {
+  return useCallback<OpenClaimedUrl>(
+    (href, callerPluginId) => {
       const latest = latestRef.current;
-      const claim = claimUrlForThreadPanel(latest.tabs, href);
+      const claim = claimUrlForThreadPanel(latest.tabs, href, callerPluginId);
       return claim !== null && latest.openThreadPanel(claim);
     },
     [latestRef],
@@ -101,7 +108,7 @@ export function useOpenClaimedUrlOnClick(): (
       if (
         openClaimedUrl === null ||
         !isPlainPrimaryClick(event) ||
-        !openClaimedUrl(href)
+        !openClaimedUrl(href, null)
       ) {
         return false;
       }
@@ -109,19 +116,5 @@ export function useOpenClaimedUrlOnClick(): (
       return true;
     },
     [openClaimedUrl],
-  );
-}
-
-export function useClaimableUrlAnchorClickHandler(
-  url: string | undefined,
-): UrlAnchorClickHandler {
-  const openClaimedUrlOnClick = useOpenClaimedUrlOnClick();
-  const handleUrlClick = useUrlAnchorClickHandler(url);
-  return useCallback(
-    (event) => {
-      if (url !== undefined && openClaimedUrlOnClick(event, url)) return;
-      handleUrlClick(event);
-    },
-    [handleUrlClick, openClaimedUrlOnClick, url],
   );
 }
