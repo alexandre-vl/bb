@@ -1040,7 +1040,7 @@ Docs: `backend-sdk.md`.
    becoming visible, so a caller that skips hidden threads cannot refresh
    one when it appears; decide whether visibility changes need an event.
 
-## `bb.sdk.threads.markRead({ experimental_throughAttentionAt })`
+## `bb.sdk.threads.markRead({ experimental_throughAttentionAt, experimental_descendantsThroughAttentionAt })`
 
 `POST /threads/:id/read?throughAttentionAt=<ms>` marks the thread read only
 when its `latestAttentionAt` is at most that value. Otherwise it writes
@@ -1052,6 +1052,22 @@ the read stays unconditional. Core caller: the app's auto-read
 action and the plugin-bound `markRead`. The executor retries a command whose
 outcome is unknown (a timeout, a network error, 408, 429 or 5xx) up to four
 times, and the condition keeps a late retry from marking unseen output read.
+
+A read that applies also marks read, in the same statement, every unread
+descendant that is not deleted, archived and hidden ones included, whose
+`latestAttentionAt` is at most `descendantsThroughAttentionAt`, and sends
+`read-state-changed` for each. That bound defaults to `throughAttentionAt`, so
+without either argument every unread descendant is marked read; a read that
+the condition stops changes no descendant. Unread never cascades. The
+auto-read passes the newest attention it saw across the thread and the
+descendants in the sidebar's navigation data
+(`useThreadDescendantReadStates`), and fires again when any of them gets new
+attention while the thread stays open. The read-state transaction predicts
+those descendants read in the entity store
+(`apps/app/src/hooks/cache-owners/thread-state-cache-owner.ts`), keeps the
+prediction when the answered thread is read or the outcome is unknown, and
+drops it when the condition stopped the read or the command was replaced
+before it applied.
 
 The executor sends one thread's read and unread commands one at a time, in
 order, whether or not the page is visible, and the newest wins. This applies
@@ -1079,6 +1095,11 @@ thread, which the app does not apply over the newer command.
 3. **Replaced commands.** Decide whether a replaced command should keep
    rejecting with an `AbortError` or resolve with the outcome of the command
    that replaced it.
+4. **Descendants.** Commands on different threads are not ordered against
+   each other: a descendant marked unread while its ancestor's read is still
+   in flight is read again if that read lands later. Confirm this stays
+   acceptable, and decide whether one bound for every descendant should give
+   way to a bound per descendant.
 
 ## `PluginSettingDescriptor.experimental_optionLabels`
 
@@ -1696,16 +1717,21 @@ Before stabilization, audit:
 - whether explicit thread targeting belongs on content-script context or a
   dedicated app-level controller;
 - multiple simultaneous runs owned by one plugin on one thread;
-- arbitration across plugins, frontend generations, and native thread
-  statuses;
+- arbitration across plugins and frontend generations. Against native
+  statuses the rule is fixed since 2026-10-22 (sidebar V2): a row status shows
+  only while the core indicator sits on rung 1 or lower ("queued-waiting",
+  "draft", "none"), so it ranks below "new" and every running kind, where it
+  used to hide only behind "runtime", "unread-error", and
+  "waiting-for-input". `ThreadStatusGlyph` and the thread search palette
+  apply it through `resolveThreadStatus`; confirm a replaced list follows it;
 - persistence expectations across full app reloads and multiple windows;
-- validation, accessibility labels, reduced motion, and cleanup on plugin
+- validation, accessibility labels, and cleanup on plugin
   reload/disable/removal;
 - the name of `PluginComposerThreadRowStatus.tone`. The field is a state the
   plugin reports (`default | running | success | error`) that the host maps to
-  both a color and an animation, so `state` is the candidate rename. Nothing
-  under `plugins/*` sets a status today, so the rename is free until the
-  prefix drops.
+  a color; since 2026-10-22 `running` no longer pulses or shimmers. `state` is
+  the candidate rename. Nothing under `plugins/*` sets a status today, so the
+  rename is free until the prefix drops.
 
 ## `bb.providers.register` (`experimental_bridgeOptions`, `experimental_visibility`, and the `experimental_providerBridge` artifact export)
 
@@ -2726,7 +2752,7 @@ The read hook returns the sidebar's live thread view (`PluginSidebarThread`
 DTOs with a host-resolved `indicator`, plus `sections`) from the host's own
 query and cache. The action hook is `@internal` and scheduled for removal
 (see Scheduled removals). Neither
-doc covers three September 2026 additions:
+doc covers these additions:
 
 - `experimental_lifecycles` (active, archived, or both; active by default).
   With it, `PluginSidebarThreadsState.experimental_archived` exposes archive
@@ -2736,6 +2762,12 @@ doc covers three September 2026 additions:
   query order, including those with no threads. Older hosts may omit it.
 - `openNewThread({ hostId })`, unprefixed by request, preselects a machine for
   a new environment. `environmentId` takes priority.
+- `PluginSidebarThreadsState.experimental_refetch()` (2026-10-22) fetches the
+  sidebar navigation again, plus the loaded archive pages when archived
+  threads were requested. A failed first load returns to `loading` while it
+  runs; the promise settles with the attempt and never rejects. Core has no
+  other retry for this read: the thread list's "Couldn't load threads" row
+  calls it from Retry.
 
 Docs: `frontend-registration.md`.
 
@@ -2751,19 +2783,36 @@ Docs: `frontend-registration.md`.
    unknown host is the right failure.
 2. **Indicator coupling.** `indicator` freezes bb's precedence into the
    contract. Confirm new kinds can ship without breaking plugins, and that the
-   documented "treat unknown as none" rule is enough.
+   documented "treat unknown as none" rule is enough. The precedence changed
+   on 2026-10-22 (sidebar V2) without a new kind:
+   - "waiting-for-input" now outranks "unread-error";
+   - "queued-failed" and "unread-success" now outrank every running kind;
+   - failures reach child threads: `isUnreadDoneThread` no longer excludes
+     children, so a failed sub-agent reports "unread-error". A child reports
+     "unread-success" only after a manual mark-unread, because the server
+     raises attention on active→idle for roots only;
+   - "working-draft" is never produced; running work outranks a draft.
+
+   The resolver and rollup behind it are exported (see "Thread status
+   ladder"), so a plugin no longer has to copy the precedence.
+
 3. **Unread semantics.** `isUnread` is plain read state, so it is true for
-   child threads and running threads that `isUnreadDoneThread` excludes by
-   design. Confirm that is the more useful primitive for a replaced list.
+   running threads that `isUnreadDoneThread` excludes by design. Child
+   threads are no longer excluded (2026-10-22). Confirm plain read state is
+   still the more useful primitive for a replaced list next to
+   `experimental_attention`.
 4. **Scale.** Confirm one array of every thread is right at ten thousand
    threads, versus a paged or windowed read. Unchanged threads keep their DTO
    identity across refetches, but the host does not cap the array and plugin
    lists are expected to window their rows. Decide whether that expectation
    should be enforced by the contract before stabilizing.
 5. **Draft indicators.** `indicator` never reports "draft" or "working-draft",
-   so an idle unread thread holding a draft reads as "unread-success" where
-   the built-in row paints "draft". Decide whether to close that gap (a
-   per-thread draft hook) or keep it documented.
+   so an idle, read thread holding a draft reads as "none" where the built-in
+   row paints "draft". Since 2026-10-22 an unread thread paints
+   "unread-success" over its draft in both, and a list can close the rest of
+   the gap with `useSidebarThreadDraft` and
+   `experimental_rollUpThreadIndicators([indicator, "draft"])`. Decide
+   whether that recipe is enough or the DTO should carry the draft.
 6. **Sections.** Section writes are plain public API calls rather than
    actions. Confirm that split holds once a replaced list ships section
    drag-and-drop, where the built-in list's optimistic cache transactions have
@@ -2785,6 +2834,11 @@ Docs: `frontend-registration.md`.
    loading/errors, combined views, pagination retries, and archived row
    actions. Audit empty machine sections, machine removal, rename updates, and
    loading behavior for `experimental_hosts`.
+10. **Retry.** `experimental_refetch` refetches every source the view reads,
+    even when only one failed, and reports the outcome only through `status`.
+    Confirm a whole-view retry is the right grain, whether the promise should
+    reject on failure, and whether a list should also be able to retry a load
+    that stays `loading`.
 
 ## `app.slots.experimental_threadHeaderAction` (`@get-bb/plugin-sdk/app`)
 
@@ -2884,6 +2938,14 @@ for every menu and the quick-action picker. Thread-list registers Move to
 section, and push-notifications registers Notifications. The SDK test fake
 throws when a menu `trigger` drops its props and ref.
 
+Each entry carries `experimental_shortcut: ExperimentalThreadActionShortcut | null`, the
+person's binding for the app command that runs the action on the focused
+sidebar row: `thread.archive` for `bb--core/archive` (null on an archived
+thread, whose action is Unarchive), `thread.rename` for `bb--core/rename`, and
+`thread.toggleRead` for `bb--core/read`. `useThreadActionEntries` fills it
+from `useAppCommandShortcuts`, so a rebind shows at once. The thread list's
+quick-action buttons show it in their tooltip and `aria-keyshortcuts`.
+
 **Core callers.** bb's own actions are `CORE_THREAD_ACTIONS`
 (`apps/app/src/lib/thread-actions/core-thread-actions.ts`), registered under
 the reserved `bb--core` owner. The header menu (`ThreadDetailView` →
@@ -2909,6 +2971,10 @@ Docs: `frontend-registration.md`.
 4. **Inline items.** `inline` exists for surface-specific entries that are not
    about a thread. Confirm it should stay a component prop rather than a
    registration.
+5. **Shortcut scope.** `experimental_shortcut` is the sidebar-list binding, and no bb menu
+   shows it yet: the header menu offers the same actions where those keys do
+   nothing. Decide whether menus opened from a row should show it, and whether
+   a plugin registration should be able to name a command of its own.
 
 ## `experimental_useArchiveEnvironmentThreads` (`@get-bb/plugin-sdk/app`)
 
@@ -2938,6 +3004,43 @@ Docs: `frontend-registration.md`.
 3. **Coverage.** Verify group archive and Undo with descendants, already
    archived threads, split panes, navigation during the Undo window, and
    failure rollback across sidebar organization modes.
+
+## `experimental_useSidebarListCommand` (`@get-bb/plugin-sdk/app`)
+
+`experimental_useSidebarListCommand(command, handler)` handles one of
+`thread.archive`, `thread.rename`, `thread.toggleRead`,
+`thread.previousAttention` and `thread.nextAttention`
+(`ExperimentalSidebarListCommand`) while keyboard focus is inside the element
+marked `data-sidebar-thread-tree`, whatever key the user bound to it. The
+handler receives the focused element and returns true once handled; false
+falls through to the next handler. The host registers it with
+`useAppCommandHandler` at priority 100 and makes it available only for
+targets inside that element, so inside the list it runs before the open
+thread's handler (priority 0) and outside it never runs. The test harness
+runs handlers with `behavior.experimental_runSidebarListCommand(command,
+target)`.
+
+**Core callers.** `useSidebarListCommandHandler`
+(`apps/app/src/components/commands/AppCommandProvider.tsx`) implements the
+hook. Its availability check is `isSidebarListTarget`, the predicate that
+also sets the `sidebarListFocus` context for every binding. Core renders no
+list of its own, so the built-in thread list is the only caller: its handlers
+run the focused row's `bb--core/archive`, `bb--core/rename` and
+`bb--core/read` entries from `experimental_useThreadActions`, the registry
+path core's `ThreadArchiveCommandHandler` takes for the open thread.
+
+Docs: `frontend-sidebar-list.md`.
+
+**Audit before stabilizing.**
+
+1. **Command set.** The five commands are the ones with list defaults.
+   Decide whether a list may take other thread commands (pin, delete) and
+   whether the union should grow with them.
+2. **Priority.** 100 matches a focused browser tab's handlers. Confirm that
+   no other surface needs to outrank a focused list.
+3. **Ownership.** Every mounted list registers; each must return false for
+   targets outside its own tree. Decide whether the host should scope a
+   handler to the element of the list that registered it.
 
 ## `app.slots.experimental_browserToolbarAction` (`@get-bb/plugin-sdk/app`)
 
@@ -3569,6 +3672,15 @@ Renders bb's thread status glyph from `PluginThreadStatusGlyphProps`
 host owns icons, colors, and labels, and the caller resolves the indicator.
 The SDK test fake exposes the props as `data-*` attributes.
 
+Since 2026-10-22 (sidebar V2) every caller draws the V2 glyphs in the same
+16 px box (14 px compact): a filled disc with a knocked-out
+"?" for needs-you (`--attention-text`), the only filled glyph; a circled ✕
+for both failures (`--destructive-text`); an ink dot for new; one arc on a
+faint track for every running kind and "working-draft", the only glyph that
+moves (it spins, and holds still under reduced motion); an outline clock
+for "queued-waiting" and an outline pencil for "draft" (`--sidebar-glyph-faint`).
+A `rowStatus` shows only while the indicator sits on rung 1 or lower.
+
 **Core callers.** `ThreadStatusGlyph`
 (`apps/app/src/components/thread/ThreadStatusGlyph.tsx`) is the SDK export
 and the glyph in the thread search palette, the related threads info section,
@@ -3579,12 +3691,89 @@ Docs: `frontend-registration.md`.
 
 **Audit before stabilizing.**
 
-1. **Indicator resolution.** The caller resolves the indicator, so the
-   thread-list plugin keeps its own copy of the indicator precedence and labels
-   that `@bb/client-core` holds for bb's surfaces. Decide whether the SDK should
-   export the resolver and labels instead.
+1. **Indicator resolution.** Settled 2026-10-22: the SDK exports the
+   resolver, rollup, and rung that `@bb/client-core` holds for bb's surfaces
+   (see "Thread status ladder"), so the thread-list plugin no longer needs its
+   own copy of the precedence. Labels stay host-side, as
+   `PluginSidebarThread.indicatorLabel` and the glyph's own label.
 2. **Archived rows.** No plugin passes `archived` yet; confirm the archived
    glyph belongs on this component rather than in the archived list.
+
+## Thread status ladder (`experimental_resolveThreadListIndicator`, `experimental_rollUpThreadIndicators`, `experimental_threadIndicatorRung`, `ExperimentalThreadListIndicatorState`, `ExperimentalThreadIndicatorRung`) (`@get-bb/plugin-sdk/app`)
+
+Plain functions over bb's thread status ladder, implemented once in
+`@bb/client-core` (`packages/client-core/src/thread/thread-list-indicator.ts`)
+and handed to plugins by the host:
+
+- `experimental_resolveThreadListIndicator(state)` resolves the flat
+  `ExperimentalThreadListIndicatorState` (one flag per kind, plus
+  `queuedWork`) to one `PluginSidebarThreadIndicator`: needs-you › failed
+  (unread error, then failed send) › new › running (plan mode, goal, runtime,
+  workflow, background agent, background command) › queued › draft › none. It
+  never returns "working-draft".
+- `experimental_threadIndicatorRung(kind)` places a kind on rungs 5 (needs
+  you), 4 (failed), 3 (new), 2 (running, "working-draft" included), 1 (queued,
+  draft), 0 (none, and any kind it does not know).
+- `experimental_rollUpThreadIndicators(kinds)` returns the kind on the
+  highest rung, the earliest in the precedence on a tie, and "none" for no
+  input; it ignores kinds it does not know. Rolling `[indicator, "draft"]` up
+  equals resolving with `hasUnsubmittedDraft` set.
+
+The test harness provides the same client-core functions, so plugin tests get
+bb's real ladder.
+
+**Core callers.** `resolveThreadListIndicator`, `rollUpThreadListIndicators`,
+and `threadListIndicatorRung` from `@bb/client-core` are the SDK exports
+(`apps/app/src/lib/plugin-sdk-app-impl.tsx`). Core resolves through them in
+`toPluginSidebarThread` (`PluginSidebarThread.indicator`), the thread search
+palette, the related threads info section, and mobile recents, whose
+collapsed parents roll their descendants up (`projectThreadGroups`).
+`ThreadStatusGlyph` hides a plugin row status by rung.
+
+Docs: `frontend-sidebar-list.md`.
+
+**Audit before stabilizing.**
+
+1. **State shape.** The state freezes one flag per kind into the contract, and
+   a list derives the unread flags from `isUnread` and `status` itself.
+   Decide whether a `(thread, { hasUnsubmittedDraft })` resolver over
+   `PluginSidebarThread` should replace it.
+2. **Rung numbers.** The rungs are part of the contract. Confirm a new kind
+   always fits an existing rung, or that callers only compare rungs and never
+   switch on the numbers.
+3. **"working-draft".** Kept in the union and on rung 2 for glyph callers
+   only. Decide whether to drop it once no plugin passes it.
+4. **Version skew.** A plugin built against a newer SDK may pass a kind an
+   older host does not know; the host reads it as rung 0 and the rollup
+   ignores it. Confirm that is the right failure.
+
+## `PluginSidebarThread.experimental_attention` (`@get-bb/plugin-sdk/app`)
+
+`"needs-you" | "failed" | "new" | null` (`ExperimentalThreadAttention`),
+derived from the thread's own `indicator`: "needs-you" for
+"waiting-for-input", "failed" for "unread-error" and "queued-failed", "new"
+for "unread-success", null otherwise. A list sorts its attention band and
+counts its tooltips by it without mapping kinds itself.
+
+**Core callers.** `toPluginSidebarThread`
+(`apps/app/src/lib/plugin-sidebar-threads.ts`) fills it with
+`threadListIndicatorAttention` from `@bb/client-core`, the mapping bb's own
+surfaces use.
+
+Docs: `frontend-sidebar-list.md`.
+
+**Audit before stabilizing.**
+
+1. **Strings.** Keep them identical to the thread-list CLI's
+   `attention` JSON once `bb thread-list attention` ships, and confirm both
+   surfaces derive from the same mapping.
+2. **Drafts and rollups.** The field reflects the thread alone: it ignores a
+   client-local draft (which never carries attention) and the thread's
+   descendants. Decide whether a collapsed parent's rolled-up attention
+   belongs on the DTO.
+3. **Optional field.** Older hosts omit it, and so do thread fixtures written
+   before it existed, so it stays optional and documented as "missing means
+   null" until the prefix drops. Make it required when stabilizing.
 
 ## `HostsArea.experimental_reconcile`
 

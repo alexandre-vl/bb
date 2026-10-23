@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getSidebarThreadComparator } from "./ProjectList.js";
+import {
+  getSidebarThreadComparator,
+  listEmptyProjectsLast,
+} from "./ProjectList.js";
 import { getThreadSidebarExpansion } from "./useSidebarThreadReveal.js";
 import {
   CHRONOLOGICAL_CONTAINER_ID,
@@ -7,7 +10,7 @@ import {
   type ProjectThreadItem,
   type ThreadComparator,
 } from "../model/project-thread-groups.js";
-import { NO_COLLAPSED_CHILD_ACTIVITY } from "../model/thread-activity.js";
+import { EMPTY_THREAD_ROLLUP } from "../model/thread-activity.js";
 import {
   makeSidebarEnvironment,
   makeSidebarThread,
@@ -42,7 +45,7 @@ function threadNode(entry: SidebarThread): ProjectThreadNode {
     depth: 0,
     stats: {
       childCount: 0,
-      childActivity: NO_COLLAPSED_CHILD_ACTIVITY,
+      rollup: EMPTY_THREAD_ROLLUP,
     },
   };
 }
@@ -63,7 +66,7 @@ function environmentItem(
       nodes: [threadNode(representative), threadNode(sibling)],
       stats: {
         childCount: 0,
-        childActivity: NO_COLLAPSED_CHILD_ACTIVITY,
+        rollup: EMPTY_THREAD_ROLLUP,
       },
     },
   };
@@ -78,7 +81,7 @@ function sectionItem(name: string): ProjectThreadItem {
       name,
       items: [],
       threadCount: 0,
-      activity: NO_COLLAPSED_CHILD_ACTIVITY,
+      rollup: EMPTY_THREAD_ROLLUP,
     },
   };
 }
@@ -149,17 +152,11 @@ describe("getSidebarThreadComparator", () => {
       ];
 
       expect(
-        order(
-          getSidebarThreadComparator(sort, "ascending"),
-          entries,
-        ),
+        order(getSidebarThreadComparator(sort, "ascending"), entries),
       ).toEqual(["active_old", "active_new", "idle_old", "idle_new"]);
       for (const direction of ["default", "descending"] as const) {
         expect(
-          order(
-            getSidebarThreadComparator(sort, direction),
-            entries,
-          ),
+          order(getSidebarThreadComparator(sort, direction), entries),
         ).toEqual(["active_new", "active_old", "idle_new", "idle_old"]);
       }
     },
@@ -412,5 +409,31 @@ describe("getThreadSidebarExpansion", () => {
         thread: thread({ sectionId: null, projectId: "proj_app" }),
       }),
     ).toEqual({ sidebarSectionId: "pinned" });
+  });
+});
+
+describe("listEmptyProjectsLast", () => {
+  it("moves empty projects after every other section in stored order", () => {
+    const empty = new Set(["project:empty-a", "project:empty-b"]);
+    expect(
+      listEmptyProjectsLast(
+        [
+          "pinned",
+          "project:empty-a",
+          "project:app",
+          "threads",
+          "project:empty-b",
+          "project:web",
+        ],
+        (sectionId) => empty.has(sectionId),
+      ),
+    ).toEqual([
+      "pinned",
+      "project:app",
+      "threads",
+      "project:web",
+      "project:empty-a",
+      "project:empty-b",
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import {
   AI_TEXT_TASKS,
   aiTaskSchema,
   aiTextTaskSchema,
+  applyAppKeybindingOverrides,
   keyboardCommandIdSchema,
   keyboardPlatformSchema,
   appShortcutSchema,
@@ -725,7 +726,10 @@ export function registerSettingsCommands(
       action(async (opts: JsonOptions) => {
         const config = await createCliBbSdk(getUrl()).system.config();
         const result = {
-          bindings: config.keybindings,
+          bindings: applyAppKeybindingOverrides(
+            config.defaultKeybindings,
+            config.keybindingOverrides,
+          ),
           overrides: config.keybindingOverrides,
         };
         if (outputJson(opts, result)) return;

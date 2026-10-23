@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSectionThreadList,
   buildProjectThreadGroups,
+  collectProjectThreadItemAttention,
   compareByCreatedAtDescending,
   compareStandardThreads,
   createSidebarProjectIdResolver,
@@ -16,6 +17,9 @@ import {
   type SidebarThreadOverrides,
 } from "./fixtures.js";
 import type { SidebarThread } from "./sidebar-thread.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 type TreeSummary =
   | string
@@ -450,7 +454,7 @@ describe("buildProjectThreadGroups", () => {
     ]);
   });
 
-  it("rolls collapsed child activity up from all descendants", () => {
+  it("rolls every descendant's state up onto each ancestor", () => {
     const rootItems = buildProjectThreadGroups([
       createThread({
         id: "parent",
@@ -458,6 +462,7 @@ describe("buildProjectThreadGroups", () => {
       createThread({
         id: "quiet-child",
         parentThreadId: "parent",
+        lastReadAt: 2,
       }),
       createThread({
         id: "busy-grandchild",
@@ -470,46 +475,37 @@ describe("buildProjectThreadGroups", () => {
         parentThreadId: "quiet-child",
         hasPendingInteraction: true,
       }),
+      createThread({
+        id: "failed-grandchild",
+        parentThreadId: "quiet-child",
+        status: "error",
+      }),
     ]);
 
     expect(findNode(rootItems, "parent")?.stats).toEqual({
-      childActivity: {
+      childCount: 4,
+      rollup: {
         threadIds: expect.arrayContaining([
           "quiet-child",
           "busy-grandchild",
           "pending-grandchild",
+          "failed-grandchild",
         ]),
-        pending: true,
-        working: true,
-        runtimeWorking: true,
-        workflow: false,
-        backgroundAgent: false,
-        backgroundCommand: false,
-        planMode: false,
-        goal: false,
-        unread: false,
-        unreadError: false,
+        kind: "waiting-for-input",
+        counts: { needsYou: 1, failed: 1, fresh: 0, working: 1, queued: 0 },
       },
-      childCount: 3,
     });
     expect(findNode(rootItems, "quiet-child")?.stats).toEqual({
-      childActivity: {
+      childCount: 3,
+      rollup: {
         threadIds: expect.arrayContaining([
           "busy-grandchild",
           "pending-grandchild",
+          "failed-grandchild",
         ]),
-        pending: true,
-        working: true,
-        runtimeWorking: true,
-        workflow: false,
-        backgroundAgent: false,
-        backgroundCommand: false,
-        planMode: false,
-        goal: false,
-        unread: false,
-        unreadError: false,
+        kind: "waiting-for-input",
+        counts: { needsYou: 1, failed: 1, fresh: 0, working: 1, queued: 0 },
       },
-      childCount: 2,
     });
   });
 
@@ -818,7 +814,7 @@ describe("section bucketing", () => {
     ]);
   });
 
-  it("rolls descendant count + activity up onto the section group", () => {
+  it("rolls descendant count and states up onto the section group", () => {
     const items = buildSectionThreadList(
       [
         createThread({
@@ -839,7 +835,8 @@ describe("section bucketing", () => {
       throw new Error("expected a section item");
     }
     expect(section.group.threadCount).toBe(2);
-    expect(section.group.activity.pending).toBe(true);
+    expect(section.group.rollup.counts.needsYou).toBe(1);
+    expect(section.group.rollup.kind).toBe("waiting-for-input");
   });
 
   it("combines threads from different projects that share the same section id", () => {
@@ -867,6 +864,81 @@ describe("section bucketing", () => {
     expect(summarizeItems(items)).toEqual([
       { section: "chronological::sec_work", name: "Work", items: ["a", "b"] },
     ]);
+  });
+});
+
+describe("collectProjectThreadItemAttention", () => {
+  const worktree = makeSidebarEnvironment({ id: "env_wt", isWorktree: true });
+  const items = buildProjectThreadGroups([
+    createThread({ id: "parent", createdAt: 10, lastReadAt: 2 }),
+    createThread({
+      id: "asks",
+      parentThreadId: "parent",
+      hasPendingInteraction: true,
+      createdAt: 20,
+    }),
+    createThread({
+      id: "broke",
+      parentThreadId: "parent",
+      status: "error",
+      createdAt: 30,
+    }),
+    createThread({
+      id: "wt-broke",
+      environment: worktree,
+      status: "error",
+      createdAt: 40,
+    }),
+    createThread({
+      id: "wt-asks",
+      environment: worktree,
+      hasPendingInteraction: true,
+      createdAt: 50,
+    }),
+  ]);
+  const parent = items.find(
+    (item) => item.kind === "thread" && item.node.thread.id === "parent",
+  );
+  const group = items.find((item) => item.kind === "environment");
+  const context = (collapsed: {
+    threads?: string[];
+    environments?: string[];
+  }) => ({
+    collapsedThreadIds: new Set(collapsed.threads),
+    collapsedEnvironmentIds: new Set(collapsed.environments),
+    collapsedSectionKeys: new Set<string>(),
+    childrenOf: (node: ProjectThreadNode) => ({
+      items: node.children,
+      foldRow: false,
+    }),
+  });
+
+  it("counts each visible row of an expanded parent or group", () => {
+    if (!parent || !group) throw new Error("missing fixture items");
+    expect(collectProjectThreadItemAttention(parent, context({}))).toEqual({
+      needsYou: 1,
+      failed: 1,
+    });
+    expect(collectProjectThreadItemAttention(group, context({}))).toEqual({
+      needsYou: 1,
+      failed: 1,
+    });
+  });
+
+  it("counts a collapsed parent or group once, at its highest rung", () => {
+    if (!parent || !group) throw new Error("missing fixture items");
+    expect(
+      collectProjectThreadItemAttention(
+        parent,
+        context({ threads: ["parent"] }),
+      ),
+    ).toEqual({ needsYou: 1, failed: 0 });
+    expect(
+      collectProjectThreadItemAttention(
+        group,
+        context({ environments: ["env_wt"] }),
+      ),
+    ).toEqual({ needsYou: 1, failed: 0 });
   });
 });
 

@@ -382,17 +382,17 @@ await sdk.threads.update({ id: thread.id, sectionId });
 // environment { id, name, branchName, path, isWorktree, providerId,
 // workspaceDisplayKind }, where workspaceDisplayKind is deprecated
 // compatibility data; host { id, name }, createdAt, updatedAt, lastReadAt,
-// latestAttentionAt, and `indicator` (bb's resolved status kind) +
-// `indicatorLabel` (its a11y string). Draw your own glyph for `indicator`;
-// the SDK ships no status component. Treat an unknown indicator, status, or
-// runtimeStatus value as its documented fallback — bb adds kinds over time.
+// latestAttentionAt, `indicator` (bb's resolved status kind), `indicatorLabel`
+// (its a11y string) and `experimental_attention` (frontend-sidebar-list.md).
+// Treat an unknown indicator, status, or runtimeStatus value as its documented
+// fallback — bb adds kinds over time.
 
 // Three more per-row facts are client-local, so they are hooks rather than
-// fields on the thread: an unsent composer draft (bb paints a pencil, or a
-// "working-draft" glyph when the thread is busy), a row status another
-// plugin's app-wide script set (bb draws it in place of the draft glyph), and
-// the jump shortcut bb assigns while the app command modifier is held (bb
-// shows a key pill). Compose them with `indicator` yourself:
+// fields on the thread: an unsent composer draft, a row status another
+// plugin's app-wide script set (frontend-sidebar-list.md says when bb draws
+// each), and the jump shortcut bb assigns while the app command modifier is
+// held (bb shows a key pill). Compose them with `indicator` yourself, folding
+// with the status ladder that file describes:
 const { hasUnsubmittedDraft } = useSidebarThreadDraft(thread.id);
 const rowStatus = useSidebarThreadRowStatus(thread.id); // { icon, label, tone? } | null
 const shortcut = useSidebarThreadShortcut(thread.id); // { label, ariaKeyshortcuts } | null

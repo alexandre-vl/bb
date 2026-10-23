@@ -52,6 +52,7 @@
   --color-destructive-text: var(--destructive-text);
   --color-attention: var(--attention);
   --color-attention-foreground: var(--attention-foreground);
+  --color-attention-text: var(--attention-text);
   --color-warning: var(--warning);
   --color-warning-text: var(--warning-text);
   --color-success: var(--success);
@@ -85,6 +86,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-row-selected: var(--sidebar-row-selected);
+  --color-sidebar-foreground-quiet: var(--sidebar-foreground-quiet);
+  --color-sidebar-glyph-faint: var(--sidebar-glyph-faint);
+  --color-sidebar-guide: var(--sidebar-guide);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
@@ -153,10 +158,10 @@
     --bb-sidebar-sticky-stack-padding-top: var(
       --bb-sidebar-sticky-stack-padding
     );
-    --bb-sidebar-sticky-label-height: 1.5rem;
-    --bb-sidebar-sticky-label-gap: 0.25rem;
+    --bb-sidebar-sticky-label-height: var(--bb-sidebar-sticky-row-height);
+    --bb-sidebar-sticky-label-gap: 0.125rem;
     --bb-sidebar-sticky-row-height: var(--bb-sidebar-row-height);
-    --bb-sidebar-sticky-row-gap: 0.25rem;
+    --bb-sidebar-sticky-row-gap: 0.125rem;
     --bb-sidebar-sticky-child-row-gap: 0.125rem;
     --bb-sidebar-sticky-label-top: var(--bb-sidebar-sticky-stack-padding-top);
     --bb-sidebar-sticky-project-top: calc(
@@ -192,14 +197,13 @@
   }
 
   /* The stack's top padding is inside the scrollport, so rows stay visible as
-     they scroll through it. A sticky label hides that strip behind its own top
-     shield; a pinned row with no label above it has nothing to hide it, so the
-     stack caps the strip for every tier. */
+     they scroll through it. The stack caps that strip above every tier, labels
+     included, so no label needs a top shield that would cover the row above. */
   [data-sidebar-sticky-stack]::before {
     content: "";
     position: sticky;
     top: 0;
-    z-index: 55;
+    z-index: 65;
     display: block;
     height: var(--bb-sidebar-sticky-stack-padding-top);
     margin-top: calc(-1 * var(--bb-sidebar-sticky-stack-padding-top));
@@ -244,14 +248,12 @@
     height: var(--bb-sidebar-sticky-tier-shield-bottom-height, 0);
   }
 
-  /* The shared active-context surface is translucent so it can tint tabs and
-     other content surfaces. A sticky sidebar row needs an opaque sidebar layer
-     beneath that tint, or scrolled descendant text paints through the row. */
   [data-sidebar-sticky-stack]
     [data-sidebar-sticky-tier].bb-sidebar-selected-row {
-    background-image:
-      linear-gradient(var(--state-active), var(--state-active)),
-      linear-gradient(var(--sidebar), var(--sidebar));
+    background-image: linear-gradient(
+      var(--sidebar-row-selected),
+      var(--sidebar-row-selected)
+    );
   }
 
   /* This state is sidebar-only, so resolve its quiet accent tint against the
@@ -346,6 +348,25 @@
     transition-duration: 0ms;
   }
 
+  [data-sidebar-pointer-gate="true"]
+    .bb-sidebar-hover-actions-row:hover:not(:has(:focus-visible))
+    .bb-sidebar-hover-actions:not([data-sidebar-hover-actions-open="true"]) {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  [data-sidebar-pointer-gate="true"]
+    .bb-sidebar-hover-actions-row:hover:not(:has(:focus-visible))
+    .bb-sidebar-hover-actions-fade:not(
+      [data-sidebar-hover-actions-open="true"]
+    ) {
+    opacity: 1;
+  }
+
+  [data-sidebar-archive-guard="true"] [data-thread-action="bb--core/archive"] {
+    visibility: hidden;
+  }
+
   .bb-sidebar-hover-actions-row:is(:hover, :has(:focus-visible))
     .bb-sidebar-hover-actions-fade,
   .bb-sidebar-hover-actions-fade[data-sidebar-hover-actions-open="true"] {
@@ -388,9 +409,6 @@
     --bb-sidebar-sticky-tier-top: var(--bb-sidebar-sticky-label-top);
     --bb-sidebar-sticky-tier-height: var(--bb-sidebar-sticky-label-height);
     --bb-sidebar-sticky-tier-z-index: 60;
-    --bb-sidebar-sticky-tier-shield-top-height: var(
-      --bb-sidebar-sticky-stack-padding
-    );
     --bb-sidebar-sticky-tier-shield-bottom-height: var(
       --bb-sidebar-sticky-label-gap
     );
@@ -453,9 +471,13 @@
     --bb-sidebar-sticky-parent-base-top: var(--bb-sidebar-sticky-project-top);
   }
 
-  @media (max-width: 767px) and (pointer: coarse) {
+  @media (pointer: coarse) {
     [data-sidebar-sticky-stack] {
       --bb-sidebar-sticky-row-height: var(--bb-sidebar-row-height-coarse);
+      --text-xs: 0.875rem;
+      --text-xs--line-height: 1.25rem;
+      --text-sm: 0.9375rem;
+      --text-sm--line-height: 1.375rem;
     }
   }
 }
@@ -516,6 +538,11 @@
    * fill is ~3.56:1 there) while keeping its 3:1 UI duties. */
   --destructive-text: oklch(0.45 0.19 25.8625);
   --attention: oklch(0.74 0.15 80);
+  --attention-text: color-mix(
+    in oklch,
+    var(--attention) 55%,
+    var(--destructive)
+  );
   /* Text on an --attention fill: the darkest anchor in each theme. */
   --attention-foreground: var(--ink);
   --warning: oklch(0.7 0.16 50);
@@ -601,6 +628,14 @@
   --sidebar-accent: color-mix(in oklch, var(--ink) 8%, var(--canvas));
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: color-mix(in oklch, var(--ink) 14%, var(--canvas));
+  --sidebar-row-selected: color-mix(in oklch, var(--ink) 13%, var(--canvas));
+  --sidebar-foreground-quiet: color-mix(
+    in oklch,
+    var(--ink) 72%,
+    var(--canvas)
+  );
+  --sidebar-glyph-faint: color-mix(in oklch, var(--ink) 62%, var(--canvas));
+  --sidebar-guide: color-mix(in oklch, var(--ink) 36%, var(--canvas));
   /* Search-match highlight: a manilla-folder tint over the canvas. Chromatic on
      purpose (the neutral ramp can't make beige) and mixed with the canvas so it
      tracks custom palettes instead of stranding a fixed swatch. Mix in oklab, not
@@ -748,6 +783,7 @@
    * dark canvas; the --destructive fill stays for icons/buttons/ring (3:1 UI). */
   --destructive-text: oklch(0.65 0.16 22);
   --attention: oklch(0.8 0.15 80);
+  --attention-text: var(--attention);
   --attention-foreground: var(--canvas);
   --warning: oklch(0.75 0.16 50);
   --warning-text: oklch(0.75 0.16 50);
@@ -824,6 +860,14 @@
   --sidebar-accent: color-mix(in oklch, var(--ink) 12%, var(--canvas));
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: color-mix(in oklch, var(--ink) 18.1%, var(--canvas));
+  --sidebar-row-selected: color-mix(in oklch, var(--ink) 18%, var(--canvas));
+  --sidebar-foreground-quiet: color-mix(
+    in oklch,
+    var(--ink) 75%,
+    var(--canvas)
+  );
+  --sidebar-glyph-faint: color-mix(in oklch, var(--ink) 66%, var(--canvas));
+  --sidebar-guide: color-mix(in oklch, var(--ink) 36%, var(--canvas));
   /* Search-match highlight: see the light block (oklab mix, same hue caveat).
      Mixed with the (dark) canvas so the manilla reads as a muted tan. */
   --sidebar-search-match: color-mix(
@@ -1055,6 +1099,17 @@ body.sidebar-resizing [data-sidebar="panel"] {
     .animate-shine {
       -webkit-text-fill-color: currentColor;
     }
+  }
+
+  [data-sidebar-section-list]
+    > :is(
+      [data-sidebar-section-folded="true"],
+      :has([data-sidebar-section-folded="true"])
+    ):has(
+      + [data-sidebar-section-folded="true"],
+      + * [data-sidebar-section-folded="true"]
+    ) {
+    margin-block-end: 2px;
   }
 }
 

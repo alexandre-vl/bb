@@ -113,7 +113,11 @@ describe("thread state cache owner", () => {
         intent:
           lastReadAt === null
             ? { kind: "unread" }
-            : { kind: "read", throughAttentionAt: undefined },
+            : {
+                kind: "read",
+                throughAttentionAt: undefined,
+                descendantsThroughAttentionAt: undefined,
+              },
         queryClient,
         threadId: original.id,
       });
@@ -418,7 +422,11 @@ describe("thread state cache owner", () => {
       ];
 
       const transaction = beginThreadReadStateTransaction({
-        intent: { kind: "read", throughAttentionAt },
+        intent: {
+          kind: "read",
+          throughAttentionAt,
+          descendantsThroughAttentionAt: undefined,
+        },
         queryClient,
         threadId,
       });
@@ -456,7 +464,11 @@ describe("thread state cache owner", () => {
     ]);
 
     beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: undefined },
+      intent: {
+        kind: "read",
+        throughAttentionAt: undefined,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId: "thread-1",
     });
@@ -479,7 +491,11 @@ describe("thread state cache owner", () => {
       makeThreadWithRuntime({ lastReadAt: 10, latestAttentionAt: 50 }),
     );
     const read = beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: 50 },
+      intent: {
+        kind: "read",
+        throughAttentionAt: 50,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId,
     });
@@ -530,7 +546,11 @@ describe("thread state cache owner", () => {
         });
       if (earlier === "latest") settleUnread();
       const read = beginThreadReadStateTransaction({
-        intent: { kind: "read", throughAttentionAt: 50 },
+        intent: {
+          kind: "read",
+          throughAttentionAt: 50,
+          descendantsThroughAttentionAt: undefined,
+        },
         queryClient,
         threadId: "thread-1",
       });
@@ -563,7 +583,11 @@ describe("thread state cache owner", () => {
       staleTime: 0,
     });
     const read = beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: 50 },
+      intent: {
+        kind: "read",
+        throughAttentionAt: 50,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId: "thread-1",
     });
@@ -616,7 +640,11 @@ describe("thread state cache owner", () => {
       staleTime: 0,
     });
     const read = beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: 50 },
+      intent: {
+        kind: "read",
+        throughAttentionAt: 50,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId: "thread-1",
     });

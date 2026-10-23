@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "toast-clearance",
+  "type": "registry:ui",
+  "title": "toast-clearance",
+  "description": "BB ui \"toast-clearance\" — vendored from the BB app's own source (version-matched to this BB release).",
+  "files": [
+    {
+      "path": "registry/components/ui/toast-clearance.ts",
+      "content": "export const TOAST_BOTTOM_CLEARANCE_PROPERTY = \"--bb-toast-bottom-clearance\";\n\nexport function setToastBottomClearance(\n  document: Document,\n  clearance: number | null,\n): void {\n  const style = document.documentElement.style;\n  if (clearance === null) {\n    style.removeProperty(TOAST_BOTTOM_CLEARANCE_PROPERTY);\n    return;\n  }\n  style.setProperty(\n    TOAST_BOTTOM_CLEARANCE_PROPERTY,\n    `${Math.max(0, Math.round(clearance))}px`,\n  );\n}\n",
+      "type": "registry:ui",
+      "target": "components/ui/toast-clearance.ts"
+    }
+  ]
+}

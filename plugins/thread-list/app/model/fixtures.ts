@@ -71,6 +71,7 @@ export function makeSidebarThread(
     hasPendingInteraction: false,
     indicator: "none",
     indicatorLabel: null,
+    experimental_attention: null,
     isUnread: (lastReadAt ?? 0) < latestAttentionAt,
     isPinned: pinnedAt !== null,
     pinnedAt,

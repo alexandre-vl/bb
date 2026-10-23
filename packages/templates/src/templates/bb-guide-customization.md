@@ -231,6 +231,17 @@ in the current window, like the sidebar arrows. `thread.previous` /
 `thread.next` follow sidebar order instead: `Mod+Shift+[` / `Mod+Shift+]`
 on desktop and `Control+Shift+[` / `Control+Shift+]` on the web.
 
+In the sidebar thread list, `E` (`thread.archive`), `F2` (`thread.rename`) and
+`U` (`thread.toggleRead`) act on the focused row, and `Alt+ArrowUp` /
+`Alt+ArrowDown` (`thread.previousAttention` / `thread.nextAttention`) move to
+the previous or next thread that needs you, failed, or has a new result. They
+apply only while focus is in the list, never from a text field or with a dialog
+open. `Mod+Shift+L` (`sidebar.focus`) focuses the list at the open thread.
+`thread.archive` and `thread.rename` also keep an unbound global slot; one
+override sets both, so a shortcut set for `thread.archive` works everywhere and
+replaces `E` in the list. A key that types a character never runs a command
+from a text field.
+
 An override can be scoped with `--platform`; without it, it applies on all
 platforms. A platform-specific override takes precedence over a general one,
 including when disabled. Scoped `set` and `reset` keep other platforms'

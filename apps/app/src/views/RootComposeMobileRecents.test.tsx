@@ -219,6 +219,8 @@ describe("mobile recents hierarchy interaction", () => {
       child: makeIdleThread({
         id: "thr_child",
         parentThreadId: "thr_parent",
+        lastReadAt: 10,
+        latestAttentionAt: 5,
         activity: {
           ...IDLE_ACTIVITY,
           activePlanModeCount: 1,
@@ -231,6 +233,14 @@ describe("mobile recents hierarchy interaction", () => {
         id: "thr_child",
         parentThreadId: "thr_parent",
         activity: IDLE_ACTIVITY,
+      }),
+    },
+    {
+      label: "Unread thread failed",
+      child: makeIdleThread({
+        id: "thr_child",
+        parentThreadId: "thr_parent",
+        status: "error",
       }),
     },
   ])(
@@ -285,6 +295,8 @@ describe("mobile recents hierarchy interaction", () => {
             makeIdleThread({
               id: "thr_child",
               parentThreadId: "thr_parent",
+              lastReadAt: 10,
+              latestAttentionAt: 5,
             }),
           ]}
         />
@@ -558,7 +570,7 @@ describe("RootComposeMobileRecents", () => {
     expect(screen.queryByLabelText("Goal active")).toBeNull();
   });
 
-  it("keeps the mobile working draft state ahead of runtime activity", () => {
+  it("shows running work ahead of an unsubmitted draft", () => {
     window.localStorage.setItem(
       "bb.promptbox.contents-proj_mobile-thr_mobile-3",
       JSON.stringify({ text: "Keep editing", attachments: [] }),
@@ -576,11 +588,11 @@ describe("RootComposeMobileRecents", () => {
       </TestProviders>,
     );
 
+    expect(screen.getByLabelText("Plan mode active")).not.toBeNull();
     expect(
-      screen.getByLabelText("Thread working with unsubmitted draft"),
-    ).not.toBeNull();
-    expect(screen.queryByLabelText("Thread working")).toBeNull();
-    expect(screen.queryByLabelText("Plan mode active")).toBeNull();
+      screen.queryByLabelText("Thread working with unsubmitted draft"),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Thread has unsubmitted draft")).toBeNull();
   });
 
   it("includes only the resolved unread-success indicator in the link label", () => {

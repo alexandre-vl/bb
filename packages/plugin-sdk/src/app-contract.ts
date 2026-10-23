@@ -1292,18 +1292,35 @@ export interface ExperimentalSidebarFooter {
 
 /**
  * The one status bb would paint for a thread, already resolved through the
- * host's precedence (attention before work; plan and goal before the generic
- * spinner). Draw your own glyph for it — the SDK ships no status component.
+ * host's precedence, highest first:
+ *
+ * 1. "waiting-for-input": the thread needs the user.
+ * 2. "unread-error", then "queued-failed": the thread failed, or a queued
+ *    message failed to send.
+ * 3. "unread-success": the thread finished with a result the user has not
+ *    read.
+ * 4. The running kinds: "plan-mode", "goal", "runtime", "workflow",
+ *    "background-agent", "background-command".
+ * 5. "queued-waiting", then "draft".
+ *
+ * {@link PluginSdkApp.experimental_threadIndicatorRung} places each kind on
+ * that ladder, {@link PluginSdkApp.experimental_rollUpThreadIndicators} picks
+ * the one a collapsed container shows, and
+ * {@link PluginSdkApp.experimental_ThreadStatusGlyph} draws it.
+ *
+ * Child threads resolve like roots, so a failed sub-agent reports
+ * "unread-error". A child reports "unread-success" only after the user marks
+ * it unread: bb raises attention on a finished turn for root threads only.
  *
  * Treat an unrecognized value as "none": bb adds kinds over time, and an
  * older plugin must degrade to drawing nothing rather than throwing.
  *
- * "draft" and "working-draft" are never reported here: an unsubmitted composer
- * draft is per-client state the host reads per row, which an array-wide view
- * cannot. A thread holding a draft reports whatever it would report without
- * one. "queued-failed" and "queued-waiting" are reported, with the same
- * precedence bb's list uses (a failed send outranks the unread dot; a waiting
- * message ranks just below it).
+ * "working-draft" stays in the union for glyph callers, but bb never produces
+ * it: running work outranks a draft. "draft" is never reported here either:
+ * an unsubmitted composer draft is per-client state the host reads per row,
+ * which an array-wide view cannot. A thread holding a draft reports whatever
+ * it would report without one; fold the draft in with
+ * `experimental_rollUpThreadIndicators([thread.indicator, "draft"])`.
  */
 export type PluginSidebarThreadIndicator =
   | "unread-error"
@@ -1320,6 +1337,55 @@ export type PluginSidebarThreadIndicator =
   | "unread-success"
   | "queued-waiting"
   | "none";
+
+/**
+ * A rung on bb's thread status ladder (see
+ * {@link PluginSdkApp.experimental_threadIndicatorRung}): 5 needs the user,
+ * 4 failed, 3 new, 2 running, 1 queued or draft, 0 settled.
+ */
+export type ExperimentalThreadIndicatorRung = 0 | 1 | 2 | 3 | 4 | 5;
+
+/**
+ * What a thread asks of the user (see
+ * {@link PluginSidebarThread.experimental_attention}): "needs-you" on rung 5,
+ * "failed" on rung 4, "new" on rung 3.
+ */
+export type ExperimentalThreadAttention = "needs-you" | "failed" | "new";
+
+/**
+ * The facts {@link PluginSdkApp.experimental_resolveThreadListIndicator}
+ * ranks, one per indicator kind. A list that tracks more than the host's
+ * `indicator`, such as a client-local draft, fills them per row.
+ */
+export interface ExperimentalThreadListIndicatorState {
+  /** As {@link PluginSidebarThread.hasPendingInteraction}. */
+  hasPendingInteraction: boolean;
+  /**
+   * The thread's composer holds text the user has not sent (see
+   * {@link PluginSdkApp.useSidebarThreadDraft}).
+   */
+  hasUnsubmittedDraft: boolean;
+  /** The thread is unread and its `status` is "error". */
+  hasUnreadError: boolean;
+  /** The thread is unread and its `status` is "idle". */
+  hasUnreadSuccess: boolean;
+  /** `activity.backgroundAgents` is above zero. */
+  isBackgroundAgentActive: boolean;
+  /** `activity.backgroundCommands` is above zero. */
+  isBackgroundCommandActive: boolean;
+  /** `activity.goals` is above zero. */
+  isGoalActive: boolean;
+  /** `activity.planMode` is above zero. */
+  isPlanModeActive: boolean;
+  /**
+   * `runtimeStatus` is "active", "provisioning", "starting", or "stopping".
+   */
+  isRuntimeActive: boolean;
+  /** `activity.workflows` is above zero. */
+  isWorkflowActive: boolean;
+  /** As {@link PluginSidebarThread.queuedWork}. */
+  queuedWork: ThreadQueuedWork;
+}
 
 /** Live work counts on a thread. All zero means nothing is running. */
 export interface PluginSidebarThreadActivity {
@@ -1395,6 +1461,14 @@ export interface PluginSidebarThread {
    * screen-reader text stays consistent across sidebars.
    */
   indicatorLabel: string | null;
+  /**
+   * What `indicator` asks of the user: "needs-you" for "waiting-for-input",
+   * "failed" for "unread-error" and "queued-failed", "new" for
+   * "unread-success", and null for every other kind. Hosts that predate it
+   * leave it out: read a missing value as null. Experimental: see
+   * docs/api_to_audit.md.
+   */
+  experimental_attention?: ExperimentalThreadAttention | null;
 
   isUnread: boolean;
   isPinned: boolean;
@@ -1495,6 +1569,13 @@ export interface PluginSidebarThreadsState {
     fetchNextPage(): Promise<void>;
   } | null;
   status: "loading" | "ready" | "error";
+  /**
+   * Fetch the selected lifecycles again, the way a Retry control after
+   * `status: "error"` should. A failed first load returns to `loading` while
+   * the attempt runs, then settles as `ready` or `error`; the promise resolves
+   * once it settles and never rejects. Experimental: see docs/api_to_audit.md.
+   */
+  experimental_refetch(): Promise<void>;
   threads: readonly PluginSidebarThread[];
   experimental_hosts?: readonly { id: string; name: string }[];
   projects: readonly PluginSidebarProject[];
@@ -1650,8 +1731,9 @@ export interface PluginThreadStatusGlyphProps {
   archived?: boolean;
   /**
    * A status another plugin set on the row (see
-   * {@link PluginSdkApp.useSidebarThreadRowStatus}). It replaces every
-   * indicator except "runtime", "unread-error", and "waiting-for-input".
+   * {@link PluginSdkApp.useSidebarThreadRowStatus}). It shows only while the
+   * indicator sits on rung 1 or lower ("queued-waiting", "draft", or
+   * "none"); needs-you, failed, new, and every running kind draw over it.
    */
   rowStatus?: PluginSidebarThreadRowStatus | null;
   /** Hides the idle draft glyph from assistive technology. */
@@ -1696,10 +1778,11 @@ export interface PluginSidebarThreadDraftState {
 /**
  * The status another plugin's app-wide script set on a thread's row through
  * the content-script context's `experimental_setThreadRowStatus` (see
- * {@link PluginSdkApp.useSidebarThreadRowStatus}). bb's row draws it in
- * place of the draft glyph while it is set; a replaced list should do the
- * same so a status set by, say, the drafts or workflows plugin does not
- * vanish when the list changes hands.
+ * {@link PluginSdkApp.useSidebarThreadRowStatus}). bb's row draws it while
+ * it is set and the row's indicator sits on rung 1 or lower ("queued-waiting",
+ * "draft", or "none"); a replaced list should do the same so a status set by,
+ * say, the drafts or workflows plugin does not vanish when the list changes
+ * hands.
  */
 export type PluginSidebarThreadRowStatus = PluginComposerThreadRowStatus;
 
@@ -2075,6 +2158,17 @@ export interface PluginBoundThreadAction extends Omit<
 }
 
 /**
+ * The key bb binds to a thread action for the focused sidebar row, as the
+ * person configured it in Keyboard shortcuts.
+ */
+export interface ExperimentalThreadActionShortcut {
+  /** Display text, such as `E` or `F2`. */
+  label: string;
+  /** Value for the control's `aria-keyshortcuts` attribute. */
+  ariaKeyshortcuts: string;
+}
+
+/**
  * One row of {@link PluginSdkApp.experimental_useThreadActions}: `key` is
  * `<owner>/<id>`, where the owner is the registering plugin's id or
  * `bb--core` for bb's own actions.
@@ -2085,6 +2179,12 @@ export interface PluginThreadActionEntry {
   /** The registration's group, for separators in a caller's own list. */
   group: string;
   action: PluginBoundThreadAction;
+  /**
+   * The key that runs this action on the focused sidebar row (bb's Archive,
+   * Rename and Mark read / unread), or null when the action has none or the
+   * person unbound it. Show it beside the action's label in a row's tooltip.
+   */
+  experimental_shortcut: ExperimentalThreadActionShortcut | null;
 }
 
 /** One row of {@link PluginSdkApp.experimental_useThreadActionRegistrations}. */
@@ -2093,6 +2193,25 @@ export interface PluginThreadActionRegistrationInfo {
   pluginId: string;
   title: string;
   icon: BbIconName;
+}
+
+/**
+ * A bb command that {@link PluginSdkApp.experimental_useSidebarListCommand}
+ * can handle for the thread list: archive (E), rename (F2), toggle read (U)
+ * and move to the previous or next row that needs attention (Alt+Up and
+ * Alt+Down), or whatever keys the user bound to them.
+ */
+export type ExperimentalSidebarListCommand =
+  | "thread.archive"
+  | "thread.rename"
+  | "thread.toggleRead"
+  | "thread.previousAttention"
+  | "thread.nextAttention";
+
+/** What a {@link PluginSdkApp.experimental_useSidebarListCommand} handler receives. */
+export interface ExperimentalSidebarListCommandInvocation {
+  /** The focused element inside the thread list when the command ran. */
+  target: Element;
 }
 
 /** Options for {@link PluginSdkApp.experimental_useThreadActions}. */
@@ -3964,7 +4083,10 @@ export interface PluginComposerTextEffect {
   className: string;
 }
 
-/** Host-rendered status that temporarily replaces a thread's draft glyph. */
+/**
+ * Host-rendered status that temporarily replaces a thread's queued or draft
+ * glyph.
+ */
 export interface PluginComposerThreadRowStatus {
   /**
    * Always drawn as given: unlike the plugin-badged surfaces, this one has no
@@ -3974,9 +4096,8 @@ export interface PluginComposerThreadRowStatus {
   /** Accessible label for the status glyph. */
   label: string;
   /**
-   * Semantic host treatment for the status glyph. `running` automatically
-   * shimmers; terminal `success` and `error` tones are static. Defaults to the
-   * neutral tone.
+   * Semantic host treatment for the status glyph: its color. Every tone,
+   * `running` included, draws without motion. Defaults to the neutral tone.
    */
   tone?: "default" | "running" | "success" | "error";
 }
@@ -5210,6 +5331,20 @@ export interface PluginSdkApp {
     environmentId: string,
   ) => Promise<void>;
   /**
+   * Handle a bb command while keyboard focus is inside the thread list: the
+   * element marked `data-sidebar-thread-tree`, which turns on the
+   * `sidebarListFocus` context its default keys need. Inside the list the
+   * handler runs before the open thread's, so E archives the focused row
+   * rather than the open thread. Return true once handled; false lets the
+   * next handler run. Reach the row's action through
+   * `experimental_useThreadActions`, the path bb's own commands take.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_useSidebarListCommand(
+    command: ExperimentalSidebarListCommand,
+    handler: (invocation: ExperimentalSidebarListCommandInvocation) => boolean,
+  ): void;
+  /**
    * Every thread action for one thread, in menu order (see
    * {@link PluginThreadAction} for grouping): bb's own registrations first,
    * then plugins' in registration order. Registrations' `useData` hooks run
@@ -5326,7 +5461,7 @@ export interface PluginSdkApp {
   /**
    * The row status another plugin set on this thread (see
    * {@link PluginSidebarThreadRowStatus}), or null. Draw it where bb's row
-   * would: in place of the draft glyph, with its `tone`.
+   * would: in place of an indicator on rung 1 or lower, with its `tone`.
    */
   useSidebarThreadRowStatus(
     threadId: string,
@@ -5368,6 +5503,38 @@ export interface PluginSdkApp {
    * Experimental: see docs/api_to_audit.md.
    */
   experimental_ThreadStatusGlyph: ComponentType<PluginThreadStatusGlyphProps>;
+  /**
+   * Resolves a thread's facts (see {@link ExperimentalThreadListIndicatorState})
+   * to the one indicator bb paints, through the precedence documented on
+   * {@link PluginSidebarThreadIndicator}: the resolver behind
+   * `PluginSidebarThread.indicator` and bb's search palette, related threads,
+   * and mobile recents. Never returns "working-draft". A plain function.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_resolveThreadListIndicator(
+    state: ExperimentalThreadListIndicatorState,
+  ): PluginSidebarThreadIndicator;
+  /**
+   * The indicator a collapsed container shows for everything it hides: the
+   * kind on the highest rung, the one earliest in bb's precedence on a tie,
+   * and "none" for no kinds. Kinds it does not know are ignored. Roll a
+   * thread's own `indicator` up with "draft" to fold in a client-local draft.
+   * A plain function. Experimental: see docs/api_to_audit.md.
+   */
+  experimental_rollUpThreadIndicators(
+    kinds: Iterable<PluginSidebarThreadIndicator>,
+  ): PluginSidebarThreadIndicator;
+  /**
+   * Where `kind` sits on bb's status ladder (see
+   * {@link ExperimentalThreadIndicatorRung}); 0 for a kind it does not know.
+   * Rungs 3 to 5 carry attention (see
+   * {@link PluginSidebarThread.experimental_attention}) and rung 2 is running
+   * work, so an attention-first list sorts by it. A plain function.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_threadIndicatorRung(
+    kind: PluginSidebarThreadIndicator,
+  ): ExperimentalThreadIndicatorRung;
   /**
    * bb's environment provider catalog (see
    * {@link PluginEnvironmentProvidersState}), the directory a thread's
