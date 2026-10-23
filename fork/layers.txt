@@ -12,6 +12,7 @@ pr-pill-opens-github-pane
 bb/explain-failed-automations-thr_agcnkvvvke
 bb/background-commands-card-thr_mwgsr32qtd
 bb/child-threads-card-thr_mwgsr32qtd
+carry/github-plugin-inbox
 github-plugin-inbox
 plugin-track-range
 plugin-updates-outside-range
