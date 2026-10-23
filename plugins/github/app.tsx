@@ -18,12 +18,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { DelayedLoading } from "@/components/ui/delayed-loading";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   claimItemUrl,
   isSameItem,
-  itemRefFromParams,
   itemTabOptions,
   itemUrl,
+  linkedItemFromParams,
   parseSubPath,
   pullRowModels,
   routeToSubPath,
@@ -38,7 +39,12 @@ import { AgentSheet, type AgentTarget } from "./components/agent-sheet.js";
 import { GithubHomeSection, useInboxBadge } from "./components/home-section.js";
 import { IssueDetailView, NewIssueForm } from "./components/issues.js";
 import { PullDetailView } from "./components/pull-detail.js";
-import { ListMessage, rowGlyph } from "./components/pull-list.js";
+import {
+  ListMessage,
+  rowGlyph,
+  TAB_LIST_CLASS,
+  TAB_TRIGGER_CLASS,
+} from "./components/pull-list.js";
 import {
   errorText,
   PANEL_PATH,
@@ -180,10 +186,8 @@ function PanelSkeleton() {
 }
 
 function PullPicker({
-  intro,
   onPick,
 }: {
-  intro: string;
   onPick: (repo: string, number: number) => void;
 }) {
   const viewer = useViewer();
@@ -225,19 +229,16 @@ function PullPicker({
     );
   }
   return (
-    <div className="flex flex-col gap-2">
-      <p className="text-xs text-subtle-foreground">{intro}</p>
-      <div className="flex flex-col">
-        {rows.map((row) => (
-          <PickerRow
-            key={row.key}
-            glyph={rowGlyph(row, null)}
-            title={splitTitle(row.item.title).text}
-            detail={`${row.item.repo}#${row.item.number}`}
-            onPick={() => onPick(row.item.repo, row.item.number)}
-          />
-        ))}
-      </div>
+    <div className="flex flex-col">
+      {rows.map((row) => (
+        <PickerRow
+          key={row.key}
+          glyph={rowGlyph(row, null)}
+          title={splitTitle(row.item.title).text}
+          detail={`${row.item.repo}#${row.item.number}`}
+          onPick={() => onPick(row.item.repo, row.item.number)}
+        />
+      ))}
     </div>
   );
 }
@@ -288,21 +289,54 @@ function IssuePicker({
     );
   }
   return (
+    <div className="flex flex-col">
+      {issues.map((item) => (
+        <PickerRow
+          key={`${item.repo}#${item.number}`}
+          glyph={OPEN_ISSUE_GLYPH}
+          title={splitTitle(item.title).text}
+          detail={`${item.repo}#${item.number}`}
+          onPick={() => onPick(item.repo, item.number)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ItemPicker({
+  intro,
+  kind,
+  onKindChange,
+  onPick,
+}: {
+  intro: string;
+  kind: Item["kind"];
+  onKindChange: (kind: Item["kind"]) => void;
+  onPick: (kind: Item["kind"], repo: string, number: number) => void;
+}) {
+  return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-subtle-foreground">
-        Pick an issue to show here.
-      </p>
-      <div className="flex flex-col">
-        {issues.map((item) => (
-          <PickerRow
-            key={`${item.repo}#${item.number}`}
-            glyph={OPEN_ISSUE_GLYPH}
-            title={splitTitle(item.title).text}
-            detail={`${item.repo}#${item.number}`}
-            onPick={() => onPick(item.repo, item.number)}
-          />
-        ))}
-      </div>
+      <p className="text-xs text-subtle-foreground">{intro}</p>
+      <Tabs
+        value={kind}
+        onValueChange={(value) =>
+          onKindChange(value === "issue" ? "issue" : "pr")
+        }
+      >
+        <TabsList aria-label="Show" className={`${TAB_LIST_CLASS} -ml-2 flex`}>
+          <TabsTrigger value="pr" className={TAB_TRIGGER_CLASS}>
+            Pull requests
+          </TabsTrigger>
+          <TabsTrigger value="issue" className={TAB_TRIGGER_CLASS}>
+            Issues
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {kind === "pr" ? (
+        <PullPicker onPick={(repo, number) => onPick("pr", repo, number)} />
+      ) : (
+        <IssuePicker onPick={(repo, number) => onPick("issue", repo, number)} />
+      )}
     </div>
   );
 }
@@ -355,10 +389,7 @@ type ThreadPullLookup =
   | { status: "failed"; error: string; retry: () => void }
   | { status: "resolved"; pull: ThreadPull | null };
 
-const ITEM_PANEL_ACTION_IDS: Record<Item["kind"], string> = {
-  pr: "pull",
-  issue: "issue",
-};
+const GITHUB_TAB_ID = "pull";
 
 function useThreadPull(
   threadId: string,
@@ -411,7 +442,7 @@ function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
   return useCallback(
     (item) =>
       navigate.openThreadPanel({
-        actionId: ITEM_PANEL_ACTION_IDS[kind],
+        actionId: GITHUB_TAB_ID,
         ...itemTabOptions(kind, item),
         experimental_replace: true,
       }),
@@ -419,14 +450,21 @@ function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
   );
 }
 
-function PullPanelTab({ threadId, params }: ExperimentalThreadActionTabProps) {
-  const linked = itemRefFromParams(params);
+function GithubPanelTab({
+  threadId,
+  params,
+}: ExperimentalThreadActionTabProps) {
+  const linked = linkedItemFromParams(params);
   if (linked === null) {
-    return <ThreadPullPanel key={threadId} threadId={threadId} />;
+    return <ThreadGithubPanel key={threadId} threadId={threadId} />;
+  }
+  const key = `${linked.kind}:${linked.repo}#${linked.number}`;
+  if (linked.kind === "issue") {
+    return <IssueTabDetail key={key} issue={linked} onBack={null} />;
   }
   return (
     <LinkedPullPanel
-      key={`${threadId}:${linked.repo}#${linked.number}`}
+      key={`${threadId}:${key}`}
       threadId={threadId}
       pull={linked}
     />
@@ -456,11 +494,15 @@ function LinkedPullPanel({
   );
 }
 
-function ThreadPullPanel({ threadId }: { threadId: string }) {
-  const showInThisTab = useShowItemInThisTab("pr");
-  const [choice, setChoice] = useState<"picker" | ThreadPull | null>(null);
+type ThreadPanelChoice = "picker" | ThreadPull | { issue: ItemRef };
+
+function ThreadGithubPanel({ threadId }: { threadId: string }) {
+  const showPullInThisTab = useShowItemInThisTab("pr");
+  const showIssueInThisTab = useShowItemInThisTab("issue");
+  const [choice, setChoice] = useState<ThreadPanelChoice | null>(null);
+  const [pickerKind, setPickerKind] = useState<Item["kind"]>("pr");
   const lookup = useThreadPull(threadId, (pull) => {
-    if (pull !== null && !showInThisTab(pull)) setChoice(pull);
+    if (pull !== null && !showPullInThisTab(pull)) setChoice(pull);
   });
 
   if (lookup.status === "loading") return <PanelSkeleton />;
@@ -487,17 +529,29 @@ function ThreadPullPanel({ threadId }: { threadId: string }) {
   if (view === null) return <PanelSkeleton />;
   if (view === "picker") {
     return (
-      <PullPicker
+      <ItemPicker
         intro={
           lookup.pull === null
-            ? "No pull request is linked to this thread. Pick one to show it here."
-            : "Pick a pull request to show here."
+            ? "No pull request is linked to this thread. Pick a pull request or an issue to show it here."
+            : "Pick a pull request or an issue to show here."
         }
-        onPick={(repo, number) => {
+        kind={pickerKind}
+        onKindChange={setPickerKind}
+        onPick={(kind, repo, number) => {
+          if (kind === "issue") {
+            const issue = { repo, number };
+            if (!showIssueInThisTab(issue)) setChoice({ issue });
+            return;
+          }
           const pull = { repo, number, environmentId: null };
-          if (!showInThisTab(pull)) setChoice(pull);
+          if (!showPullInThisTab(pull)) setChoice(pull);
         }}
       />
+    );
+  }
+  if ("issue" in view) {
+    return (
+      <IssueTabDetail issue={view.issue} onBack={() => setChoice("picker")} />
     );
   }
   return (
@@ -543,7 +597,7 @@ function PullTabDetail({
         onClose={null}
         onOpenPull={(repo, number) => {
           const opened = navigate.openThreadPanel({
-            actionId: ITEM_PANEL_ACTION_IDS.pr,
+            actionId: GITHUB_TAB_ID,
             ...itemTabOptions("pr", { repo, number }),
           });
           if (!opened) navigate.openUrl(itemUrl("pr", { repo, number }));
@@ -558,34 +612,6 @@ function PullTabDetail({
       />
     </div>
   );
-}
-
-function IssuePanelTab({ params }: ExperimentalThreadActionTabProps) {
-  const linked = itemRefFromParams(params);
-  if (linked === null) return <IssuePickerPanel />;
-  return (
-    <IssueTabDetail
-      key={`${linked.repo}#${linked.number}`}
-      issue={linked}
-      onBack={null}
-    />
-  );
-}
-
-function IssuePickerPanel() {
-  const showInThisTab = useShowItemInThisTab("issue");
-  const [shown, setShown] = useState<ItemRef | null>(null);
-  if (shown === null) {
-    return (
-      <IssuePicker
-        onPick={(repo, number) => {
-          const issue = { repo, number };
-          if (!showInThisTab(issue)) setShown(issue);
-        }}
-      />
-    );
-  }
-  return <IssueTabDetail issue={shown} onBack={() => setShown(null)} />;
 }
 
 function IssueTabDetail({
@@ -614,7 +640,7 @@ export const THREAD_PULL_COMMAND: PluginCommandRegistration = {
   title: "GitHub: Open this thread's pull request",
   isAvailable: (context) => context.threadId !== null,
   run: (context) => {
-    context.openPanel({ actionId: "pull" });
+    context.openPanel({ actionId: GITHUB_TAB_ID });
   },
 };
 
@@ -631,20 +657,11 @@ export default definePluginApp((app) => {
   app.slots.experimental_tab({
     context: { kind: "thread" },
     availability: "action",
-    id: "pull",
-    title: "GitHub PR",
+    id: GITHUB_TAB_ID,
+    title: "GitHub",
     icon: "Github",
-    component: PullPanelTab,
-    experimental_claimUrl: (url) => claimItemUrl("pr", url),
-  });
-  app.slots.experimental_tab({
-    context: { kind: "thread" },
-    availability: "action",
-    id: "issue",
-    title: "GitHub issue",
-    icon: "Github",
-    component: IssuePanelTab,
-    experimental_claimUrl: (url) => claimItemUrl("issue", url),
+    component: GithubPanelTab,
+    experimental_claimUrl: claimItemUrl,
   });
   app.slots.homepageSection({
     id: "inbox",

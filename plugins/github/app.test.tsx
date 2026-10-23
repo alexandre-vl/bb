@@ -1655,72 +1655,40 @@ describe("GitHub thread panel", () => {
 describe("GitHub links opened from a thread", () => {
   it.each([
     {
-      action: "pull",
       href: "https://github.com/get-bb/bb/pull/42",
       claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
     },
     {
-      action: "pull",
       href: "https://www.github.com/get-bb/bb/pull/42/?notification_referrer_id=1",
       claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
     },
     {
-      action: "issue",
       href: "https://github.com/get-bb/bb/issues/7",
-      claim: { title: "Issue #7", params: { repo: "get-bb/bb", number: 7 } },
+      claim: {
+        title: "Issue #7",
+        params: { kind: "issue", repo: "get-bb/bb", number: 7 },
+      },
     },
     {
-      action: "pull",
       href: "https://github.com/Get-BB/BB/pull/42",
       claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
     },
+    { href: "https://github.com/get-bb/bb/pull/42/files", claim: null },
     {
-      action: "pull",
-      href: "https://github.com/get-bb/bb/pull/42/files",
-      claim: null,
-    },
-    {
-      action: "issue",
       href: "https://github.com/get-bb/bb/issues/7#issuecomment-1",
       claim: null,
     },
-    {
-      action: "pull",
-      href: "https://github.com/get-bb/bb/issues/7",
-      claim: null,
-    },
-    {
-      action: "issue",
-      href: "https://github.com/get-bb/bb/pull/42",
-      claim: null,
-    },
-    { action: "pull", href: "https://github.com/get-bb/bb/pulls", claim: null },
-    {
-      action: "issue",
-      href: "https://github.com/get-bb/bb/issues/new",
-      claim: null,
-    },
-    {
-      action: "pull",
-      href: "https://github.com/get-bb/bb/pull/0",
-      claim: null,
-    },
-    {
-      action: "pull",
-      href: "https://github.com/get-bb/bb/blob/main/pull/42",
-      claim: null,
-    },
-    {
-      action: "pull",
-      href: "https://github.example.com/get-bb/bb/pull/42",
-      claim: null,
-    },
-  ])("$action claims $href as $claim", ({ action, href, claim }) => {
-    const tab = app.tabs.find((entry) => entry.id === action);
+    { href: "https://github.com/get-bb/bb/pulls", claim: null },
+    { href: "https://github.com/get-bb/bb/issues/new", claim: null },
+    { href: "https://github.com/get-bb/bb/pull/0", claim: null },
+    { href: "https://github.com/get-bb/bb/blob/main/pull/42", claim: null },
+    { href: "https://github.example.com/get-bb/bb/pull/42", claim: null },
+  ])("the GitHub tab claims $href as $claim", ({ href, claim }) => {
+    const tab = app.tabs.find((entry) => entry.id === "pull");
     expect(tab?.experimental_claimUrl?.(new URL(href))).toEqual(claim);
   });
 
-  it("names each + menu tab after the item it shows, so the two read as one plugin", () => {
+  it("offers one GitHub tab in the + menu for pull requests and issues", () => {
     expect(
       app.tabs
         .filter(
@@ -1728,10 +1696,7 @@ describe("GitHub links opened from a thread", () => {
             entry.context.kind === "thread" && entry.availability === "action",
         )
         .map((entry) => [entry.id, entry.title]),
-    ).toEqual([
-      ["pull", "GitHub PR"],
-      ["issue", "GitHub issue"],
-    ]);
+    ).toEqual([["pull", "GitHub"]]);
   });
 
   it("shows the linked pull request rather than the thread's own, outside its workspace and with no way back", async () => {
@@ -1810,8 +1775,11 @@ describe("GitHub links opened from a thread", () => {
 
   it("opens a lowercase tab on the repository as it is tracked", async () => {
     const slot = renderSlot(
-      threadPanelAction("issue"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+      threadPanelAction("pull"),
+      {
+        threadId: "thr-1",
+        params: { kind: "issue", repo: "get-bb/bb", number: 42 },
+      },
       {
         rpc: rpc({
           status: () => ({
@@ -1872,8 +1840,11 @@ describe("GitHub links opened from a thread", () => {
       },
     });
     const linked = renderSlot(
-      threadPanelAction("issue"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+      threadPanelAction("pull"),
+      {
+        threadId: "thr-1",
+        params: { kind: "issue", repo: "get-bb/bb", number: 42 },
+      },
       { rpc: rpc({ getIssue }) },
     );
     expect(await linked.findByText("Steps to reproduce.")).toBeTruthy();
@@ -1884,10 +1855,15 @@ describe("GitHub links opened from a thread", () => {
     linked.lifecycle.unmount();
 
     const picker = renderSlot(
-      threadPanelAction("issue"),
+      threadPanelAction("pull"),
       { threadId: "thr-1", params: null },
-      { rpc: rpc({ getIssue }) },
+      { rpc: rpc({ getIssue, pullForThread: () => ({ pull: null }) }) },
     );
+    const issuesTab = await picker.findByRole("tab", { name: "Issues" });
+    expect(
+      picker.queryByRole("button", { name: /Route-backed issue/ }),
+    ).toBeNull();
+    await act(async () => fireEvent.mouseDown(issuesTab));
     const pick = await picker.findByRole("button", {
       name: /Route-backed issue/,
     });
@@ -1897,9 +1873,9 @@ describe("GitHub links opened from a thread", () => {
       {
         method: "openThreadPanel",
         options: {
-          actionId: "issue",
+          actionId: "pull",
           title: "Issue #42",
-          params: { repo: "get-bb/bb", number: 42 },
+          params: { kind: "issue", repo: "get-bb/bb", number: 42 },
           experimental_replace: true,
         },
       },

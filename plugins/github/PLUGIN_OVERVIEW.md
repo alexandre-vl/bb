@@ -9,7 +9,7 @@ See the open issues and pull requests of your repositories inside bb. Hand one t
 - The home page lists what needs you, and the panel's badge counts it. A thread's GitHub panel shows its pull request.
 - Issues with details: body, comments, a comment box, and editing of status, assignees, and labels.
 - Mentions. Type `@` or `#` in any composer to attach an issue or pull request. Its title, body, and state go to the agent at send time.
-- Links that open beside the chat. Click a GitHub pull request or issue link in a thread, or the thread's pull request in the prompt banner or the Info tab, and it opens in the side panel, one tab per pull request or issue. Cmd- or Ctrl-click opens GitHub instead, as do links to a comment, the files, or the commits. The panel's + menu also has GitHub PR, for the thread's pull request, and GitHub issue, to pick an open issue.
+- Links that open beside the chat. Click a GitHub pull request or issue link in a thread, or the thread's pull request in the prompt banner or the Info tab, and it opens in the side panel, one tab per pull request or issue. Cmd- or Ctrl-click opens GitHub instead, as do links to a comment, the files, or the commits. The panel's + menu also has GitHub, which shows the thread's pull request, or lets you pick an open pull request or issue when the thread has none.
 
 ## How it works
 

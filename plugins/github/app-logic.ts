@@ -27,6 +27,10 @@ export interface ItemRef {
   number: number;
 }
 
+export interface LinkedItem extends ItemRef {
+  kind: Item["kind"];
+}
+
 const REPO_NAME_PATTERN = /^[\w.-]+\/[\w.-]+$/;
 const ITEM_NUMBER_PATTERN = /^[1-9]\d*$/;
 const GITHUB_HOSTNAMES = new Set(["github.com", "www.github.com"]);
@@ -83,30 +87,28 @@ export function itemTabOptions(
   kind: Item["kind"],
   item: ItemRef,
 ): PluginPanelActionOpenOptions {
-  return {
-    title: `${kind === "pr" ? "PR" : "Issue"} #${item.number}`,
-    params: { repo: item.repo.toLowerCase(), number: item.number },
-  };
+  const params = { repo: item.repo.toLowerCase(), number: item.number };
+  return kind === "pr"
+    ? { title: `PR #${item.number}`, params }
+    : { title: `Issue #${item.number}`, params: { kind, ...params } };
 }
 
-export function claimItemUrl(
-  kind: Item["kind"],
-  url: URL,
-): PluginPanelActionOpenOptions | null {
+export function claimItemUrl(url: URL): PluginPanelActionOpenOptions | null {
   const item = githubItemFromUrl(url);
-  return item === null || item.kind !== kind
-    ? null
-    : itemTabOptions(kind, item);
+  return item === null ? null : itemTabOptions(item.kind, item);
 }
 
-export function itemRefFromParams(params: JsonValue | null): ItemRef | null {
+export function linkedItemFromParams(
+  params: JsonValue | null,
+): LinkedItem | null {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
     return null;
   }
-  const { repo, number } = params;
+  const { kind = "pr", repo, number } = params;
+  if (kind !== "pr" && kind !== "issue") return null;
   if (typeof repo !== "string" || !REPO_NAME_PATTERN.test(repo)) return null;
   if (typeof number !== "number" || !Number.isSafeInteger(number)) return null;
-  return number > 0 ? { repo, number } : null;
+  return number > 0 ? { kind, repo, number } : null;
 }
 
 export type Route =

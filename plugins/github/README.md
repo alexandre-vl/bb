@@ -83,14 +83,15 @@ bb plugin install github
   pull request in the prompt banner or the Info tab, opens its tab instead of
   the browser; a second click focuses it. Cmd-, Ctrl-, Shift-, or Alt-click
   opens GitHub, and so do links to a comment, the files, or the commits. From
-  the panel's + menu, GitHub PR becomes the thread's pull request tab, or offers
-  open pull requests when the thread has none, and GitHub issue offers open
-  issues; a pick becomes that item's tab. The palette command GitHub: Open
-  this thread's pull request opens the same tab. `bb thread tabs set` opens
-  these tabs too: a `plugin-panel` tab with `pluginId` `github`, `actionId`
-  `pull` or `issue`, and `paramsJson` `{"repo":"owner/name","number":N}` with
-  the repository in lowercase and the keys in that order, the form a clicked
-  link opens, so a second click focuses that tab.
+  the panel's + menu, GitHub becomes the thread's pull request tab, or, when
+  the thread has none, offers open pull requests and open issues to pick
+  from; a pick becomes that item's tab. The palette command GitHub: Open this
+  thread's pull request opens the same tab. `bb thread tabs set` opens these
+  tabs too: a `plugin-panel` tab with `pluginId` `github`, `actionId` `pull`,
+  and `paramsJson` `{"repo":"owner/name","number":N}` for a pull request or
+  `{"kind":"issue","repo":"owner/name","number":N}` for an issue, with the
+  repository in lowercase and the keys in that order, the form a clicked link
+  opens, so a second click focuses that tab.
 - **Home page**: the first four pull requests that need you, and a link to
   the inbox.
 - **Issues**: open issues first, closed ones folded; each row says who is
