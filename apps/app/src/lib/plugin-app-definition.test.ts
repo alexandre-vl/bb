@@ -513,7 +513,10 @@ describe("collectPluginAppRegistrations", () => {
         experimental_useBadge: useNoBadge,
         headerContent: Component,
       });
-      app.slots.threadPanelAction({
+      Reflect.get(
+        app.slots,
+        "threadPanelAction",
+      )({
         id: "thread-panel",
         title: "Thread panel",
         icon: "Columns",
@@ -593,7 +596,6 @@ describe("collectPluginAppRegistrations", () => {
   it("collects every slot kind as plain data", () => {
     const run = () => {};
     const mount = () => {};
-    const claimUrl = () => null;
     const definition = definePluginApp((app) => {
       app.slots.homepageSection({
         id: "issues",
@@ -617,13 +619,15 @@ describe("collectPluginAppRegistrations", () => {
         path: "board",
         component: Component,
       });
-      app.slots.threadPanelAction({
+      Reflect.get(
+        app.slots,
+        "threadPanelAction",
+      )({
         id: "issue",
         title: "Issue",
         icon: "Columns",
         component: Component,
         run,
-        experimental_claimUrl: claimUrl,
       });
       app.slots.experimental_newThreadPanelAction({
         id: "template",
@@ -690,14 +694,13 @@ describe("collectPluginAppRegistrations", () => {
         component: Component,
       },
     ]);
-    expect(registrations.threadPanelActions).toEqual([
+    expect(registrations.threadPanelActions).toMatchObject([
       {
         id: "issue",
         title: "Issue",
         icon: "Columns",
         component: Component,
         run,
-        experimental_claimUrl: claimUrl,
       },
     ]);
     expect(registrations.newThreadPanelActions).toEqual([
@@ -741,6 +744,26 @@ describe("collectPluginAppRegistrations", () => {
     ]);
     expect(registrations.contentScripts).toEqual([
       { id: "editor-enhancement", mount },
+    ]);
+  });
+
+  it("keeps a thread action tab's experimental_claimUrl", () => {
+    const claimUrl = () => null;
+    const registrations = collectPluginAppRegistrations(
+      definePluginApp((app) => {
+        app.slots.experimental_tab({
+          context: { kind: "thread" },
+          availability: "action",
+          id: "issue",
+          title: "Issue",
+          icon: "Github",
+          component: Component,
+          experimental_claimUrl: claimUrl,
+        });
+      }),
+    );
+    expect(registrations.tabs).toMatchObject([
+      { id: "issue", experimental_claimUrl: claimUrl },
     ]);
   });
 
@@ -1058,23 +1081,61 @@ describe("collectPluginAppRegistrations", () => {
       /extensions must be lowercase alphanumerics/,
     ],
     [
-      "thread panel action with a non-function experimental_claimUrl",
+      "thread action tab with a non-function experimental_claimUrl",
       () =>
         definePluginApp((app) => {
-          app.slots.threadPanelAction({
+          app.slots.experimental_tab({
+            context: { kind: "thread" },
+            availability: "action",
+            icon: "Info",
             id: "x",
             title: "X",
             component: Component,
             experimental_claimUrl: "github.com" as never,
           });
         }),
-      /"experimental_claimUrl" must be a function/,
+      /experimental_claimUrl requires a thread action tab and a function/,
+    ],
+    [
+      "fixed thread tab with experimental_claimUrl",
+      () =>
+        definePluginApp((app) => {
+          app.slots.experimental_tab({
+            context: { kind: "thread" },
+            availability: "fixed",
+            icon: "Info",
+            id: "x",
+            title: "X",
+            component: Component,
+            experimental_claimUrl: (() => null) as never,
+          });
+        }),
+      /experimental_claimUrl requires a thread action tab and a function/,
+    ],
+    [
+      "navigation-page action tab with experimental_claimUrl",
+      () =>
+        definePluginApp((app) => {
+          app.slots.experimental_tab({
+            context: { kind: "nav-panel", panelId: "board" },
+            availability: "action",
+            icon: "Info",
+            id: "x",
+            title: "X",
+            component: Component,
+            experimental_claimUrl: (() => null) as never,
+          });
+        }),
+      /experimental_claimUrl requires a thread action tab and a function/,
     ],
     [
       "thread panel action with a non-function run",
       () =>
         definePluginApp((app) => {
-          app.slots.threadPanelAction({
+          app.slots.experimental_tab({
+            context: { kind: "thread" },
+            availability: "action",
+            icon: "Info",
             id: "x",
             title: "X",
             component: Component,

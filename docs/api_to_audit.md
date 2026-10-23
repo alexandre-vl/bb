@@ -1376,9 +1376,9 @@ Docs: `backend-foundation.md`, `testing.md`.
 
 ## Fixed-tab targets (`experimental_target`, `experimental_useAppPanel`, and `experimental_useFixedTabTarget`)
 
-**Kept experimental (2026-08-22).** `PluginNavPanelRegistration.fixedTabs`
-itself is stable. The target trio has one example consumer, and the
-validator, survival and cross-thread items below are unanswered.
+**Kept experimental.** Fixed tabs now register through `experimental_tab`; the
+legacy navigation-page field remains a runtime adapter only. The target trio
+has one example consumer; validator, survival and cross-thread items remain.
 
 A fixed tab's `experimental_target` validator owns a JSON-safe target type.
 `experimental_useAppPanel()` selects one of the calling plugin's eligible tabs
@@ -2135,12 +2135,15 @@ Docs: `frontend-core-slots.md`.
    standard slot-owned CSS retention are the right failure semantics for UI
    that may have no in-layout representation.
 
-## `PluginThreadPanelActionRegistration.experimental_claimUrl` (`@get-bb/plugin-sdk/app`)
+## `ExperimentalTabRegistration.experimental_claimUrl` (`@get-bb/plugin-sdk/app`)
 
-**Added 2026-10-22 (SDK 0.6.71).** One consumer: the GitHub plugin's GitHub
+**Added 2026-10-23 (SDK 0.6.74).** One consumer: the GitHub plugin's GitHub
 PR and GitHub issue tabs.
 
-A `threadPanelAction` claims web links its tab can show. A plain primary click
+A thread action tab (`app.slots.experimental_tab` with
+`context: { kind: "thread" }` and `availability: "action"`) claims web links
+it can show; the registration collector rejects a claim on a fixed or
+navigation-page tab. A plain primary click
 on an http(s) link bb shows in a thread view (Markdown in the timeline and in
 its side panel, inline or hosted by a split pane, and the thread's pull
 request in the prompt banner and the Info tab) asks each action's claim in
@@ -2155,8 +2158,9 @@ logged and skipped.
 **Core callers.** `MarkdownAnchor`, the prompt banner's pull request link and
 the Info tab's Pull request row share `useOpenClaimedUrlOnClick`, which offers
 plain clicks to `PluginUrlClaimContext`; `ThreadDetailView` provides it around
-its timeline and its split-hosted side panel. `useOpenClaimedUrl` resolves the
-claim and opens the tab through `usePanelPluginPanels`, the opener that
+its timeline and its split-hosted side panel. `useOpenClaimedUrl` asks the
+thread action tabs in `usePluginSlots().tabs`, and opens the tab through
+`usePanelPluginPanels`, the opener that
 `useBbNavigate().openThreadPanel`, message actions, and timeline title actions
 use. `plugin-url-claims.test.tsx` covers resolution, and
 `plugin-url-claims.surfaces.test.tsx` runs one click contract table against
@@ -2182,12 +2186,12 @@ Docs: `frontend-core-slots.md`.
    whether an asynchronous claim, or a fallback when the tab cannot load the
    resource, is needed.
 5. **Slot placement.** Decide whether `experimental_newThreadPanelAction` and
-   nav panels should claim links too, or a dedicated URL-claim slot should
-   replace the per-action function.
+   navigation-page tabs should claim links too, or a dedicated URL-claim slot
+   should replace the per-tab function.
 
 ## `BbNavigate.openThreadPanel` `experimental_replace` (`@get-bb/plugin-sdk/app`)
 
-**Added 2026-10-22 (SDK 0.6.71).** One consumer: the GitHub plugin's GitHub
+**Added 2026-10-23 (SDK 0.6.74).** One consumer: the GitHub plugin's GitHub
 PR and GitHub issue tabs, when a tab opened without params finds the thread's
 pull request, and when someone picks a pull request or issue in one.
 
@@ -3646,3 +3650,12 @@ Stabilize after exercising producer cancellation, reload, reconnect and byte lim
 ## Retired `experimental_useSidebarThreadPullRequest` runtime member
 
 `experimental_useSidebarThreadPullRequest(threadId)` and its `PluginSidebarPullRequest` and `PluginSidebarThreadPullRequestState` types are gone from `@get-bb/plugin-sdk/app`, the Plugin Guide and the authoring docs. Published bundles resolve `@get-bb/plugin-sdk/app` exports by name on `globalThis.__bbPluginRuntime.pluginSdkApp`, so the app installs `retiredPluginSdkAppMembers` (`apps/app/src/lib/plugin-sdk-app-impl.tsx`) next to the implementation. The member keeps its old shape, reads the GitHub PR Status plugin's `pullRequests` row for the thread's environment through the same `useEnvironmentPullRequest` hook core's banner and Info row use, and returns `{ isLoading: false, pullRequest: null }` when the plugin is disabled or the read fails. The name leaves only the typings. `bb-plugin-build` keeps it in the `@get-bb/plugin-sdk/app` runtime shim's export list (`RETIRED_PLUGIN_SDK_APP_EXPORTS` in `packages/plugin-build/src/build-plugin-app.ts`), so plugins that still import it build and run, because git-sourced marketplace plugins are built by bb at install and update and path and builtin plugins rebuild when the SDK version changes. An import of it is a build warning carrying the replacement call: `bb plugin build` and `bb plugin dev` print it, and the server writes it to the plugin's log and the server log when it builds the plugin. Callers are marketplace plugins written against the old SDK (t3sidebar, dockside, gtd-sidebar, thread-inbox, radar-sidebar, bb-sidebar, sidebar-plus, cursor-sidebar, switchboard, vantage, jb-flow, tinted-threads among them). Remove the runtime member and the shim entry only after those plugins have migrated.
+
+## Unified tabs (`experimental_tab`)
+
+- **Surface:** `app.slots.experimental_tab`, `ExperimentalTabRegistration`, `ExperimentalTabContext`, `ExperimentalTabReference`, `ExperimentalTabTargetReference`, `ExperimentalThreadActionTabProps`, `ExperimentalThreadTabActionContext`, and `ExperimentalAppPanel.experimental_openTab`. Context is thread (`threadId`) or an owned navigation panel (`panelId`, component `subPath`). Availability is fixed or action. Only actions accept `run`, default `params` and per-open persisted params/title; navigation-page fixed tabs retain validated session targets. `tooltip` defaults to title and layout is padded or flush.
+- **Behavior:** one registry and destination dispatcher serve thread fixed, thread action, navigation-page fixed and navigation-page action tabs. `useVisible` runs inside plugin scope/crash isolation for the current context. It hides a destination or launcher without removing saved fixed identity/order or already-open action instances. Action params deduplicate instances; fixed tabs have one identity and cannot close. Existing `openFixedTab`, action `openPanel`, message-action openers and `openThreadPanel` delegate through the shared dispatcher. New-thread-screen actions retain their project-context API and use the same action-opening implementation.
+- **Compatibility:** `threadPanelAction`, `PluginThreadPanelActionRegistration`, `PluginThreadPanelProps`, `PluginThreadPanelActionContext`, `navPanel.fixedTabs`, `PluginFixedTabRegistration` and `PluginFixedTabDeclaration` are removed from public source typings by explicit product decision. Runtime adapters in the registration collector remain for published bundles and Git-source install/update builds: 92 marketplace repositories use `threadPanelAction`, 15 use `fixedTabs`. Legacy optional icons, unknown fields and older fixed-tab owner shapes are accepted; malformed entries warn/skip rather than crashing the plugin. `bb-plugin-build` emits migration warnings with replacement examples and the authoring migration link. Server install/rebuild paths copy warnings into the plugin log; warnings never block install or update. The runtime export manifest continues to expose existing SDK functions. Remove adapters only after known callers have migrated.
+- **Persistence and automation:** thread fixed entries use `{id, kind: 'plugin-fixed', pluginId, tabId}` through SDK `threads.tabs.get/update` and CLI `bb thread tabs show/set`, with revision checks. Existing `plugin-page-fixed` and `plugin-panel` action entries/params keep their IDs and storage keys. Selection is client-local. Legacy core Info/Diff kinds, active selections and split IDs convert without reordering; server entries rewrite through the revision-checked queue. Split restoration waits for registration/visibility readiness.
+- **Core callers:** Info and Diff register as thread + fixed and use the shared content host, visibility, descriptor and open paths. Diff retains shortcut, Git setting, file/commit navigation and review state. Core-only Info metadata and Diff controllers remain pane-owned contexts; they are not public plugin API. Docs, GitHub, Side Chat, Tasks, Workflows and the ThreadChat demo use the unified registration.
+- **Stabilization:** audit context typing, targets versus persisted inputs, visibility and crash/reload lifecycles, independent panes/threads, startup split restoration, revision conflicts and compact drawers. Keep the shared contract table across contexts and legacy adapters, verify actual published plugin installs, then rename project-wide and remove this entry.

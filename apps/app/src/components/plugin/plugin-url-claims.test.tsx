@@ -2,7 +2,7 @@
 
 import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginThreadPanelActionRegistration } from "@get-bb/plugin-sdk";
+import type { PluginPanelActionOpenOptions } from "@get-bb/plugin-sdk";
 import {
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
@@ -10,9 +10,7 @@ import {
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 import { useOpenClaimedUrl } from "./plugin-url-claims";
 
-type ClaimUrl = NonNullable<
-  PluginThreadPanelActionRegistration["experimental_claimUrl"]
->;
+type ClaimUrl = (url: URL) => PluginPanelActionOpenOptions | null;
 
 function PanelComponent() {
   return null;
@@ -25,9 +23,12 @@ function registerClaims(
   setPluginSlotRegistrations(
     pluginId,
     makePluginRegistrationSet({
-      threadPanelActions: Object.entries(claims).map(([id, claim]) => ({
+      tabs: Object.entries(claims).map(([id, claim]) => ({
         id,
         title: id,
+        icon: "Github",
+        context: { kind: "thread" },
+        availability: "action",
         component: PanelComponent,
         experimental_claimUrl: claim as ClaimUrl,
       })),
@@ -122,7 +123,7 @@ describe("useOpenClaimedUrl", () => {
     });
     expect(warn).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining(
-        '[plugin:acme] threadPanelAction "broken" experimental_claimUrl failed',
+        '[plugin:acme] experimental_tab "broken" experimental_claimUrl failed',
       ),
     );
     expect(warn.mock.calls[0]?.[0]).toContain(logged);

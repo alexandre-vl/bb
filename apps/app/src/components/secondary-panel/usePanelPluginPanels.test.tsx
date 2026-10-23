@@ -93,7 +93,8 @@ describe.each(SURFACES)("panel plugin tabs on the $name", (surface) => {
     expect(reveal).not.toHaveBeenCalled();
   });
 
-  it("replaces the calling tab in place without revealing the panel, and reports a tab state decline", () => {
+  it("replaces the calling tab in place without revealing the panel, and reports a tab state decline without a params warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const accepted = renderSurface(surface);
     expect(
       accepted.openThreadPanel({
@@ -121,6 +122,7 @@ describe.each(SURFACES)("panel plugin tabs on the $name", (surface) => {
       }),
     ).toBe(false);
     expect(declined.reveal).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("publishes itself as the plugin command opener only while focused", () => {

@@ -13,7 +13,7 @@ import {
   useRpc,
   type PluginCommandRegistration,
   type PluginNavPanelProps,
-  type PluginThreadPanelProps,
+  type ExperimentalThreadActionTabProps,
 } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { DelayedLoading } from "@/components/ui/delayed-loading";
@@ -419,7 +419,7 @@ function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
   );
 }
 
-function PullPanelTab({ threadId, params }: PluginThreadPanelProps) {
+function PullPanelTab({ threadId, params }: ExperimentalThreadActionTabProps) {
   const linked = itemRefFromParams(params);
   if (linked === null) {
     return <ThreadPullPanel key={threadId} threadId={threadId} />;
@@ -560,7 +560,7 @@ function PullTabDetail({
   );
 }
 
-function IssuePanelTab({ params }: PluginThreadPanelProps) {
+function IssuePanelTab({ params }: ExperimentalThreadActionTabProps) {
   const linked = itemRefFromParams(params);
   if (linked === null) return <IssuePickerPanel />;
   return (
@@ -628,14 +628,18 @@ export default definePluginApp((app) => {
     headerContent: PanelHeader,
     experimental_useBadge: useInboxBadge,
   });
-  app.slots.threadPanelAction({
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
     id: "pull",
     title: "GitHub",
     icon: "Github",
     component: PullPanelTab,
     experimental_claimUrl: (url) => claimItemUrl("pr", url),
   });
-  app.slots.threadPanelAction({
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
     id: "issue",
     title: "GitHub issue",
     icon: "Github",

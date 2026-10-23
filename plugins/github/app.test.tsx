@@ -1716,8 +1716,8 @@ describe("GitHub links opened from a thread", () => {
       claim: null,
     },
   ])("$action claims $href as $claim", ({ action, href, claim }) => {
-    const claimUrl = threadPanelAction(action).experimental_claimUrl;
-    expect(claimUrl?.(new URL(href))).toEqual(claim);
+    const tab = app.tabs.find((entry) => entry.id === action);
+    expect(tab?.experimental_claimUrl?.(new URL(href))).toEqual(claim);
   });
 
   it("shows the linked pull request rather than the thread's own, outside its workspace and with no way back", async () => {
