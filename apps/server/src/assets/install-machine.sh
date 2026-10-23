@@ -256,8 +256,9 @@ run_lifecycle() {
     case "$daemon_pid" in *[!0-9]*|'0'|'1') fail_step "Invalid installed daemon PID."; exit 1 ;; esac
     daemon_command=$(ps -p "$daemon_pid" -o command= 2>/dev/null) || return 1
     launcher="$data_dir/npm/bin/bb-app"
-    case " $daemon_command " in *" $launcher "*" host-daemon "*" --host-daemon-port $host_daemon_port "*" --server-url $server_url "*) return 0 ;; esac
-    fail_step "Recorded daemon PID belongs to another process."
+    case " $daemon_command " in *" $launcher host-daemon "*) ;; *) return 1 ;; esac
+    case " $daemon_command " in *" --host-daemon-port $host_daemon_port --server-url $server_url "*) return 0 ;; esac
+    fail_step "Recorded daemon PID runs a host daemon with another port or server URL."
     exit 1
   }
   if [ "$lifecycle_action" = start ]; then

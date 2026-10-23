@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -100,6 +100,34 @@ function writeJoinedState(
     join(fixture.dataDir, "config.json"),
     JSON.stringify({ serverUrl }),
   );
+}
+
+function writeOwnedMachine(
+  fixture: ReturnType<typeof createFixture>,
+  hostDaemonPort: number,
+): string {
+  mkdirSync(join(fixture.homeDir, ".bb-machines", "owned", "npm", "bin"), {
+    recursive: true,
+  });
+  const dataDir = realpathSync(join(fixture.homeDir, ".bb-machines", "owned"));
+  writeJoinedState({ ...fixture, dataDir });
+  writeFileSync(join(dataDir, "host-daemon-port"), `${hostDaemonPort}\n`);
+  return dataDir;
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function killRecordedDaemon(pidPath: string, sparedPid?: number): void {
+  if (!existsSync(pidPath)) return;
+  const pid = Number(readFileSync(pidPath, "utf8"));
+  if (pid !== sparedPid && isAlive(pid)) process.kill(pid, "SIGTERM");
 }
 
 function createEnrollingBbAppScript(args: {
@@ -406,6 +434,136 @@ exec '${process.execPath}' "$@"
       if (existsSync(daemonPidPath)) {
         process.kill(Number(readFileSync(daemonPidPath, "utf8")), "SIGTERM");
       }
+    }
+  });
+
+  it("starts a daemon when another process took the PID the installer recorded before a restart", () => {
+    const fixture = createFixture();
+    const dataDir = writeOwnedMachine(fixture, 40010);
+    const invocationPath = join(dataDir, "invocation");
+    writeExecutable(
+      join(dataDir, "npm", "bin", "bb-app"),
+      createEnrollingBbAppScript({ hostId: "host-test", invocationPath }),
+    );
+    const daemonPidPath = join(dataDir, "install-daemon.pid");
+    const other = spawn("sleep", ["30"], { stdio: "ignore" });
+    writeFileSync(daemonPidPath, `${other.pid}\n`);
+
+    try {
+      const started = runScript(
+        ["--start", "--host-id", "host-test", "--data-dir", dataDir],
+        fixture,
+      );
+
+      expect(started.status, started.stderr).toBe(0);
+      expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
+        "host-daemon",
+        "--auto-update",
+        "--supervise",
+        "--host-daemon-port",
+        "40010",
+        "--server-url",
+        "https://machine.getbb.app",
+      ]);
+      expect(Number(readFileSync(daemonPidPath, "utf8"))).not.toBe(other.pid);
+      expect(isAlive(Number(other.pid))).toBe(true);
+    } finally {
+      killRecordedDaemon(daemonPidPath, other.pid);
+      other.kill();
+    }
+  });
+
+  it("stops a machine without signalling another process that took the PID the installer recorded", () => {
+    const fixture = createFixture();
+    const dataDir = writeOwnedMachine(fixture, 40011);
+    const daemonPidPath = join(dataDir, "install-daemon.pid");
+    const other = spawn("sleep", ["30"], { stdio: "ignore" });
+    writeFileSync(daemonPidPath, `${other.pid}\n`);
+
+    try {
+      const stopped = runScript(
+        ["--stop", "--host-id", "host-test", "--data-dir", dataDir],
+        fixture,
+      );
+
+      expect(stopped.status, stopped.stderr).toBe(0);
+      expect(isAlive(Number(other.pid))).toBe(true);
+      expect(existsSync(daemonPidPath)).toBe(false);
+    } finally {
+      other.kill();
+    }
+  });
+
+  it("refuses to start a second daemon while its recorded daemon runs with another server URL", () => {
+    const fixture = createFixture();
+    const dataDir = writeOwnedMachine(fixture, 40012);
+    const invocationPath = join(dataDir, "invocation");
+    const launcher = join(dataDir, "npm", "bin", "bb-app");
+    writeExecutable(
+      launcher,
+      createEnrollingBbAppScript({ hostId: "host-test", invocationPath }),
+    );
+    const daemonPidPath = join(dataDir, "install-daemon.pid");
+    const recorded = spawn(
+      process.execPath,
+      [
+        "-e",
+        "setInterval(() => {}, 1000)",
+        launcher,
+        "host-daemon",
+        "--auto-update",
+        "--supervise",
+        "--host-daemon-port",
+        "40012",
+        "--server-url",
+        "https://previous.example",
+      ],
+      { stdio: "ignore" },
+    );
+    writeFileSync(daemonPidPath, `${recorded.pid}\n`);
+
+    try {
+      const started = runScript(
+        ["--start", "--host-id", "host-test", "--data-dir", dataDir],
+        fixture,
+      );
+
+      expect(started.status).toBe(1);
+      expect(started.stderr).toContain(
+        "Recorded daemon PID runs a host daemon with another port or server URL.",
+      );
+      expect(existsSync(invocationPath)).toBe(false);
+    } finally {
+      killRecordedDaemon(daemonPidPath, recorded.pid);
+      recorded.kill();
+    }
+  });
+
+  it("stops the daemon that its start launched without a service", () => {
+    const fixture = createFixture();
+    const dataDir = writeOwnedMachine(fixture, 40013);
+    writeExecutable(
+      join(dataDir, "npm", "bin", "bb-app"),
+      createEnrollingBbAppScript({ hostId: "host-test" }),
+    );
+    const daemonPidPath = join(dataDir, "install-daemon.pid");
+    const lifecycle = (action: "--start" | "--stop") =>
+      runScript(
+        [action, "--host-id", "host-test", "--data-dir", dataDir],
+        fixture,
+      );
+
+    try {
+      const started = lifecycle("--start");
+      expect(started.status, started.stderr).toBe(0);
+      expect(existsSync(daemonPidPath)).toBe(true);
+
+      const stopped = lifecycle("--stop");
+
+      expect(stopped.status, stopped.stderr).toBe(0);
+      expect(existsSync(daemonPidPath)).toBe(false);
+    } finally {
+      killRecordedDaemon(daemonPidPath);
     }
   });
 
