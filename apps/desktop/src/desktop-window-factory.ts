@@ -1,3 +1,5 @@
+import { nextZoomFactor } from "./desktop-zoom.js";
+import type { BbDesktopZoomCommand } from "@bb/desktop-contract";
 import type { BrowserWindowConstructorOptions, Event } from "electron";
 import {
   MIN_WINDOW_HEIGHT,
@@ -5,14 +7,14 @@ import {
   PRIMARY_WINDOW_STATE_KEY,
   type DisplayWorkArea,
   type WindowBounds,
+  type PersistedWindowStateEntry,
   type WindowStateKey,
 } from "./types.js";
 import {
-  persistBrowserWindowStates,
-  readPersistedWindowStateEntries,
-  removePersistedWindowState,
+  createPersistedWindowStateEntry,
+  readPersistedWindowStateFile,
   restoreBrowserWindowState,
-  type PersistBrowserWindowStateSnapshot,
+  writePersistedWindowStateFile,
   type StatefulBrowserWindow,
 } from "./window-state.js";
 import { resolveDesktopExternalUrl } from "./desktop-external-url.js";
@@ -66,9 +68,10 @@ export interface DesktopWindowWebContents extends DesktopContextMenuWebContents 
   ): void;
   openDevTools(options: DesktopWindowOpenDevToolsOptions): void;
   setWindowOpenHandler(handler: DesktopWindowOpenHandler): void;
-  setZoomFactor(factor: number): void;
   getZoomFactor(): number;
+  setZoomFactor(factor: number): void;
   ipc: { on(channel: string, listener: () => void): void };
+  on(eventName: "dom-ready", listener: () => void): void;
 }
 
 export interface DesktopBrowserWindow extends StatefulBrowserWindow {
@@ -78,7 +81,15 @@ export interface DesktopBrowserWindow extends StatefulBrowserWindow {
   loadURL(url: string): Promise<void>;
   maximize(): void;
   on(
-    eventName: "close" | "closed" | "enter-full-screen" | "leave-full-screen",
+    eventName:
+      | "close"
+      | "closed"
+      | "enter-full-screen"
+      | "leave-full-screen"
+      | "move"
+      | "resize"
+      | "maximize"
+      | "unmaximize",
     listener: () => void,
   ): void;
   once(eventName: "ready-to-show", listener: () => void): void;
@@ -133,6 +144,7 @@ export interface DesktopWindowFactory {
   loadUrl(args: LoadDesktopWindowsUrlArgs): Promise<void>;
   openDevTools(): void;
   persistOpenWindows(): Promise<void>;
+  zoom(webContentsId: number, command: BbDesktopZoomCommand): boolean;
   restoreSavedWindows(
     args: RestoreDesktopWindowsArgs,
   ): Promise<DesktopBrowserWindow[]>;
@@ -219,7 +231,6 @@ function createWindowOptions(
 }
 
 async function loadUrlIntoWindow(args: LoadUrlIntoWindowArgs): Promise<void> {
-  args.browserWindow.webContents.setZoomFactor(1);
   try {
     await args.browserWindow.loadURL(args.url);
   } catch (error) {
@@ -236,6 +247,51 @@ export function createDesktopWindowFactory(
 ): DesktopWindowFactory {
   const activeWindows = new Map<WindowStateKey, DesktopBrowserWindow>();
   const pendingStateKeys = new Set<WindowStateKey>();
+  let zoomFactor: number | null = null;
+  let pendingWrite = Promise.resolve();
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearSaveTimer(): void {
+    if (saveTimer !== null) clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  function snapshotWindows(): PersistedWindowStateEntry[] {
+    return [...activeWindows]
+      .filter(([, window]) => !window.isDestroyed())
+      .map(([stateKey, browserWindow]) =>
+        createPersistedWindowStateEntry({ browserWindow, stateKey }),
+      );
+  }
+
+  function settledWrite(): Promise<void> {
+    return pendingWrite.catch(() => {});
+  }
+
+  function writeEntries(windows: PersistedWindowStateEntry[]): Promise<void> {
+    pendingWrite = settledWrite().then(() =>
+      writePersistedWindowStateFile({
+        file: { windows, zoomFactor: zoomFactor ?? 1 },
+        userDataPath: args.userDataPath,
+      }),
+    );
+    return pendingWrite;
+  }
+
+  function applyZoomFactor(browserWindow: DesktopBrowserWindow): void {
+    browserWindow.webContents.setZoomFactor(zoomFactor ?? 1);
+  }
+
+  function scheduleSave(): void {
+    if (args.isQuitting()) return;
+    clearSaveTimer();
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void persistOpenWindows().catch((error) =>
+        console.error("Could not save desktop window state", error),
+      );
+    }, 500);
+  }
 
   async function createWindow(
     createArgs: CreateDesktopWindowArgs,
@@ -249,10 +305,15 @@ export function createDesktopWindowFactory(
     pendingStateKeys.add(stateKey);
 
     try {
-      const restoredState = await restoreBrowserWindowState({
+      await settledWrite();
+      const savedState = await readPersistedWindowStateFile({
+        userDataPath: args.userDataPath,
+      });
+      zoomFactor ??= savedState.zoomFactor;
+      const restoredState = restoreBrowserWindowState({
         displayWorkAreas: args.displayWorkAreas,
         stateKey,
-        userDataPath: args.userDataPath,
+        windows: savedState.windows,
       });
       const browserWindow = args.browserWindowCreator.create(
         createWindowOptions({
@@ -298,14 +359,44 @@ export function createDesktopWindowFactory(
       browserWindow.once("ready-to-show", () => {
         browserWindow.show();
       });
+      let closing = false;
+      const saveOnChange = () => {
+        if (!closing) scheduleSave();
+      };
+      for (const event of [
+        "move",
+        "resize",
+        "maximize",
+        "unmaximize",
+        "enter-full-screen",
+        "leave-full-screen",
+      ] as const) {
+        browserWindow.on(event, saveOnChange);
+      }
+      browserWindow.on("close", () => {
+        closing = true;
+        if (args.isQuitting()) return;
+        clearSaveTimer();
+        const entries = snapshotWindows().filter(
+          (entry) => entry.stateKey !== stateKey,
+        );
+        if (entries.length === 0) {
+          entries.push(
+            createPersistedWindowStateEntry({
+              browserWindow,
+              stateKey: PRIMARY_WINDOW_STATE_KEY,
+            }),
+          );
+        }
+        void writeEntries(entries).catch((error) =>
+          console.error("Could not save desktop window state", error),
+        );
+      });
       browserWindow.on("closed", () => {
         activeWindows.delete(stateKey);
-        if (!args.isQuitting()) {
-          void removePersistedWindowState({
-            stateKey,
-            userDataPath: args.userDataPath,
-          });
-        }
+      });
+      browserWindow.webContents.on("dom-ready", () => {
+        applyZoomFactor(browserWindow);
       });
       browserWindow.webContents.setWindowOpenHandler((details) => {
         const url = resolveDesktopExternalUrl(details.url);
@@ -331,7 +422,7 @@ export function createDesktopWindowFactory(
   async function restoreSavedWindows(
     restoreArgs: RestoreDesktopWindowsArgs,
   ): Promise<DesktopBrowserWindow[]> {
-    const entries = await readPersistedWindowStateEntries({
+    const { windows: entries } = await readPersistedWindowStateFile({
       userDataPath: args.userDataPath,
     });
     if (entries.length === 0) {
@@ -386,15 +477,10 @@ export function createDesktopWindowFactory(
   }
 
   async function persistOpenWindows(): Promise<void> {
-    const snapshots: PersistBrowserWindowStateSnapshot[] = [];
-    for (const [stateKey, browserWindow] of activeWindows.entries()) {
-      snapshots.push({ browserWindow, stateKey });
-    }
-
-    await persistBrowserWindowStates({
-      snapshots,
-      userDataPath: args.userDataPath,
-    });
+    clearSaveTimer();
+    const entries = snapshotWindows();
+    if (entries.length > 0) await writeEntries(entries);
+    else await settledWrite();
   }
 
   return {
@@ -406,6 +492,17 @@ export function createDesktopWindowFactory(
     loadUrl,
     openDevTools,
     persistOpenWindows,
+    zoom(webContentsId, command) {
+      const windows = [...activeWindows.values()];
+      if (!windows.some((window) => window.webContents.id === webContentsId))
+        return false;
+      zoomFactor = nextZoomFactor(zoomFactor ?? 1, command);
+      for (const window of windows) applyZoomFactor(window);
+      void persistOpenWindows().catch((error) =>
+        console.error("Could not save desktop window state", error),
+      );
+      return true;
+    },
     restoreSavedWindows,
   };
 }

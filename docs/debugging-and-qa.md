@@ -8,7 +8,7 @@
 - `pnpm desktop` packages the Electron app and launches it against the installed data directory, ports and Electron user-data directory, the same targets a released build uses. It shares the single-instance lock with an installed bb: quit that first, or the launch focuses it instead of starting your build.
 - `pnpm desktop:worktree` packages and launches it against this checkout's data directory and deterministic ports, the same instance `pnpm start:worktree` uses, with Electron's user-data directory at `$BB_DATA_DIR/desktop` (override with `BB_DESKTOP_USER_DATA_DIR`). Like `pnpm start:worktree`, it skips first-run setup unless `BB_SKIP_ONBOARDING=0`. It refuses to start when the server or host-daemon port is busy, so a stale server cannot answer for your build. It shows the dev Dock icon while running (`BB_DESKTOP_DEV_ICON=1`). Set `BB_DESKTOP_OPEN_DEVTOOLS=1` to open DevTools. Both desktop commands always repackage first; machines without a Developer ID identity produce unsigned artifacts.
 - The packaged app defaults to server/frontend `:38886`, host daemon `:38887`, data dir `~/.bb/`, and logs under `~/.bb/logs/`.
-- `bb-app` (including `pnpm start`), `bb-server`, and `bb-host-daemon` capture service stdout and stderr in `logs/server-stdio.log` and `logs/host-daemon-stdio.log` under the selected data directory. These append across restarts and are separate from rotating application logs. Use `tail -F` on these files for console output and early startup errors; service output is not forwarded to the launcher's terminal.
+- `bb-app` (including `pnpm start`), `bb-server`, and `bb-host-daemon` capture service stdout and stderr in `logs/server-stdio.log` and `logs/host-daemon-stdio.log` under the selected data directory. These append across restarts; a file over 10 MB is renamed to `<name>-stdio.1.log` (replacing the previous one) when its service starts. They hold early startup errors, crashes, and other output that bypasses the logger. Application log lines go only to the rotating `<component>.N.log` files, which keep the five newest per component; the logger skips its pretty console copy when stdout is a plain file, so `pnpm dev` terminals still show it. Service output is not forwarded to the launcher's terminal.
 - Entity IDs in URLs (`proj_*`, `thr_*`) are primary keys. Query them directly against the active data dir: `sqlite3 <data>/bb.db "SELECT * FROM threads WHERE id = 'thr_xxx';"`.
 - API routes are under `/api/v1/`, for example `GET /api/v1/threads/:id`. Use `curl` against the server API to isolate frontend issues from server behavior.
 - Use the CLI to inspect state: `pnpm bb thread show <id>`, `pnpm bb project list`, `pnpm bb status`. From source, use `pnpm bb:dev`.
@@ -24,6 +24,20 @@ When the desktop app connects to a BB Connect server, it installs and renews
 the Connect desktop session in both the app and embedded browser cookie stores.
 This also authenticates shared-port links under the same Connect domain. The
 browser keeps its separate profile; unrelated site cookies are not copied.
+
+Desktop browser registration first uses a private local broker descriptor whose
+recorded server URL matches the selected server's origin. Otherwise it discovers
+the other private local broker descriptors and sends a fresh random challenge to the selected server's `/api/v1/desktop-browsers/broker-proof`
+endpoint. The server routes it to the descriptor's enrolled host, whose broker
+returns an HMAC using its local authentication token. The desktop verifies that
+proof against the private descriptor before registering; the token never leaves
+the machine. This works for alternate domains and proxies without hostname rules
+or plugin dependencies. Redirects and invalid proofs are rejected. This internal
+desktop handshake adds `desktop.broker.prove` in daemon protocol 248. Older
+protocol-246/247 daemons remain compatible for existing operations; the server
+rejects proof requests for those daemons with an upgrade-required error before
+sending any RPC. Failed lookups retry with exponential backoff from 2 seconds up
+to 1 minute.
 
 Saved desktop browser tabs keep their URL and owning host/window. Opening one
 in the desktop app attaches the existing view when that window still owns it,
@@ -449,6 +463,14 @@ Local machine enrollment follows the same origin: local `http:` server URLs
 produce `ws:` machine tunnels and `http:` share URLs, while non-local machine
 enrollment remains HTTPS-only.
 
+For bb connect next, `pnpm cloud:dev` sets the Connect worker's and bb-web's
+`NEXT_BASE_DOMAIN` to `next.bb.localhost`. `BB_CLOUD_DEV_GATE_SECRET` sets the
+worker's `GATE_SECRET` (the account API answers 404 without it),
+`BB_CLOUD_DEV_GATE_PUBLIC_KEYS` sets bb-web's `GATE_PUBLIC_KEYS`, and
+`BB_CLOUD_DEV_STATE_DIR` moves the local D1 and Durable Object state away from
+`.wrangler/cloud-dev`. `apps/connect-next/scripts/e2e-local.sh` uses all three;
+see [connect-next.md](connect-next.md#local-end-to-end-run).
+
 The AI gateway answers `503 unavailable` until an OpenRouter key is present.
 Export `OPENROUTER_API_KEY` in the shell before `pnpm cloud:dev` to pass it
 through to the local worker; the startup banner says which mode is active.
@@ -523,10 +545,11 @@ payloads. Use it to reproduce performance problems that only appear at scale.
 task is uncached, and each package's `bench` script turns its benchmark on:
 
 - `@bb/app`: the sidebar thread list mount and update benchmark
-  (`sidebar.bench.test.tsx`) and the composer large-paste benchmark
-  (`prompt-paste-performance.test.ts`). `BB_SIDEBAR_BENCH_THREADS` sets the
-  thread count (default 3000), `BB_SIDEBAR_BENCH_OUT` writes the results as
-  JSON, and `PROMPTBOX_PERF_FIXTURE_OUT` saves the paste fixture.
+  (`sidebar.bench.test.tsx`). `BB_SIDEBAR_BENCH_THREADS` sets the thread
+  count (default 3000) and `BB_SIDEBAR_BENCH_OUT` writes the results as JSON.
+- `bb-plugin-bb--composer`: the composer large-paste benchmark
+  (`prompt-paste-performance.test.ts`). `PROMPTBOX_PERF_FIXTURE_OUT` saves the
+  paste fixture.
 - `@bb/host-watcher`: the root watcher recovery benchmark
   (`root-recovery-benchmark.test.ts`). `BB_WATCHER_BENCHMARK_OUTPUT` writes its
   report.
@@ -968,3 +991,25 @@ For a stale drawer or sidebar, check whether an optimistic mutation canceled
 the last realtime refresh, then whether its recovery ran after the mutation
 callbacks. Cover this ordering with real Query and Mutation observers; an
 isolated rollback helper test does not exercise mutation settlement.
+
+## Environment Status Loading
+
+Merge-base status is cached per host daemon process at two levels, each a
+least-recently-used cache capped by estimated size. Full comparisons (16 MiB)
+are keyed by checkout path, shell path, resolved HEAD and base commits, base
+label, and file limit; working-tree status is always read fresh. Per-commit
+changed files (64 MiB, skipping any commit over 1 MiB) and patch IDs (8 MiB per
+diff mode) are keyed by commit SHA and shared by every checkout on the host, so
+a new commit or a fetched base commit only needs its own diff. Comparisons where
+a Git command failed or squash detection timed out are not cached. A daemon
+restart clears both levels.
+
+Ahead/behind counts exclude commits whose patch appears on the other side, as
+`git rev-list --cherry-pick` does: only commits touching the same set of paths
+as a commit on the other side are patch-hashed, without rename detection.
+Squash detection reuses the per-commit changed files for the newest 1,000 base
+commits and hashes its candidate patches with Git's rename detection, cached
+separately, within 8 MiB of patch output and a 1-second deadline per attempt.
+When it cannot finish, `mergeBase.squashMergeCheckComplete` is false and the
+counts may include already squash-merged commits; the next refresh retries with
+the cached work. Daemons older than this field report `true`.
