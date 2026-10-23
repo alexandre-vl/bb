@@ -2,16 +2,17 @@ import { describe, expect, it } from "vitest";
 import { mergeProvisioningMetadata } from "../src/provisioning-helpers.js";
 
 describe("mergeProvisioningMetadata", () => {
-  it("coalesces repeated provisioning phases into one sequence", () => {
+  it("keeps every phase of a step in arrival order with its receipt time", () => {
     const merged = mergeProvisioningMetadata(
       {
         provisioningId: "provision_1",
         transcript: [
           {
             type: "step",
-            key: "workspace-started",
-            text: "Preparing workspace",
+            key: "provider-step-1-Preparing worktree…",
+            text: "Preparing worktree…",
             status: "started",
+            receivedAt: 1_000,
           },
         ],
       },
@@ -21,33 +22,29 @@ describe("mergeProvisioningMetadata", () => {
         transcript: [
           {
             type: "step",
-            key: "workspace-started",
-            text: "Preparing workspace",
+            key: "provider-step-1-Preparing worktree…",
+            text: "Preparing worktree…",
             status: "completed",
+            receivedAt: 4_000,
           },
           {
             type: "step",
-            key: "provider-create",
-            text: "Preparing worktree…",
+            key: "setup-started",
+            text: "Running .bb-env-setup.sh",
             status: "started",
+            receivedAt: 4_000,
           },
         ],
       },
     );
 
-    expect(merged?.transcript).toEqual([
-      {
-        type: "step",
-        key: "workspace-started",
-        text: "Preparing workspace",
-        status: "completed",
-      },
-      {
-        type: "step",
-        key: "provider-create",
-        text: "Preparing worktree…",
-        status: "started",
-      },
+    expect(merged?.environmentId).toBe("env_1");
+    expect(
+      merged?.transcript?.map((entry) => [entry.status, entry.receivedAt]),
+    ).toEqual([
+      ["started", 1_000],
+      ["completed", 4_000],
+      ["started", 4_000],
     ]);
   });
 });

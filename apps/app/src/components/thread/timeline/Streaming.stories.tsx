@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import type { TimelineRow } from "@bb/server-contract";
+import type {
+  TimelineProvisioningStep,
+  TimelineRow,
+} from "@bb/server-contract";
 import { ThreadTimelineRows } from "@/components/thread/timeline";
 import { StoryCard, StoryRow } from "../../../../.ladle/story-card";
 import { explorationRow, type ExplorationStep } from "./streaming-story-rows";
@@ -67,64 +70,117 @@ function useStreamingTick(
   return step;
 }
 
-const PROVISIONING_LINES: readonly string[] = [
-  "Creating worktree (305ms)",
-  "HEAD is now at 37eeec85 Refactor timeline row titles",
-  "Preparing worktree (new branch 'bb/investigate-thread-timeline-load')",
-  "Created worktree (305ms)",
-  "Using workspace: /Users/michael/.bb-dev/worktrees/env_etyr7f84cg/bb",
-  "Running .bb-env-setup.sh",
-  "[bb-env-setup] Running: pnpm install",
-  "Scope: all 35 workspace projects",
-  "Lockfile is up to date, resolution step is skipped",
-  "Progress: resolved 1094, reused 1093, downloaded 0, added 877",
-  "Progress: resolved 1094, reused 1094, downloaded 0, added 901",
-  "Progress: resolved 1094, reused 1094, downloaded 0, added 920",
-  "Progress: resolved 1094, reused 1094, downloaded 0, added 945",
-  ".../node_modules/esbuild postinstall$ node install.js",
-  ".../node_modules/esbuild postinstall: Done",
-  ".../packages/db migrations: applied 0027_quick_warpath.sql",
-  ".../packages/db migrations: applied 0028_strange_omega.sql",
-  ".../packages/db migrations: applied 0029_acoustic_havok.sql",
-  "[bb-env-setup] Running: pnpm exec turbo run build --filter='./packages/*'",
-  "@bb/process-utils:build: cache hit, replaying logs",
-  "@bb/domain:build: cache hit, replaying logs",
-  "@bb/templates:build: cache hit, replaying logs",
-  "@bb/secret-storage:build: cache hit, replaying logs",
-  "@bb/hono-typed-routes:build: cache hit, replaying logs",
-  "@bb/config:build: cache hit, replaying logs",
-  "@bb/test-helpers:build: cache hit, replaying logs",
-  "@bb/db:build: cache hit, replaying logs",
-  "@bb/server-contract:build: cache hit, replaying logs",
-  "@bb/host-daemon-contract:build: cache hit, replaying logs",
-  "@bb/thread-view:build: cache hit, replaying logs",
-  "Tasks: 12 successful, 12 total",
-  "Cached: 12 cached, 12 total",
-  "Time: 612ms (FULL TURBO)",
-  ".bb-env-setup.sh finished (8.2s)",
-  "Using branch: bb/investigate-thread-timeline-load (37eeec8)",
-  "Provisioned thread (8.7s)",
+interface ProvisioningStreamStep {
+  label: string;
+  output: readonly string[];
+}
+
+const PROVISIONING_STREAM: readonly ProvisioningStreamStep[] = [
+  {
+    label: "Preparing worktree…",
+    output: [
+      "Preparing worktree (new branch 'bb/investigate-thread-timeline-load')",
+      "HEAD is now at 37eeec85 Refactor timeline row titles",
+    ],
+  },
+  {
+    label: "Running .bb-env-setup.sh",
+    output: [
+      "[bb-env-setup] Running: pnpm install",
+      "Scope: all 35 workspace projects",
+      "Lockfile is up to date, resolution step is skipped",
+      "Progress: resolved 1094, reused 1093, downloaded 0, added 877",
+      "Progress: resolved 1094, reused 1094, downloaded 0, added 945",
+      ".../node_modules/esbuild postinstall: Done",
+      "[bb-env-setup] Running: pnpm exec turbo run build --filter='./packages/*'",
+      "@bb/thread-view:build: cache hit, replaying logs",
+      "Tasks: 12 successful, 12 total",
+      "Time: 612ms (FULL TURBO)",
+    ],
+  },
+  {
+    label:
+      "Using workspace: /Users/michael/.bb-dev/worktrees/env_etyr7f84cg/bb",
+    output: [],
+  },
+  {
+    label: "Using branch: bb/investigate-thread-timeline-load (37eeec8)",
+    output: [],
+  },
 ];
 
-function ProvisioningStreaming({ restartKey }: { restartKey: number }) {
-  const step = useStreamingTick(PROVISIONING_LINES.length, 200, restartKey);
-  const completed = step >= PROVISIONING_LINES.length;
-  const detail = PROVISIONING_LINES.slice(0, step).join("\n");
+type ProvisioningStreamEvent =
+  | { kind: "start"; label: string }
+  | { kind: "output"; line: string }
+  | { kind: "complete" };
+
+const PROVISIONING_EVENTS: readonly ProvisioningStreamEvent[] =
+  PROVISIONING_STREAM.flatMap((step): ProvisioningStreamEvent[] => [
+    { kind: "start", label: step.label },
+    ...step.output.map(
+      (line): ProvisioningStreamEvent => ({
+        kind: "output",
+        line,
+      }),
+    ),
+    { kind: "complete" },
+  ]);
+
+const PROVISIONING_EVENT_INTERVAL_MS = 400;
+
+function provisioningStepsAt(
+  eventCount: number,
+  startedAt: number,
+): TimelineProvisioningStep[] {
+  const steps: TimelineProvisioningStep[] = [];
+  PROVISIONING_EVENTS.slice(0, eventCount).forEach((event, index) => {
+    const at = startedAt + index * PROVISIONING_EVENT_INTERVAL_MS;
+    const current = steps.at(-1);
+    if (event.kind === "start") {
+      steps.push({
+        label: event.label,
+        status: "pending",
+        startedAt: at,
+        completedAt: null,
+        output: null,
+      });
+    } else if (current !== undefined) {
+      steps[steps.length - 1] =
+        event.kind === "output"
+          ? { ...current, output: event.line }
+          : { ...current, status: "completed", completedAt: at, output: null };
+    }
+  });
+  return steps;
+}
+
+function ProvisioningStreaming({ startedAt }: { startedAt: number }) {
+  const step = useStreamingTick(
+    PROVISIONING_EVENTS.length,
+    PROVISIONING_EVENT_INTERVAL_MS,
+    startedAt,
+  );
+  const completed = step >= PROVISIONING_EVENTS.length;
   const row: TimelineRow = {
     id: "streaming-provisioning",
     threadId: THREAD_ID,
     turnId: null,
     sourceSeqStart: 1,
     sourceSeqEnd: 1,
-    startedAt: 0,
-    createdAt: 0,
+    startedAt,
+    createdAt: startedAt,
     kind: "system",
     systemKind: "operation",
     operationKind: "thread-provisioning",
+    provisioningId: "tpv_streaming",
     title: completed ? "Provisioned thread" : "Provisioning thread",
-    detail: detail.length > 0 ? detail : null,
+    detail: null,
     status: completed ? "completed" : "pending",
-    completedAt: completed ? 0 : null,
+    completedAt: completed
+      ? startedAt + PROVISIONING_EVENTS.length * PROVISIONING_EVENT_INTERVAL_MS
+      : null,
+    steps: provisioningStepsAt(step, startedAt),
+    estimate: { p50Ms: 9_000, p90Ms: 14_000, runCount: 12, scope: "project" },
   };
   return (
     <TimelineStage>
@@ -327,7 +383,9 @@ function ExploringBundleStreaming({ restartKey }: { restartKey: number }) {
 }
 
 export function RowDetails() {
-  const [provisioningKey, setProvisioningKey] = useState(0);
+  const [provisioningStartedAt, setProvisioningStartedAt] = useState(() =>
+    Date.now(),
+  );
   const [commandKey, setCommandKey] = useState(0);
   const [exploringKey, setExploringKey] = useState(0);
 
@@ -336,13 +394,13 @@ export function RowDetails() {
       <StoryRow
         label={
           <StreamingLabel
-            title="provisioning, cleaned transcript"
-            hint="command echo lines are omitted; real git and setup output still streams"
-            onRestart={() => setProvisioningKey((k) => k + 1)}
+            title="provisioning steps"
+            hint="each step gets its time; only the running step shows its latest output line"
+            onRestart={() => setProvisioningStartedAt(Date.now())}
           />
         }
       >
-        <ProvisioningStreaming restartKey={provisioningKey} />
+        <ProvisioningStreaming startedAt={provisioningStartedAt} />
       </StoryRow>
       <StoryRow
         label={

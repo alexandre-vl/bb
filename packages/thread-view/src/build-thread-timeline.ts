@@ -12,12 +12,12 @@ import type {
   TimelineSourceRow,
   TimelineSystemOperationKind,
   TimelineSystemRow,
+  TimelineThreadProvisioningSystemRow,
   TimelineUserConversationRow,
   TimelineWorkflowWorkRow,
 } from "@bb/server-contract";
 import {
   isBackgroundAgentTaskType,
-  readTerminalOutputLines,
   type ActiveThinking,
   type CompletedTurnDisplay,
   type Thread,
@@ -32,15 +32,13 @@ import type {
   EventProjectionFileEditChange,
   EventProjectionMessage,
   EventProjection,
-  EventProjectionProvisioningTranscriptEntry,
   EventProjectionToolParsedIntent,
   EventProjectionUserMessage,
 } from "./event-projection-types.js";
 import { assertNever } from "./assert-never.js";
-import {
-  durationToCompactString,
-  getMessageStartedAt,
-} from "./format-helpers.js";
+import { getMessageStartedAt } from "./format-helpers.js";
+import { provisioningKey } from "./provisioning-helpers.js";
+import { buildProvisioningSteps } from "./provisioning-steps.js";
 import { getFileChangeDiffStats } from "./file-change-summary.js";
 import { getEventProjectionMessageScopeTurnId } from "./message-scope.js";
 import {
@@ -74,6 +72,7 @@ import { extractThreadTimelinePendingTodos } from "./todo-snapshot-extraction.js
 import { buildTimelineErrorDisplay } from "./error-display.js";
 
 interface ThreadTimelineFromEventsBaseOptions {
+  activeProvisioningId?: string;
   completedTurnDisplay: CompletedTurnDisplay;
   includeDiagnosticOperations: boolean;
   isLatestPage: boolean;
@@ -156,6 +155,11 @@ interface BuildGenericOperationSystemRowArgs {
   operationKind: TimelineGenericSystemOperationKind;
 }
 
+interface BuildThreadProvisioningSystemRowArgs {
+  base: TimelineRowBase;
+  message: TimelineOperationMessage;
+}
+
 interface BuildParentChangeSystemRowArgs {
   base: TimelineRowBase;
   parentChange: TimelineParentChange;
@@ -174,7 +178,7 @@ type TimelineWorkflowMessage = Extract<
 >;
 type TimelineGenericSystemOperationKind = Exclude<
   TimelineSystemOperationKind,
-  "parent-change"
+  "parent-change" | "thread-provisioning"
 >;
 
 function operationKindForMessage(
@@ -243,7 +247,7 @@ function buildGenericOperationSystemRow({
     operationKind,
     ...(operationKind === "reasoning" ? { reasoningId: message.id } : {}),
     title: message.title,
-    detail: buildTimelineOperationDetail(message),
+    detail: message.detail ?? null,
     status: message.status ?? null,
     completedAt: message.completedAt,
   };
@@ -265,7 +269,7 @@ function buildParentChangeSystemRow({
     operationKind: "parent-change",
     parentChange,
     title: message.title,
-    detail: buildTimelineOperationDetail(message),
+    detail: message.detail ?? null,
     status,
     completedAt: message.completedAt,
   };
@@ -411,81 +415,31 @@ function toTimelineFileChange(
   };
 }
 
-function formatProvisioningTranscriptEntryText(
-  entry: EventProjectionProvisioningTranscriptEntry,
-): string {
-  const durationMs =
-    typeof entry.metadata?.durationMs === "number"
-      ? entry.metadata.durationMs
-      : null;
-  if (
-    durationMs !== null &&
-    (entry.status === "completed" || entry.status === "failed")
-  ) {
-    return `${entry.text} (${durationToCompactString(durationMs)})`;
-  }
-  return entry.text;
-}
-
-function formatProvisioningTranscriptEntryLines(
-  entry: EventProjectionProvisioningTranscriptEntry,
-): string[] {
-  return readTerminalOutputLines(formatProvisioningTranscriptEntryText(entry));
-}
-
-function provisioningTerminalDetailLine(
-  message: TimelineOperationMessage,
-): string | null {
-  if (
-    message.opType !== "thread-provisioning" ||
-    message.status === "pending" ||
-    message.status === undefined ||
-    message.startedAt === undefined ||
-    message.createdAt < message.startedAt
-  ) {
-    return null;
-  }
-
-  const elapsedMs = message.createdAt - message.startedAt;
-  if (elapsedMs <= 1_000) {
-    return null;
-  }
-
-  const label =
-    message.status === "completed"
-      ? "Provisioned thread"
-      : message.status === "error"
-        ? "Provisioning thread failed"
-        : "Provisioning thread interrupted";
-  return `${label} (${durationToCompactString(elapsedMs)})`;
-}
-
-function buildTimelineOperationDetail(
-  message: TimelineOperationMessage,
-): string | null {
-  if (message.opType !== "thread-provisioning") {
-    return message.detail ?? null;
-  }
-
-  const transcriptLines =
-    message.provisioning?.transcript?.flatMap(
-      formatProvisioningTranscriptEntryLines,
-    ) ?? [];
-  const terminalLine = provisioningTerminalDetailLine(message);
-  const detailLines = (message.detail ?? "")
-    .split(/\n|•/u)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const lines = [...transcriptLines];
-  if (terminalLine) {
-    lines.push(terminalLine);
-  }
-  for (const line of detailLines) {
-    if (!lines.includes(line)) {
-      lines.push(line);
-    }
-  }
-  return lines.length > 0 ? lines.join("\n") : null;
+function buildThreadProvisioningSystemRow({
+  base,
+  message,
+}: BuildThreadProvisioningSystemRowArgs): TimelineThreadProvisioningSystemRow {
+  const status: TimelineRowStatus = message.status ?? "pending";
+  const detail = message.detail ?? null;
+  return {
+    ...base,
+    kind: "system",
+    systemKind: "operation",
+    operationKind: "thread-provisioning",
+    provisioningId: provisioningKey(message),
+    title: message.title,
+    detail,
+    status,
+    completedAt: message.completedAt,
+    steps: buildProvisioningSteps({
+      completedAt: message.completedAt,
+      errorDetail: detail,
+      startedAt: base.startedAt,
+      status,
+      transcript: message.provisioning?.transcript ?? [],
+    }),
+    estimate: null,
+  };
 }
 
 function convertMessage(
@@ -809,6 +763,9 @@ function convertMessage(
                 operationKind: "generic",
               }),
             ];
+      }
+      if (operationKind === "thread-provisioning") {
+        return [buildThreadProvisioningSystemRow({ base, message })];
       }
       return [
         buildGenericOperationSystemRow({
@@ -1166,6 +1123,7 @@ export function buildThreadTimelineFromEvents(
     : args.events;
   const projectionOptions = {
     acceptedClientRequestContext: args.acceptedClientRequestContext,
+    activeProvisioningId: args.options.activeProvisioningId,
     includeDiagnosticOperations: args.options.includeDiagnosticOperations,
     providerDisplayName: args.options.providerDisplayName,
     threadStatus: args.options.threadStatus,
