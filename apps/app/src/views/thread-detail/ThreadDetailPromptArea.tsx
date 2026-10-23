@@ -680,8 +680,19 @@ export function ThreadDetailPromptArea({
     threadId: thread.id,
     queuedMessages: queuedMessagesQuery.data ?? null,
   });
-  const [isBackgroundCommandsExpanded, setIsBackgroundCommandsExpanded] =
-    useState(false);
+  const [
+    backgroundCommandsExpandedThreadId,
+    setBackgroundCommandsExpandedThreadId,
+  ] = useState<string | null>(null);
+  if (
+    backgroundCommandsExpandedThreadId !== null &&
+    (backgroundCommandsExpandedThreadId !== thread.id ||
+      activeBackgroundCommands.length < 2)
+  ) {
+    setBackgroundCommandsExpandedThreadId(null);
+  }
+  const isBackgroundCommandsExpanded =
+    backgroundCommandsExpandedThreadId === thread.id;
   const [isFollowUpShortcutSending, setIsFollowUpShortcutSending] =
     useState(false);
   const promptHistoryDrafts = useMemo(
@@ -2126,9 +2137,14 @@ export function ThreadDetailPromptArea({
           onToggleWorkflow={toggleWorkflowExpanded}
         />
         <ThreadBackgroundCommandsCard
+          key={thread.id}
           commands={activeBackgroundCommands}
           isExpanded={isBackgroundCommandsExpanded}
-          onToggle={() => setIsBackgroundCommandsExpanded((value) => !value)}
+          onToggle={() =>
+            setBackgroundCommandsExpandedThreadId((current) =>
+              current === thread.id ? null : thread.id,
+            )
+          }
         />
         {shouldHideComposer ? null : activePromptModeCard}
         {shouldHideComposer ? null : activeGoalCard}
