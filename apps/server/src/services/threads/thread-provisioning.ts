@@ -31,6 +31,7 @@ import {
   requestThreadStart,
 } from "./thread-lifecycle.js";
 import { resolveDispatchAuthor } from "./dispatch-author.js";
+import { recordCompletedThreadProvisioningRunInTransaction } from "./thread-provisioning-runs.js";
 import { resolvePermissionEscalation } from "./thread-runtime-config.js";
 import {
   createThreadStartup,
@@ -158,12 +159,20 @@ function settleSeededThreadProvisioning(
         current.state.provisioningId === args.context.state.provisioningId &&
         current.state.provisionEventSequence !== null;
       if (completedProvisioning) {
-        appendThreadProvisioningEventInTransaction(tx, {
+        const completedSequence = appendThreadProvisioningEventInTransaction(
+          tx,
+          {
+            threadId: args.threadId,
+            environmentId: args.environmentId,
+            provisioningId: current.state.provisioningId,
+            status: "completed",
+            entries: [],
+          },
+        );
+        recordCompletedThreadProvisioningRunInTransaction(tx, {
+          completedSequence,
+          context: current,
           threadId: args.threadId,
-          environmentId: args.environmentId,
-          provisioningId: current.state.provisioningId,
-          status: "completed",
-          entries: [],
         });
       }
       return { completedProvisioning, outcome };
