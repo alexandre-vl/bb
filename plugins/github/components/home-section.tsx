@@ -9,6 +9,7 @@ import { DelayedLoading } from "@/components/ui/delayed-loading";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   inboxRows,
+  linkKey,
   pullRowModels,
   routeToSubPath,
   splitTitle,
@@ -171,7 +172,7 @@ export function GithubHomeSection({ projectId }: PluginHomepageSectionProps) {
             key={row.key}
             row={row}
             activity={activities.get(row.key) ?? null}
-            agent={agents.get(`pr:${row.key}`) ?? null}
+            agent={agents.get(linkKey("pr", row.item)) ?? null}
             showRepo={showRepo}
             now={now}
             onOpen={() =>

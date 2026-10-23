@@ -26,6 +26,12 @@ import { assemblePullStatus, type RawPullStatus } from "./pull-status";
 
 const app = await loadPluginApp(() => import("./app"));
 
+function threadPanelAction(id: string) {
+  const action = app.threadPanelActions.find((entry) => entry.id === id);
+  if (action === undefined) throw new Error(`no "${id}" thread panel action`);
+  return action;
+}
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
@@ -1449,10 +1455,10 @@ describe("GitHub pull request status pill", () => {
 });
 
 describe("GitHub thread panel", () => {
-  it("shows the linked pull request and keeps removed files out of workspace navigation", async () => {
+  it("shows the thread's pull request in its tab and keeps removed files out of workspace navigation", async () => {
     const slot = renderSlot(
-      app.threadPanelActions[0]!,
-      { threadId: "thr-1", params: null },
+      threadPanelAction("pull"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
       {
         rpc: rpc({
           pullForThread: () => ({
@@ -1496,26 +1502,418 @@ describe("GitHub thread panel", () => {
     await act(async () => fireEvent.click(toggle));
     expect(slot.queryByTestId("bb-diff")).toBeNull();
     expect(toggle.getAttribute("aria-label")).toBe("Expand removed.ts");
+    expect(slot.queryByRole("button", { name: "Back" })).toBeNull();
   });
 
-  it("lets the user pick a pull request when the thread has none", async () => {
+  it.each([
+    ["takes its place", true],
+    ["shows it inline when bb declines", false],
+  ])(
+    "a tab opened without params finds this thread's pull request and %s",
+    async (_name, accepted) => {
+      const slot = renderSlot(
+        threadPanelAction("pull"),
+        { threadId: "thr-1", params: null },
+        {
+          rpc: rpc({
+            pullForThread: () => ({
+              pull: { repo: "get-bb/bb", number: 42, environmentId: "env-1" },
+            }),
+            getPull: () => ({ pull: pullDetail({ title: "Thread PR" }) }),
+          }),
+          openThreadPanel: () => accepted,
+        },
+      );
+
+      await waitFor(() =>
+        expect(slot.navigateCalls).toEqual([
+          {
+            method: "openThreadPanel",
+            options: {
+              actionId: "pull",
+              title: "PR #42",
+              params: { repo: "get-bb/bb", number: 42 },
+              experimental_replace: true,
+            },
+          },
+        ]),
+      );
+      if (accepted) {
+        await act(async () => {});
+        expect(calls(slot, "getPull")).toEqual([]);
+      } else {
+        expect(await slot.findByText("Thread PR")).toBeTruthy();
+      }
+    },
+  );
+
+  it.each([
+    ["takes its place", true],
+    ["shows it inline when bb declines", false],
+  ])(
+    "a pull request picked in a tab whose thread has none %s",
+    async (_name, accepted) => {
+      const slot = renderSlot(
+        threadPanelAction("pull"),
+        { threadId: "thr-1", params: null },
+        {
+          rpc: rpc({
+            pullForThread: () => ({ pull: null }),
+            getPull: () => ({
+              pull: pullDetail({ number: 3, title: "Review me" }),
+            }),
+          }),
+          openThreadPanel: () => accepted,
+        },
+      );
+
+      const pick = await slot.findByRole("button", { name: /Review me/ });
+      expect(slot.queryByText("Still a draft")).toBeTruthy();
+      await act(async () => fireEvent.click(pick));
+      expect(slot.navigateCalls).toEqual([
+        {
+          method: "openThreadPanel",
+          options: {
+            actionId: "pull",
+            title: "PR #3",
+            params: { repo: "get-bb/bb", number: 3 },
+            experimental_replace: true,
+          },
+        },
+      ]);
+      expect(calls(slot, "getPull")).toEqual(
+        accepted ? [] : [{ repo: "get-bb/bb", number: 3 }],
+      );
+    },
+  );
+
+  it.each([
+    ["in its own tab", true, []],
+    [
+      "on GitHub when bb declines",
+      false,
+      [{ method: "openUrl", url: "https://github.com/get-bb/bb/pull/41" }],
+    ],
+  ])(
+    "opens another pull request of the stack %s",
+    async (_name, accepted, after) => {
+      const slot = renderSlot(
+        threadPanelAction("pull"),
+        { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+        {
+          rpc: rpc({
+            pullForThread: () => ({ pull: null }),
+            getPull: () => ({
+              pull: pullDetail({
+                stack: {
+                  number: 1,
+                  baseRefName: "main",
+                  position: 2,
+                  entries: [
+                    {
+                      number: 41,
+                      title: "Base change",
+                      state: "open",
+                      attention: "none",
+                    },
+                    {
+                      number: 42,
+                      title: "Status menu",
+                      state: "open",
+                      attention: "none",
+                    },
+                  ],
+                },
+              }),
+            }),
+          }),
+          openThreadPanel: () => accepted,
+        },
+      );
+
+      const stack = await slot.findByRole("region", { name: "Stack" });
+      await act(async () =>
+        fireEvent.click(
+          within(stack).getByRole("button", { name: /Base change/ }),
+        ),
+      );
+      expect(slot.navigateCalls).toEqual([
+        {
+          method: "openThreadPanel",
+          options: {
+            actionId: "pull",
+            title: "PR #41",
+            params: { repo: "get-bb/bb", number: 41 },
+          },
+        },
+        ...after,
+      ]);
+    },
+  );
+});
+
+describe("GitHub links opened from a thread", () => {
+  it.each([
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/pull/42",
+      claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
+    },
+    {
+      action: "pull",
+      href: "https://www.github.com/get-bb/bb/pull/42/?notification_referrer_id=1",
+      claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
+    },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/issues/7",
+      claim: { title: "Issue #7", params: { repo: "get-bb/bb", number: 7 } },
+    },
+    {
+      action: "pull",
+      href: "https://github.com/Get-BB/BB/pull/42",
+      claim: { title: "PR #42", params: { repo: "get-bb/bb", number: 42 } },
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/pull/42/files",
+      claim: null,
+    },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/issues/7#issuecomment-1",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/issues/7",
+      claim: null,
+    },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/pull/42",
+      claim: null,
+    },
+    { action: "pull", href: "https://github.com/get-bb/bb/pulls", claim: null },
+    {
+      action: "issue",
+      href: "https://github.com/get-bb/bb/issues/new",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/pull/0",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.com/get-bb/bb/blob/main/pull/42",
+      claim: null,
+    },
+    {
+      action: "pull",
+      href: "https://github.example.com/get-bb/bb/pull/42",
+      claim: null,
+    },
+  ])("$action claims $href as $claim", ({ action, href, claim }) => {
+    const tab = app.tabs.find((entry) => entry.id === action);
+    expect(tab?.experimental_claimUrl?.(new URL(href))).toEqual(claim);
+  });
+
+  it("names each + menu tab after the item it shows, so the two read as one plugin", () => {
+    expect(
+      app.tabs
+        .filter(
+          (entry) =>
+            entry.context.kind === "thread" && entry.availability === "action",
+        )
+        .map((entry) => [entry.id, entry.title]),
+    ).toEqual([
+      ["pull", "GitHub PR"],
+      ["issue", "GitHub issue"],
+    ]);
+  });
+
+  it("shows the linked pull request rather than the thread's own, outside its workspace and with no way back", async () => {
     const slot = renderSlot(
-      app.threadPanelActions[0]!,
-      { threadId: "thr-1", params: null },
+      threadPanelAction("pull"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 3 } },
       {
         rpc: rpc({
-          pullForThread: () => ({ pull: null }),
+          pullForThread: () => ({
+            pull: { repo: "get-bb/bb", number: 42, environmentId: "env-1" },
+          }),
           getPull: () => ({
-            pull: pullDetail({ number: 3, title: "Review me" }),
+            pull: pullDetail({
+              number: 3,
+              title: "Review me",
+              files: [
+                {
+                  path: "modified.ts",
+                  status: "modified",
+                  additions: 1,
+                  deletions: 0,
+                  patch: "@@ -0,0 +1 @@\n+added",
+                },
+              ],
+            }),
           }),
         }),
       },
     );
 
-    const pick = await slot.findByRole("button", { name: /Review me/ });
-    expect(slot.queryByText("Still a draft")).toBeTruthy();
+    await waitFor(() =>
+      expect(calls(slot, "getPull")).toEqual([
+        { repo: "get-bb/bb", number: 3 },
+      ]),
+    );
+    expect(slot.queryByRole("button", { name: "Back" })).toBeNull();
+    const filesTab = await slot.findByRole("tab", { name: /^Files/ });
+    await act(async () => fireEvent.mouseDown(filesTab));
+    expect(slot.getByText("modified.ts").closest("a")).toBeNull();
+  });
+
+  it("shows the agent linked to a pull request whatever the case of its repository", async () => {
+    const slot = renderSlot(
+      threadPanelAction("pull"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      {
+        rpc: rpc({
+          status: () => ({
+            ...STATUS,
+            repos: [{ repo: "Get-BB/BB", projectId: "project-1" }],
+          }),
+          pullForThread: () => ({ pull: null }),
+          getPull: () => ({ pull: pullDetail({ number: 7 }) }),
+          listLinks: () => ({
+            links: {
+              "pr:GET-BB/bb#7": [
+                { ...link("pr", "thr-agent", 7), repo: "GET-BB/bb" },
+              ],
+            },
+          }),
+        }),
+        sidebarThreads: {
+          threads: [sidebarThread({ id: "thr-agent", status: "active" })],
+        },
+      },
+    );
+
+    await act(async () =>
+      fireEvent.click(await slot.findByRole("button", { name: "Open thread" })),
+    );
+    expect(slot.navigateCalls).toContainEqual({
+      method: "toThread",
+      threadId: "thr-agent",
+    });
+  });
+
+  it("opens a lowercase tab on the repository as it is tracked", async () => {
+    const slot = renderSlot(
+      threadPanelAction("issue"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+      {
+        rpc: rpc({
+          status: () => ({
+            ...STATUS,
+            repos: [{ repo: "Get-BB/BB", projectId: "project-1" }],
+          }),
+          repoSettings: () => ({
+            repos: {
+              "Get-BB/BB": {
+                viewerCanWrite: true,
+                mergeMethods: ["squash"],
+                defaultMergeMethod: "squash",
+                deleteBranchOnMerge: false,
+              },
+            },
+          }),
+          getIssue: () => ({
+            issue: {
+              repo: "Get-BB/BB",
+              number: 42,
+              title: "Route-backed issue",
+              state: "OPEN",
+              author: "hubot",
+              body: "Steps to reproduce.",
+              labels: [],
+              assignees: [],
+              url: "https://github.com/Get-BB/BB/issues/42",
+              updatedAt: "2026-08-20T00:00:00.000Z",
+              comments: [],
+            },
+          }),
+        }),
+      },
+    );
+
+    expect(
+      await slot.findByRole("button", { name: "Labels: change" }),
+    ).toBeTruthy();
+    expect(calls(slot, "getIssue")).toEqual([
+      { repo: "Get-BB/BB", number: 42 },
+    ]);
+  });
+
+  it("shows the linked issue with no way back, and puts an issue picked in a tab without one in its place", async () => {
+    const getIssue = (input: unknown) => ({
+      issue: {
+        repo: "get-bb/bb",
+        number: field(input, "number"),
+        title: "Route-backed issue",
+        state: "OPEN",
+        author: "hubot",
+        body: "Steps to reproduce.",
+        labels: [],
+        assignees: [],
+        url: "https://github.com/get-bb/bb/issues/42",
+        updatedAt: "2026-08-20T00:00:00.000Z",
+        comments: [],
+      },
+    });
+    const linked = renderSlot(
+      threadPanelAction("issue"),
+      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+      { rpc: rpc({ getIssue }) },
+    );
+    expect(await linked.findByText("Steps to reproduce.")).toBeTruthy();
+    expect(linked.queryByRole("button", { name: "Back" })).toBeNull();
+    expect(calls(linked, "getIssue")).toEqual([
+      { repo: "get-bb/bb", number: 42 },
+    ]);
+    linked.lifecycle.unmount();
+
+    const picker = renderSlot(
+      threadPanelAction("issue"),
+      { threadId: "thr-1", params: null },
+      { rpc: rpc({ getIssue }) },
+    );
+    const pick = await picker.findByRole("button", {
+      name: /Route-backed issue/,
+    });
+    expect(picker.queryByText("Old issue")).toBeNull();
     await act(async () => fireEvent.click(pick));
-    expect(calls(slot, "getPull")).toEqual([{ repo: "get-bb/bb", number: 3 }]);
+    expect(picker.navigateCalls).toEqual([
+      {
+        method: "openThreadPanel",
+        options: {
+          actionId: "issue",
+          title: "Issue #42",
+          params: { repo: "get-bb/bb", number: 42 },
+          experimental_replace: true,
+        },
+      },
+    ]);
+    expect(await picker.findByText("Steps to reproduce.")).toBeTruthy();
+    expect(calls(picker, "getIssue")).toEqual([
+      { repo: "get-bb/bb", number: 42 },
+    ]);
+    await act(async () =>
+      fireEvent.click(picker.getByRole("button", { name: "Back" })),
+    );
+    expect(
+      await picker.findByRole("button", { name: /Route-backed issue/ }),
+    ).toBeTruthy();
   });
 });
 
