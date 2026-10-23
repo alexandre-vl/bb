@@ -31,3 +31,4 @@ bb/file-mentions-resolve-touched-files
 sidebar-v2
 bb/remember-environment-inputs
 fix/host-daemon-survives-oom-killer
+fix/resume-active-machine-without-daemon
