@@ -60,8 +60,9 @@ terminalId }) }`.
   was, and leaves a closed panel closed. When a tab with those params is
   already open, bb closes the calling tab instead, and focuses the open one if
   the calling tab was active. It returns false outside one of the plugin's own
-  side-panel tabs, or once that tab has closed. Experimental: see
-  `docs/api_to_audit.md`.
+  thread or New thread action tabs (fixed and navigation-page tabs cannot
+  replace themselves), or once that tab has closed; `experimental_openTab`
+  does not replace. Experimental: see `docs/api_to_audit.md`.
   `openUrl` owns HTTP(S) only and returns false for schemes BB
   leaves to normal anchor behavior. The two file methods accept an
   `ExperimentalFileOpenOptions` live-file target.

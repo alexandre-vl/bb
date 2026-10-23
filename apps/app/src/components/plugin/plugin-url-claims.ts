@@ -3,11 +3,7 @@ import { z } from "zod";
 import { jsonValueSchema } from "@bb/domain";
 import type { PluginPanelActionOpenOptions } from "@get-bb/plugin-sdk";
 import { useLatestRef } from "@/hooks/useLatestRef";
-import {
-  isThreadTab,
-  usePluginSlots,
-  type PluginTabSlot,
-} from "@/lib/plugin-slots";
+import type { PluginTabSlot } from "@/lib/plugin-slots";
 import {
   isPlainPrimaryClick,
   useUrlAnchorClickHandler,
@@ -17,6 +13,11 @@ import {
 import type { PluginThreadPanelOpenHandler } from "./plugin-thread-panel-navigation";
 
 type PluginUrlClaim = Parameters<PluginThreadPanelOpenHandler>[0];
+
+export type PluginThreadActionTabSlot = Extract<
+  PluginTabSlot,
+  { context: { kind: "thread" }; availability: "action" }
+>;
 
 export const PluginUrlClaimContext = createContext<
   ((href: string) => boolean) | null
@@ -52,19 +53,13 @@ function readClaimedOpenOptions(
 }
 
 function claimUrlForThreadPanel(
-  tabs: readonly PluginTabSlot[],
+  tabs: readonly PluginThreadActionTabSlot[],
   href: string,
 ): PluginUrlClaim | null {
   const url = parseWebUrl(href);
   if (url === null) return null;
   for (const tab of tabs) {
-    if (
-      !isThreadTab(tab) ||
-      tab.availability !== "action" ||
-      tab.experimental_claimUrl === undefined
-    ) {
-      continue;
-    }
+    if (tab.experimental_claimUrl === undefined) continue;
     let options: PluginPanelActionOpenOptions | null;
     try {
       options = readClaimedOpenOptions(tab.experimental_claimUrl(new URL(url)));
@@ -83,8 +78,8 @@ function claimUrlForThreadPanel(
 
 export function useOpenClaimedUrl(
   openThreadPanel: PluginThreadPanelOpenHandler,
+  tabs: readonly PluginThreadActionTabSlot[],
 ): (href: string) => boolean {
-  const { tabs } = usePluginSlots();
   const latestRef = useLatestRef({ openThreadPanel, tabs });
   return useCallback(
     (href: string) => {

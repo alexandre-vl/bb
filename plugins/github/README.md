@@ -30,7 +30,9 @@ bb plugin install github
   GitHub issue offers open issues; a pick becomes that item's tab.
   `bb thread tabs set` opens the same tabs: a `plugin-panel` tab with
   `pluginId` `github`, `actionId` `pull` or `issue`, and `paramsJson`
-  `{"repo":"owner/name","number":N}`.
+  `{"repo":"owner/name","number":N}` with the repository in lowercase and the
+  keys in that order, the form a clicked link opens, so a second click
+  focuses that tab.
 - **Mentions**: `@` or `#` in any composer completes GitHub issues and PRs; the
   selected item's title/body/state is attached as agent context at send time.
 - **`bb github` CLI**: `repos`, `issues [repo]`, `prs [repo]`, `sync` — also

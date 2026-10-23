@@ -4840,8 +4840,11 @@ export interface BbNavigate {
        * active only if the calling tab was, and leaves a closed panel closed.
        * When a tab with those params is already open, bb closes the calling
        * tab instead, and focuses the open one if the calling tab was active.
-       * Returns false outside one of this plugin's side-panel tabs, or once
-       * that tab has closed. Experimental: see docs/api_to_audit.md.
+       * Returns false outside one of this plugin's thread action tabs or New
+       * thread action tabs (fixed tabs and navigation-page tabs cannot
+       * replace themselves), or once that tab has closed.
+       * `experimental_useAppPanel().experimental_openTab` does not replace.
+       * Experimental: see docs/api_to_audit.md.
        */
       experimental_replace?: boolean;
     },
