@@ -5,6 +5,7 @@ import type {
   ExperimentalAppOverlayRegistration,
   ExperimentalCodeFenceRendererRegistration,
   PluginDiffRendererRegistration,
+  ExperimentalComposerRegistration,
   PluginEnvironmentProviderInputsRegistration,
   PluginMachineProviderInputsRegistration,
   PluginPendingInteractionRegistration,
@@ -19,6 +20,8 @@ import type {
   PluginSidebarFooterActionRegistration,
   PluginSourceCodeRendererRegistration,
   PluginThreadHeaderActionRegistration,
+  ExperimentalThreadInfoRowRegistration,
+  ExperimentalThreadInfoSectionRegistration,
   PluginThreadActionRegistration,
   ExperimentalPluginBrowserToolbarActionRegistration,
   PluginThreadListRegistration,
@@ -50,11 +53,14 @@ export interface PluginRegistrationSet {
   threadLists?: readonly PluginThreadListRegistration[];
   experimentalSidebarNavigations?: readonly CollectedSidebarNavigationRegistration[];
   threadHeaderActions?: readonly PluginThreadHeaderActionRegistration[];
+  threadInfoRows?: readonly ExperimentalThreadInfoRowRegistration[];
+  threadInfoSections?: readonly ExperimentalThreadInfoSectionRegistration[];
   threadActions?: readonly PluginThreadActionRegistration<unknown>[];
   browserToolbarActions?: readonly ExperimentalPluginBrowserToolbarActionRegistration[];
   fileOpeners: readonly PluginFileOpenerRegistration[];
   sourceCodeRenderers?: readonly PluginSourceCodeRendererRegistration[];
   diffRenderers?: readonly PluginDiffRendererRegistration[];
+  composers?: readonly ExperimentalComposerRegistration[];
   messageDirectives: readonly PluginMessageDirectiveRegistration[];
   codeFenceRenderers?: readonly ExperimentalCodeFenceRendererRegistration[];
   messageActions?: readonly PluginMessageActionRegistration[];
@@ -95,6 +101,10 @@ export interface ExperimentalSidebarNavigationSlot
   extends CollectedSidebarNavigationRegistration, PluginSlotBase {}
 interface PluginThreadHeaderActionSlot
   extends PluginThreadHeaderActionRegistration, PluginSlotBase {}
+export interface PluginThreadInfoRowSlot
+  extends ExperimentalThreadInfoRowRegistration, PluginSlotBase {}
+export interface PluginThreadInfoSectionSlot
+  extends ExperimentalThreadInfoSectionRegistration, PluginSlotBase {}
 export interface PluginThreadActionSlot
   extends PluginThreadActionRegistration<unknown>, PluginSlotBase {}
 export interface PluginBrowserToolbarActionSlot
@@ -105,6 +115,8 @@ export interface PluginSourceCodeRendererSlot
   extends PluginSourceCodeRendererRegistration, PluginSlotBase {}
 export interface PluginDiffRendererSlot
   extends PluginDiffRendererRegistration, PluginSlotBase {}
+export interface PluginComposerSlot
+  extends ExperimentalComposerRegistration, PluginSlotBase {}
 export interface PluginMessageDirectiveSlot
   extends PluginMessageDirectiveRegistration, PluginSlotBase {}
 export interface PluginCodeFenceRendererSlot
@@ -136,11 +148,14 @@ export interface PluginSlotSnapshot {
   threadLists: readonly PluginThreadListSlot[];
   experimentalSidebarNavigations: readonly ExperimentalSidebarNavigationSlot[];
   threadHeaderActions: readonly PluginThreadHeaderActionSlot[];
+  threadInfoRows: readonly PluginThreadInfoRowSlot[];
+  threadInfoSections: readonly PluginThreadInfoSectionSlot[];
   threadActions: readonly PluginThreadActionSlot[];
   browserToolbarActions: readonly PluginBrowserToolbarActionSlot[];
   fileOpeners: readonly PluginFileOpenerSlot[];
   sourceCodeRenderers: readonly PluginSourceCodeRendererSlot[];
   diffRenderers: readonly PluginDiffRendererSlot[];
+  composers: readonly PluginComposerSlot[];
   messageDirectives: readonly PluginMessageDirectiveSlot[];
   codeFenceRenderers: readonly PluginCodeFenceRendererSlot[];
   messageActions: readonly PluginMessageActionSlot[];
@@ -165,11 +180,14 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
   threadLists: [],
   experimentalSidebarNavigations: [],
   threadHeaderActions: [],
+  threadInfoRows: [],
+  threadInfoSections: [],
   threadActions: [],
   browserToolbarActions: [],
   fileOpeners: [],
   sourceCodeRenderers: [],
   diffRenderers: [],
+  composers: [],
   messageDirectives: [],
   codeFenceRenderers: [],
   messageActions: [],
@@ -201,11 +219,14 @@ const SLOT_KINDS: readonly SlotKind[] = [
   "threadLists",
   "experimentalSidebarNavigations",
   "threadHeaderActions",
+  "threadInfoRows",
+  "threadInfoSections",
   "threadActions",
   "browserToolbarActions",
   "fileOpeners",
   "sourceCodeRenderers",
   "diffRenderers",
+  "composers",
   "messageDirectives",
   "codeFenceRenderers",
   "messageActions",
@@ -261,11 +282,14 @@ function flattenRegistrations(
     threadLists: stamp(set.threadLists),
     experimentalSidebarNavigations: stamp(set.experimentalSidebarNavigations),
     threadHeaderActions: stamp(set.threadHeaderActions),
+    threadInfoRows: stamp(set.threadInfoRows),
+    threadInfoSections: stamp(set.threadInfoSections),
     threadActions: stamp(set.threadActions),
     browserToolbarActions: stamp(set.browserToolbarActions),
     fileOpeners: stamp(set.fileOpeners),
     sourceCodeRenderers: stamp(set.sourceCodeRenderers),
     diffRenderers: stamp(set.diffRenderers),
+    composers: stamp(set.composers),
     messageDirectives: stamp(set.messageDirectives),
     codeFenceRenderers: stamp(set.codeFenceRenderers),
     messageActions: stamp(set.messageActions),

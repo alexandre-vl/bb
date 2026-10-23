@@ -1939,6 +1939,8 @@ export function registerPluginCommands(
         const files = [server.jsPath, server.mapPath, server.metaPath];
         if (hasApp) {
           const app = await buildPluginApp(rootDir, bbVersion, toolchain);
+          for (const warning of app.migrationWarnings)
+            console.warn(`warning: ${warning}`);
           files.push(app.jsPath, app.cssPath, app.metaPath);
         }
         if (hasHost) {
@@ -1988,12 +1990,14 @@ export function registerPluginCommands(
             };
           },
           buildApp: async () => {
-            await buildPluginApp(
+            const app = await buildPluginApp(
               rootDir,
               resolveBbCliVersion(),
               await cliBuildToolchain(),
               { minify: false },
             );
+            for (const warning of app.migrationWarnings)
+              console.warn(`warning: ${warning}`);
           },
           buildHost: async () => {
             await buildPluginHost(
