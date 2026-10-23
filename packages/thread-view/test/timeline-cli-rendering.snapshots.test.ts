@@ -908,8 +908,8 @@ describe("timeline CLI rendering snapshots", () => {
       "── User ────────────────────────────────────────────────────
       Start the failing workspace
 
-      ── Provisioning thread failed ──────────────────────────────
-        Running setup
+      ── Provisioning thread failed (error) ──────────────────────
+        Running setup  1ms error
         pnpm install failed"
     `);
   });
