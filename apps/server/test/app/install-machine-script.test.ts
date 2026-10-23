@@ -110,7 +110,7 @@ function createEnrollingBbAppScript(args: {
   const recordInvocation =
     args.invocationPath === undefined
       ? ""
-      : `fs.writeFileSync(${JSON.stringify(args.invocationPath)}, cliArgs.join("\\n") + "\\n");`;
+      : `fs.appendFileSync(${JSON.stringify(args.invocationPath)}, cliArgs.join("\\n") + "\\n");`;
   return `#!/usr/bin/env node
 const fs = require("node:fs");
 const http = require("node:http");
@@ -890,7 +890,7 @@ fs.writeFileSync(path.join(process.env.BB_DATA_DIR, "config.json"), JSON.stringi
     }
   });
 
-  it("accepts the daemon's normalized loopback server URL", () => {
+  it("accepts the daemon's normalized loopback server URL and supervises the joined daemon", () => {
     const fixture = createFixture();
     const invocationPath = join(fixture.dataDir, "invocation");
     writeCurlArtifactMock(fixture, 404);
@@ -905,22 +905,40 @@ fs.writeFileSync(path.join(process.env.BB_DATA_DIR, "config.json"), JSON.stringi
       BB_INSTALL_SKIP_SERVICE: "1",
     });
 
-    expect(result.status, result.stderr).toBe(0);
-    expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
-      "host-daemon",
-      "join",
-      "--auto-update",
-      "--host-daemon-port",
-      readFileSync(join(fixture.dataDir, "host-daemon-port"), "utf8").trim(),
-      "--host-id",
-      "host-test",
-      "--server-url",
-      "http://localhost:20101",
-    ]);
-    const daemonPid = Number(
-      readFileSync(join(fixture.dataDir, "install-daemon.pid"), "utf8"),
-    );
-    process.kill(daemonPid, "SIGTERM");
+    const daemonPidPath = join(fixture.dataDir, "install-daemon.pid");
+    try {
+      expect(result.status, result.stderr).toBe(0);
+      const port = readFileSync(
+        join(fixture.dataDir, "host-daemon-port"),
+        "utf8",
+      ).trim();
+      expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
+        "host-daemon",
+        "join",
+        "--auto-update",
+        "--host-daemon-port",
+        port,
+        "--host-id",
+        "host-test",
+        "--server-url",
+        "http://localhost:20101",
+        "host-daemon",
+        "--auto-update",
+        "--supervise",
+        "--host-daemon-port",
+        port,
+        "--server-url",
+        "http://localhost:20101",
+      ]);
+      expect(result.stdout).toContain("Stopped the temporary join daemon");
+      expect(result.stdout + result.stderr).not.toContain(
+        "temporary join daemon PID",
+      );
+    } finally {
+      if (existsSync(daemonPidPath)) {
+        process.kill(Number(readFileSync(daemonPidPath, "utf8")), "SIGTERM");
+      }
+    }
   });
 
   it("installs the server tarball even when a same-version bb-app is on PATH", () => {
