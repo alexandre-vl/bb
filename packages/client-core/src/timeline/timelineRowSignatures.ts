@@ -1,5 +1,6 @@
 import type {
   TimelineActivityIntent,
+  TimelineProvisioningStep,
   TimelineRowPresentation,
 } from "@bb/server-contract";
 import {
@@ -51,6 +52,22 @@ function activityIntentsSignature(
   intents: readonly TimelineActivityIntent[],
 ): string {
   return intents.map(activityIntentSignature).join("\u001e");
+}
+
+function provisioningStepsSignature(
+  steps: readonly TimelineProvisioningStep[],
+): string {
+  return steps
+    .map((step) =>
+      joinSignatureParts([
+        step.label,
+        step.status,
+        step.startedAt,
+        step.completedAt,
+        step.output,
+      ]),
+    )
+    .join("\u001e");
 }
 
 const rowSignatureCache = new WeakMap<ThreadTimelineViewRow, string>();
@@ -370,6 +387,16 @@ function computeTimelineRowRenderSignature(row: ThreadTimelineViewRow): string {
           row.operationKind === "parent-change"
             ? row.parentChange.nextParentThreadTitle
             : null,
+          row.operationKind === "thread-provisioning"
+            ? provisioningStepsSignature(row.steps)
+            : null,
+          row.operationKind === "thread-provisioning"
+            ? row.estimate?.p50Ms
+            : null,
+          row.operationKind === "thread-provisioning"
+            ? row.estimate?.p90Ms
+            : null,
+          row.completedAt,
           row.title,
           row.detail,
         ]);

@@ -1,14 +1,31 @@
 import type { ThreadRuntimeDisplayStatus } from "@bb/domain";
 import { assertNever } from "@bb/core-ui";
+import { durationToCompactString } from "@bb/thread-view";
+
+function withProvisioningRemaining(
+  placeholder: string,
+  provisioningRemainingMs: number | null,
+): string {
+  return provisioningRemainingMs === null
+    ? placeholder
+    : `${placeholder} ~${durationToCompactString(provisioningRemainingMs)}`;
+}
 
 export function getFollowUpPromptPlaceholder(
   displayStatus: ThreadRuntimeDisplayStatus,
+  provisioningRemainingMs: number | null,
 ): string {
   switch (displayStatus) {
     case "provisioning":
-      return "Setting up workspace...";
+      return withProvisioningRemaining(
+        "Setting up workspace...",
+        provisioningRemainingMs,
+      );
     case "starting":
-      return "Starting thread...";
+      return withProvisioningRemaining(
+        "Starting thread...",
+        provisioningRemainingMs,
+      );
     case "stopping":
       return "Queue a message to run after the stop";
     case "waiting-for-host":
@@ -26,12 +43,16 @@ export function getFollowUpPromptPlaceholder(
 
 export function getCompactFollowUpPromptPlaceholder(
   displayStatus: ThreadRuntimeDisplayStatus,
+  provisioningRemainingMs: number | null,
 ): string {
   switch (displayStatus) {
     case "provisioning":
-      return "Setting up...";
+      return withProvisioningRemaining(
+        "Setting up...",
+        provisioningRemainingMs,
+      );
     case "starting":
-      return "Starting...";
+      return withProvisioningRemaining("Starting...", provisioningRemainingMs);
     case "stopping":
       return "Queue for after the stop";
     case "waiting-for-host":

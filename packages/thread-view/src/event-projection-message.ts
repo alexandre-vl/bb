@@ -370,9 +370,8 @@ export interface EventProjectionProvisioningTranscriptEntry {
   type: "step" | "output";
   key: string;
   text: string;
-  startedAt?: number;
   status?: "started" | "completed" | "failed";
-  metadata?: Record<string, unknown>;
+  receivedAt: number;
 }
 
 export interface EventProjectionProvisioningMetadata {
@@ -519,6 +518,7 @@ export type EventProjectionMessage =
   | EventProjectionErrorMessage;
 
 export interface BuildEventProjectionMessagesOptions {
+  activeProvisioningId?: string;
   includeDiagnosticOperations?: boolean;
   threadStatus?: Thread["status"];
   threadName: string;

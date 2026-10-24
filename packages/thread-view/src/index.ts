@@ -14,6 +14,10 @@ export {
 } from "./timeline-row-title.js";
 export { hasTimelineExplorationIntent } from "./timeline-activity-intents.js";
 export {
+  provisioningEstimateProgress,
+  type ProvisioningEstimateProgress,
+} from "./provisioning-estimate.js";
+export {
   activityIntentTitleGlyph,
   workRowGlyph,
   workRowPluginGlyph,

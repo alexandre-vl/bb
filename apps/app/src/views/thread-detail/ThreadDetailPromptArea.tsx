@@ -19,6 +19,8 @@ import {
   getFollowUpPromptPlaceholder,
   getCompactFollowUpPromptPlaceholder,
 } from "@/components/promptbox/follow-up-placeholder";
+import { ProvisioningPlaceholderPromptBox } from "@/components/promptbox/ProvisioningPlaceholderPromptBox";
+import type { ActiveProvisioningEstimate } from "@/lib/thread-provisioning-estimate";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
 import type {
   PermissionMode,
@@ -205,6 +207,7 @@ interface ThreadDetailPromptAreaProps {
   onCreateNewThreadInEnvironment?: () => void;
   onOpenThreadInfo?: () => void;
   pendingInteractions: readonly PendingInteraction[];
+  provisioningEstimate: ActiveProvisioningEstimate | null;
   queuedMessageCount: number;
   onChangedFileClick: (selection: WorkspaceChangedFileSelection) => void;
   projectId: string;
@@ -415,6 +418,7 @@ export function ThreadDetailPromptArea({
   onCreateNewThreadInEnvironment,
   onOpenThreadInfo,
   pendingInteractions,
+  provisioningEstimate,
   queuedMessageCount,
   onChangedFileClick,
   projectId,
@@ -994,11 +998,16 @@ export function ThreadDetailPromptArea({
     isStopRequested,
     runtimeDisplayStatus,
   ]);
+  const placeholderDisplayStatus = isStopRequested
+    ? "stopping"
+    : runtimeDisplayStatus;
   const promptPlaceholder = getFollowUpPromptPlaceholder(
-    isStopRequested ? "stopping" : runtimeDisplayStatus,
+    placeholderDisplayStatus,
+    null,
   );
   const compactPromptPlaceholder = getCompactFollowUpPromptPlaceholder(
-    isStopRequested ? "stopping" : runtimeDisplayStatus,
+    placeholderDisplayStatus,
+    null,
   );
   const providerIds = useMemo(
     () => providerOptions.map((option) => option.value),
@@ -2315,7 +2324,9 @@ export function ThreadDetailPromptArea({
     );
 
   const bottomContent = (
-    <FollowUpPromptBox
+    <ProvisioningPlaceholderPromptBox
+      placeholderDisplayStatus={placeholderDisplayStatus}
+      provisioningEstimate={provisioningEstimate}
       id={THREAD_DETAIL_COMPOSER_TEXTAREA_ID}
       attachments={bottomAttachmentsConfig}
       stack={pendingInteractionNode ? pendingInteractionStack : promptStack}
