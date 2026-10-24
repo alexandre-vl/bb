@@ -29,6 +29,9 @@ export const promptAreaMocks = {
     | undefined,
   defaultExecutionOptionsIsPlaceholder: false,
   executionInputSources: {} as ExistingThreadExecutionInputSources,
+  modelCatalogIsSettled: true,
+  modelOptions: [] as { value: string; label: string }[],
+  permissionModeSupportIsKnown: true,
   deleteQueuedMessageMutateAsync: vi.fn(),
   navigate: vi.fn(),
   pluginComposerHost: null as PluginComposerHost | null,
@@ -170,7 +173,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
       };
       executionReadOnly?: boolean;
       pendingInteraction?: ReactNode;
-      permission: { value?: string };
+      permission: { value?: string; loading?: boolean };
       permissionReadOnly?: boolean;
       pluginComposerHost?: PluginComposerHost | null;
       sessionOptionsControl?: ReactNode;
@@ -231,6 +234,9 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
           {execution.serviceTier?.value}
         </div>
         <div data-testid="selected-permission">{permission.value}</div>
+        <div data-testid="permission-loading">
+          {permission.loading ? "true" : "false"}
+        </div>
         <div data-testid="model-loading">
           {execution.model.isLoading ? "true" : "false"}
         </div>
@@ -616,10 +622,10 @@ vi.mock("@/hooks/useThreadCreationOptions", async () => {
         providers: [],
         hasMultipleProviders: true,
         isLoadingModels: false,
-        modelCatalogIsSettled: true,
+        modelCatalogIsSettled: promptAreaMocks.modelCatalogIsSettled,
         modelLoadError: null,
         modelLoadFailed: false,
-        modelOptions: [],
+        modelOptions: promptAreaMocks.modelOptions,
         moreModelOptions: [],
         permissionMode: options.initialPermissionMode ?? "auto",
         permissionModeOptions: [],
@@ -654,6 +660,8 @@ vi.mock("@/hooks/useThreadCreationOptions", async () => {
         },
         setServiceTier: promptAreaMocks.setServiceTier,
         supportsPermissionModeSelection: true,
+        permissionModeSupportIsKnown:
+          promptAreaMocks.permissionModeSupportIsKnown,
         supportsServiceTier: promptAreaMocks.supportsServiceTier,
       };
     },

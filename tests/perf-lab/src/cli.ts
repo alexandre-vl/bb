@@ -2,11 +2,27 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadavg, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import type { TraceMap } from "@jridgewell/trace-mapping";
 import type { ElementHandle } from "puppeteer-core";
 import { analyzeRecording, summarizeRuns } from "./analysis.js";
-import { LabSession, NETWORK_PROFILES, resolveChromePath } from "./browser.js";
+import {
+  LabSession,
+  NavigationStalledError,
+  NETWORK_PROFILES,
+  resolveChromePath,
+  type LabSessionOptions,
+  type RecordedCpuProfile,
+} from "./browser.js";
+import {
+  collectScriptUrls,
+  parseSourceMap,
+  renderCpuProfileMarkdown,
+  summarizeCpuProfile,
+  type CpuProfile,
+  type ProfileWindow,
+} from "./cpu-profile.js";
 import { parseRouteDelay, startLabProxy, type LabProxy } from "./lab-proxy.js";
 import {
   discoverThreadFixtures,
@@ -38,6 +54,18 @@ const CONTACT_SHEET_TIMES = [
   7000,
 ];
 const OPEN_TIMEOUT_MS = 120_000;
+const MAX_RUN_ATTEMPTS = 3;
+const NAVIGATION_STALL_MS = 15_000;
+const CPU_PROFILE_FILE = "cpu-profile.cpuprofile";
+const CPU_PROFILE_TOP_FUNCTIONS = 25;
+const SIDEBAR_RENDER_WAIT_MS = 600;
+const SIDEBAR_SCROLL_SETTLE_MS = 400;
+
+interface SourceMapCache {
+  appDist: string | null;
+  appUrl: string;
+  maps: Map<string, TraceMap | null>;
+}
 
 interface Variant {
   appDist: string | null;
@@ -45,6 +73,8 @@ interface Variant {
   label: string | null;
   outDir: string;
   proxy: LabProxy;
+  retries: RunFailure[];
+  sourceMaps: SourceMapCache;
   stepReports: Map<string, StepReport>;
 }
 const NETWORK_QUIET_MS = 2_500;
@@ -78,6 +108,11 @@ Options:
   --label <text>         Label stored in the report; repeat to name each --app-dist build in order
   --viewport <WxH>       Browser viewport (default: 1440x900)
   --chrome <path>        Chrome/Chromium binary (or BB_PERF_LAB_CHROME)
+  --chrome-arg <arg>     Extra Chrome command-line switch; repeatable, e.g. --chrome-arg=--js-flags=--no-flush-bytecode
+  --cpu-profile          Record a V8 CPU profile of each measured step: cpu-profile.cpuprofile next to
+                         recording.json, and cpu-profile.md with the top functions of the longest animation
+                         frame and of the whole window, resolved through the build's source maps when it has
+                         them. Sampling slows the page: compare profiled runs only with profiled runs
   --reanalyze <dir>      Recompute an earlier output directory's analyses and summaries from its
                          recordings with the current analysis code (with --baseline to compare);
                          needs no running instance
@@ -181,14 +216,72 @@ function requireRole(
   return fixture;
 }
 
+async function queryThreadLink(
+  session: LabSession,
+  thread: ThreadFixture,
+): Promise<ElementHandle<Element> | null> {
+  return (
+    (await session.page.$(
+      `[data-sidebar=content] a[href$="/threads/${thread.id}"]`,
+    )) ?? (await session.page.$(`a[href$="/threads/${thread.id}"]`))
+  );
+}
+
+async function scrollSidebarToThreadLink(
+  session: LabSession,
+  thread: ThreadFixture,
+): Promise<boolean> {
+  return session.page.evaluate(
+    async (linkSelector: string, renderWaitMs: number) => {
+      const content = document.querySelector("[data-sidebar=content]");
+      if (content === null) {
+        return false;
+      }
+      const scrollers = [content, ...content.querySelectorAll("*")].filter(
+        (element) =>
+          element.scrollHeight > element.clientHeight + 1 &&
+          /auto|scroll/u.test(getComputedStyle(element).overflowY),
+      );
+      for (const scroller of scrollers) {
+        scroller.scrollTop = 0;
+        for (;;) {
+          const deadline = performance.now() + renderWaitMs;
+          while (performance.now() < deadline) {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            if (content.querySelector(linkSelector) !== null) {
+              return true;
+            }
+          }
+          if (
+            scroller.scrollTop + scroller.clientHeight >=
+            scroller.scrollHeight - 1
+          ) {
+            break;
+          }
+          scroller.scrollTop += Math.max(1, scroller.clientHeight * 0.8);
+        }
+      }
+      return false;
+    },
+    `a[href$="/threads/${thread.id}"]`,
+    SIDEBAR_RENDER_WAIT_MS,
+  );
+}
+
 async function findThreadLink(
   session: LabSession,
   thread: ThreadFixture,
 ): Promise<ElementHandle<Element>> {
-  const link =
-    (await session.page.$(
-      `[data-sidebar=content] a[href$="/threads/${thread.id}"]`,
-    )) ?? (await session.page.$(`a[href$="/threads/${thread.id}"]`));
+  const rendered = await queryThreadLink(session, thread);
+  if (rendered !== null) {
+    return rendered;
+  }
+  if (await scrollSidebarToThreadLink(session, thread)) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, SIDEBAR_SCROLL_SETTLE_MS),
+    );
+  }
+  const link = await queryThreadLink(session, thread);
   if (link === null) {
     throw new Error(
       `Thread ${thread.id} has no link in the page; is it visible in the sidebar?`,
@@ -273,6 +366,7 @@ interface RunStepsArgs {
 }
 
 interface MeasuredStep {
+  cpuProfile: RecordedCpuProfile | null;
   label: string;
   recording: Recording;
 }
@@ -288,23 +382,22 @@ async function runSteps(args: RunStepsArgs): Promise<MeasuredStep[]> {
     switch (step.kind) {
       case "open": {
         const thread = requireRole(args.threads, step.thread);
-        const open = async () => {
-          await args.session.page.goto(`${args.appUrl}${thread.path}`, {
-            timeout: OPEN_TIMEOUT_MS,
-            waitUntil: "domcontentloaded",
-          });
-        };
+        const open = () =>
+          args.session.navigate(
+            `${args.appUrl}${thread.path}`,
+            OPEN_TIMEOUT_MS,
+          );
         if (step.measure) {
           measured.push({
             label: describeStep(step),
-            recording: await args.session.recordStep({
+            ...(await args.session.recordStep({
               action: open,
               framesDir,
               recordMs: args.recordMs,
               step: describeStep(step),
               targetPath: thread.path,
               targetThreadId: thread.id,
-            }),
+            })),
           });
         } else {
           await open();
@@ -320,14 +413,14 @@ async function runSteps(args: RunStepsArgs): Promise<MeasuredStep[]> {
         if (step.measure) {
           measured.push({
             label: describeStep(step),
-            recording: await args.session.recordStep({
+            ...(await args.session.recordStep({
               action: click,
               framesDir,
               recordMs: args.recordMs,
               step: describeStep(step),
               targetPath: thread.path,
               targetThreadId: thread.id,
-            }),
+            })),
           });
         } else {
           await click();
@@ -350,7 +443,7 @@ async function runSteps(args: RunStepsArgs): Promise<MeasuredStep[]> {
         const target = visited.at(-1) ?? null;
         measured.push({
           label: describeStep(step),
-          recording: await args.session.recordStep({
+          ...(await args.session.recordStep({
             action: async () => {
               await args.session.page.evaluate(() => {
                 (window as unknown as PerfLabWindow).__bbPerfLabProbe.start(
@@ -364,7 +457,7 @@ async function runSteps(args: RunStepsArgs): Promise<MeasuredStep[]> {
             step: describeStep(step),
             targetPath: target?.path ?? null,
             targetThreadId: target?.id ?? null,
-          }),
+          })),
         });
         lastThread = target;
         break;
@@ -376,7 +469,7 @@ async function runSteps(args: RunStepsArgs): Promise<MeasuredStep[]> {
       case "offline": {
         measured.push({
           label: describeStep(step),
-          recording: await args.session.recordStep({
+          ...(await args.session.recordStep({
             action: async () => {
               await args.session.startProbe();
               await args.session.setOffline(true);
@@ -388,13 +481,125 @@ async function runSteps(args: RunStepsArgs): Promise<MeasuredStep[]> {
             step: describeStep(step),
             targetPath: lastThread?.path ?? null,
             targetThreadId: lastThread?.id ?? null,
-          }),
+          })),
         });
         break;
       }
     }
   }
   return measured;
+}
+
+async function runAttempts(args: {
+  onRetry: (message: string) => void;
+  sessionOptions: LabSessionOptions;
+  steps: Omit<RunStepsArgs, "session">;
+}): Promise<{ measured: MeasuredStep[]; session: LabSession }> {
+  for (let attempt = 1; ; attempt += 1) {
+    const session = await LabSession.start(args.sessionOptions);
+    try {
+      return {
+        measured: await runSteps({ ...args.steps, session }),
+        session,
+      };
+    } catch (error) {
+      await session.close();
+      if (
+        !(error instanceof NavigationStalledError) ||
+        attempt >= MAX_RUN_ATTEMPTS
+      ) {
+        throw error;
+      }
+      args.onRetry(error.message);
+    }
+  }
+}
+
+async function readSourceMap(
+  cache: SourceMapCache,
+  scriptUrl: string,
+): Promise<TraceMap | null> {
+  const path = new URL(scriptUrl).pathname;
+  const cached = cache.maps.get(path);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const file =
+    cache.appDist === null ? null : join(cache.appDist, `${path}.map`);
+  let text: string | null = null;
+  let mapUrl = `${cache.appUrl}${path}.map`;
+  if (file !== null && existsSync(file)) {
+    text = readFileSync(file, "utf8");
+    mapUrl = pathToFileURL(file).href;
+  } else {
+    const response = await fetch(mapUrl).catch(() => null);
+    text = response?.ok === true ? await response.text() : null;
+  }
+  let map: TraceMap | null = null;
+  try {
+    map = text === null ? null : parseSourceMap(text, mapUrl);
+  } catch {
+    map = null;
+  }
+  cache.maps.set(path, map);
+  return map;
+}
+
+async function summarizeStepProfile(args: {
+  cache: SourceMapCache;
+  profile: CpuProfile;
+  recording: Recording;
+  startOffsetMs: number;
+  stepDir: string;
+  title: string;
+}): Promise<void> {
+  const { profile, startOffsetMs } = args;
+  const scripts = collectScriptUrls(profile);
+  const sourceMaps = new Map<string, TraceMap>();
+  for (const url of scripts) {
+    const map = await readSourceMap(args.cache, url);
+    if (map !== null) {
+      sourceMaps.set(url, map);
+    }
+  }
+  const longest = args.recording.loafs.reduce<
+    Recording["loafs"][number] | null
+  >(
+    (current, loaf) =>
+      current === null || loaf.duration > current.duration ? loaf : current,
+    null,
+  );
+  const windows: ProfileWindow[] = [
+    ...(longest === null
+      ? []
+      : [
+          {
+            from: longest.at,
+            label: "Longest animation frame",
+            to: longest.at + longest.duration,
+          },
+        ]),
+    {
+      from: 0,
+      label: "Recording window",
+      to: startOffsetMs + (profile.endTime - profile.startTime) / 1000,
+    },
+  ];
+  writeFileSync(
+    join(args.stepDir, "cpu-profile.md"),
+    renderCpuProfileMarkdown(
+      args.title,
+      summarizeCpuProfile(profile, {
+        limit: CPU_PROFILE_TOP_FUNCTIONS,
+        repoRoot: REPO_ROOT,
+        sourceMaps,
+        startOffsetMs,
+        windows,
+      }),
+      sourceMaps.size,
+      scripts.length,
+    ),
+  );
 }
 
 function toRunRecord(
@@ -456,30 +661,59 @@ function writeReport(
   process.stdout.write(`\n${markdown}\nReport: ${join(outDir, "report.md")}\n`);
 }
 
-function reanalyze(outDir: string, baselineFile: string | undefined): void {
+async function reanalyze(
+  outDir: string,
+  baselineFile: string | undefined,
+): Promise<void> {
   const previous = JSON.parse(
     readFileSync(join(outDir, "report.json"), "utf8"),
   ) as LabReport;
-  const steps = summarizeSteps(
-    previous.steps.map((step) => ({
-      ...step,
-      runs: step.runs.map((run) =>
+  const cache: SourceMapCache = {
+    appDist: previous.appDist,
+    appUrl: previous.appUrl,
+    maps: new Map(),
+  };
+  const steps: StepReport[] = [];
+  for (const step of previous.steps) {
+    const runs: RunRecord[] = [];
+    for (const run of step.runs) {
+      const recording = JSON.parse(
+        readFileSync(run.recordingFile, "utf8"),
+      ) as Recording;
+      const stepDir = dirname(run.recordingFile);
+      const profileFile = join(stepDir, CPU_PROFILE_FILE);
+      if (
+        typeof recording.cpuProfileStartMs === "number" &&
+        existsSync(profileFile)
+      ) {
+        await summarizeStepProfile({
+          cache,
+          profile: JSON.parse(readFileSync(profileFile, "utf8")) as CpuProfile,
+          recording,
+          startOffsetMs: recording.cpuProfileStartMs,
+          stepDir,
+          title: `${step.scenario} › ${step.step} — run ${run.run}${previous.label === null ? "" : ` · ${previous.label}`}`,
+        });
+      }
+      runs.push(
         toRunRecord(
-          JSON.parse(readFileSync(run.recordingFile, "utf8")) as Recording,
+          recording,
           run.run,
           run.recordingFile,
           run.sheetFile,
           run.hostLoad ?? null,
         ),
-      ),
-    })),
-  );
+      );
+    }
+    steps.push({ ...step, runs });
+  }
   writeReport(
     outDir,
     {
       ...previous,
       failures: Array.isArray(previous.failures) ? previous.failures : [],
-      steps,
+      retries: Array.isArray(previous.retries) ? previous.retries : [],
+      steps: summarizeSteps(steps),
     },
     baselineFile,
   );
@@ -497,7 +731,9 @@ async function main(): Promise<void> {
       "app-dist": { multiple: true, type: "string" },
       baseline: { type: "string" },
       chrome: { type: "string" },
+      "chrome-arg": { multiple: true, type: "string" },
       cpu: { default: "1", type: "string" },
+      "cpu-profile": { type: "boolean" },
       delay: { multiple: true, type: "string" },
       help: { short: "h", type: "boolean" },
       label: { multiple: true, type: "string" },
@@ -520,7 +756,7 @@ async function main(): Promise<void> {
     return;
   }
   if (values.reanalyze !== undefined) {
-    reanalyze(resolve(values.reanalyze), values.baseline);
+    await reanalyze(resolve(values.reanalyze), values.baseline);
     return;
   }
   const scenarioNames = values.scenario.split(",").map((name) => name.trim());
@@ -607,6 +843,7 @@ async function main(): Promise<void> {
     label: variant.label,
     perfDiagnostics,
     profile: values.profile,
+    retries: variant.retries,
     runs,
     steps: summarizeSteps([...variant.stepReports.values()]),
     threads,
@@ -629,6 +866,8 @@ async function main(): Promise<void> {
           delays,
           transport,
         }),
+        retries: [],
+        sourceMaps: { appDist, appUrl, maps: new Map() },
         stepReports: new Map(),
       });
     }
@@ -646,25 +885,43 @@ async function main(): Promise<void> {
           const runDir = join(variant.outDir, scenario, `run-${run}`);
           const browserUrl = variant.proxy.url;
           const hostLoad = loadavg()[0] ?? null;
+          const runName = `${scenario} run ${run}${comparing ? ` · ${variant.label}` : ""}`;
           let session: LabSession | null = null;
           try {
-            session = await LabSession.start({
-              appUrl: browserUrl,
-              chromePath,
-              cpuSlowdown,
-              height: viewport.height,
-              networkProfile,
-              width: viewport.width,
+            const attempt = await runAttempts({
+              onRetry: (message) => {
+                variant.retries.push({ error: message, run, scenario });
+                process.stderr.write(
+                  `↻ ${runName} restarts in a new browser: ${message}\n`,
+                );
+              },
+              sessionOptions: {
+                appUrl: browserUrl,
+                chromeArgs: values["chrome-arg"] ?? [],
+                chromePath,
+                cpuProfile: values["cpu-profile"] === true,
+                cpuSlowdown,
+                height: viewport.height,
+                navigationStallMs:
+                  NAVIGATION_STALL_MS +
+                  delays.reduce((total, delay) => total + delay.ms, 0),
+                networkProfile,
+                width: viewport.width,
+              },
+              steps: {
+                appUrl: browserUrl,
+                outDir: runDir,
+                recordMs,
+                steps,
+                threads,
+              },
             });
-            const measured = await runSteps({
-              appUrl: browserUrl,
-              outDir: runDir,
-              recordMs,
-              session,
-              steps,
-              threads,
-            });
-            for (const [index, { label, recording }] of measured.entries()) {
+            session = attempt.session;
+            const measured = attempt.measured;
+            for (const [
+              index,
+              { cpuProfile, label, recording },
+            ] of measured.entries()) {
               const stepLabel = `${index + 1}. ${label}`;
               const key = `${scenario}::${stepLabel}`;
               const stepDir = join(runDir, `measured-${index + 1}`);
@@ -674,6 +931,20 @@ async function main(): Promise<void> {
                 recordingFile,
                 `${JSON.stringify(recording, null, 1)}\n`,
               );
+              if (cpuProfile !== null) {
+                writeFileSync(
+                  join(stepDir, CPU_PROFILE_FILE),
+                  JSON.stringify(cpuProfile.profile),
+                );
+                await summarizeStepProfile({
+                  cache: variant.sourceMaps,
+                  profile: cpuProfile.profile,
+                  recording,
+                  startOffsetMs: cpuProfile.startOffsetMs,
+                  stepDir,
+                  title: `${runName} › ${stepLabel}`,
+                });
+              }
               const sheetFile = join(stepDir, "filmstrip.png");
               await session.renderContactSheet(
                 `${scenario} › ${stepLabel} — run ${run} — ${values.profile} ${transport} ×${cpuSlowdown}`,
@@ -701,9 +972,7 @@ async function main(): Promise<void> {
             const message =
               error instanceof Error ? error.message : String(error);
             variant.failures.push({ error: message, run, scenario });
-            process.stderr.write(
-              `✗ ${scenario} run ${run}${comparing ? ` · ${variant.label}` : ""} failed: ${message}\n`,
-            );
+            process.stderr.write(`✗ ${runName} failed: ${message}\n`);
           } finally {
             await session?.close();
           }

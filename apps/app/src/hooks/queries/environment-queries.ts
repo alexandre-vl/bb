@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Environment, WorkspaceDiffTarget } from "@bb/domain";
 import type {
   EnvironmentDiffBranchesResponse,
   EnvironmentDiffFilesResponse,
   EnvironmentStatusResponse,
+  RealtimeSubscriptionTarget,
   WorkspacePathListResponse,
 } from "@bb/server-contract";
 import type { EnvironmentDiffArgs } from "@bb/sdk/browser";
@@ -14,6 +16,7 @@ import type {
 import { loadFilePreview } from "@/lib/api";
 import { buildEnvironmentFileContentUrl } from "@/lib/file-content-urls";
 import { sdk } from "@/lib/sdk";
+import { wsManager } from "@/lib/ws";
 import { useEnvironmentDetailRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import {
   environmentDiffFilesQueryKey,
@@ -63,6 +66,76 @@ interface UseEnvironmentDiffFilesOptions extends QueryOptions {
 const MERGE_BASE_BRANCHES_STALE_MS = 30_000;
 const MERGE_BASE_BRANCHES_LIMIT = 50;
 const ENVIRONMENT_DIFF_STALE_MS = 5_000;
+export const ENVIRONMENT_WORKSPACE_WATCH_LINGER_MS = 60_000;
+export const MAX_LINGERING_ENVIRONMENT_WORKSPACE_WATCHES = 4;
+
+const lingeringEnvironmentWorkspaceWatches = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+
+function environmentDetailTarget(
+  environmentId: string,
+): RealtimeSubscriptionTarget {
+  return { kind: "environment-detail", environmentId };
+}
+
+function retainEnvironmentWorkspaceWatch(environmentId: string): void {
+  const lingering = lingeringEnvironmentWorkspaceWatches.get(environmentId);
+  if (lingering === undefined) {
+    wsManager.subscribe(environmentDetailTarget(environmentId));
+    return;
+  }
+  clearTimeout(lingering);
+  lingeringEnvironmentWorkspaceWatches.delete(environmentId);
+}
+
+function dropLingeringEnvironmentWorkspaceWatch(environmentId: string): void {
+  const lingering = lingeringEnvironmentWorkspaceWatches.get(environmentId);
+  if (lingering === undefined) {
+    return;
+  }
+  clearTimeout(lingering);
+  lingeringEnvironmentWorkspaceWatches.delete(environmentId);
+  wsManager.unsubscribe(environmentDetailTarget(environmentId));
+}
+
+function releaseEnvironmentWorkspaceWatch(environmentId: string): void {
+  if (lingeringEnvironmentWorkspaceWatches.has(environmentId)) {
+    wsManager.unsubscribe(environmentDetailTarget(environmentId));
+    return;
+  }
+  for (const oldestEnvironmentId of lingeringEnvironmentWorkspaceWatches.keys()) {
+    if (
+      lingeringEnvironmentWorkspaceWatches.size <
+      MAX_LINGERING_ENVIRONMENT_WORKSPACE_WATCHES
+    ) {
+      break;
+    }
+    dropLingeringEnvironmentWorkspaceWatch(oldestEnvironmentId);
+  }
+  lingeringEnvironmentWorkspaceWatches.set(
+    environmentId,
+    setTimeout(
+      () => dropLingeringEnvironmentWorkspaceWatch(environmentId),
+      ENVIRONMENT_WORKSPACE_WATCH_LINGER_MS,
+    ),
+  );
+}
+
+export function useEnvironmentWorkspaceWatch(
+  environmentId: string | null | undefined,
+): void {
+  useEffect(() => {
+    if (!environmentId) {
+      return;
+    }
+    retainEnvironmentWorkspaceWatch(environmentId);
+    return () => {
+      releaseEnvironmentWorkspaceWatch(environmentId);
+    };
+  }, [environmentId]);
+}
 
 function requireEnvironmentId(
   environmentId: string | null | undefined,

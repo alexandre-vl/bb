@@ -5,6 +5,7 @@ import puppeteer, {
   type CDPSession,
   type Page,
 } from "puppeteer-core";
+import type { CpuProfile } from "./cpu-profile.js";
 import type {
   FilmstripFrame,
   NetworkRequest,
@@ -50,6 +51,10 @@ const LONG_LIVED_RESOURCE_TYPES: ReadonlySet<string> = new Set([
   "WebSocket",
 ]);
 const NETWORK_QUIET_POLL_MS = 100;
+const CPU_PROFILE_SAMPLING_INTERVAL_US = 200;
+const NAVIGATION_STALL_POLL_MS = 500;
+
+export class NavigationStalledError extends Error {}
 
 const PROBE_SOURCE = readFileSync(
   new URL("./page-probe.js", import.meta.url),
@@ -95,11 +100,24 @@ interface PendingWebSocketFrame extends Omit<WebSocketFrame, "at"> {
 
 export interface LabSessionOptions {
   appUrl: string;
+  chromeArgs: readonly string[];
   chromePath: string;
+  cpuProfile: boolean;
   cpuSlowdown: number;
   height: number;
+  navigationStallMs: number;
   networkProfile: NetworkProfile | null;
   width: number;
+}
+
+export interface RecordedCpuProfile {
+  profile: CpuProfile;
+  startOffsetMs: number;
+}
+
+export interface RecordedStep {
+  cpuProfile: RecordedCpuProfile | null;
+  recording: Recording;
 }
 
 export interface RecordStepArgs {
@@ -118,6 +136,7 @@ export class LabSession {
   private readonly websocketFrames: PendingWebSocketFrame[] = [];
   private readonly frames: PendingFrame[] = [];
   private clockOffsetMs: number | null = null;
+  private lastNetworkProgressAt = Date.now();
 
   private constructor(
     private readonly browser: Browser,
@@ -129,7 +148,12 @@ export class LabSession {
   static async start(options: LabSessionOptions): Promise<LabSession> {
     const browser = await puppeteer.launch({
       acceptInsecureCerts: true,
-      args: ["--no-sandbox", "--disable-gpu", "--ignore-certificate-errors"],
+      args: [
+        "--no-sandbox",
+        "--disable-gpu",
+        "--ignore-certificate-errors",
+        ...options.chromeArgs,
+      ],
       defaultViewport: { height: options.height, width: options.width },
       executablePath: options.chromePath,
       headless: true,
@@ -146,6 +170,7 @@ export class LabSession {
     await this.cdp.send("Network.enable");
     await this.cdp.send("Page.enable");
     this.cdp.on("Network.requestWillBeSent", (event) => {
+      this.lastNetworkProgressAt = Date.now();
       this.clockOffsetMs ??= event.wallTime * 1000 - event.timestamp * 1000;
       const url = new URL(event.request.url);
       if (url.origin !== origin) {
@@ -166,13 +191,18 @@ export class LabSession {
         this.inFlightRequestIds.add(event.requestId);
       }
     });
+    this.cdp.on("Network.dataReceived", () => {
+      this.lastNetworkProgressAt = Date.now();
+    });
     this.cdp.on("Network.responseReceived", (event) => {
+      this.lastNetworkProgressAt = Date.now();
       const request = this.requestsById.get(event.requestId);
       if (request !== undefined) {
         request.status = event.response.status;
       }
     });
     this.cdp.on("Network.loadingFinished", (event) => {
+      this.lastNetworkProgressAt = Date.now();
       this.inFlightRequestIds.delete(event.requestId);
       const request = this.requestsById.get(event.requestId);
       if (request !== undefined && this.clockOffsetMs !== null) {
@@ -214,6 +244,12 @@ export class LabSession {
         rate: this.options.cpuSlowdown,
       });
     }
+    if (this.options.cpuProfile) {
+      await this.cdp.send("Profiler.enable");
+      await this.cdp.send("Profiler.setSamplingInterval", {
+        interval: CPU_PROFILE_SAMPLING_INTERVAL_US,
+      });
+    }
     await this.page.evaluateOnNewDocument(PROBE_SOURCE);
   }
 
@@ -249,6 +285,39 @@ export class LabSession {
     await this.applyNetworkProfile(this.options.networkProfile);
   }
 
+  async navigate(url: string, timeoutMs: number): Promise<void> {
+    const navigation = this.page.goto(url, {
+      timeout: timeoutMs,
+      waitUntil: "domcontentloaded",
+    });
+    navigation.catch(() => undefined);
+    let watchdog: NodeJS.Timeout | undefined;
+    const stalled = new Promise<never>((_, reject) => {
+      watchdog = setInterval(() => {
+        const quietMs = Date.now() - this.lastNetworkProgressAt;
+        if (
+          this.inFlightRequestIds.size > 0 &&
+          quietMs >= this.options.navigationStallMs
+        ) {
+          const pending = [...this.inFlightRequestIds]
+            .map((id) => this.requestsById.get(id)?.path ?? id)
+            .slice(0, 3)
+            .join(", ");
+          reject(
+            new NavigationStalledError(
+              `Navigation stalled: ${this.inFlightRequestIds.size} requests received no data for ${quietMs} ms (${pending})`,
+            ),
+          );
+        }
+      }, NAVIGATION_STALL_POLL_MS);
+    });
+    try {
+      await Promise.race([navigation, stalled]);
+    } finally {
+      clearInterval(watchdog);
+    }
+  }
+
   async waitForNetworkQuiet(
     quietMs: number,
     timeoutMs: number,
@@ -274,7 +343,7 @@ export class LabSession {
     });
   }
 
-  async recordStep(args: RecordStepArgs): Promise<Recording> {
+  async recordStep(args: RecordStepArgs): Promise<RecordedStep> {
     const requestsFrom = this.requests.length;
     const websocketFramesFrom = this.websocketFrames.length;
     this.frames.length = 0;
@@ -283,8 +352,14 @@ export class LabSession {
       format: "jpeg",
       quality: 55,
     });
+    if (this.options.cpuProfile) {
+      await this.cdp.send("Profiler.start");
+    }
     await args.action();
     await new Promise((resolve) => setTimeout(resolve, args.recordMs));
+    const profile = this.options.cpuProfile
+      ? (await this.cdp.send("Profiler.stop")).profile
+      : null;
     const collected = await this.page.evaluate(
       () =>
         (
@@ -294,6 +369,19 @@ export class LabSession {
     await this.cdp.send("Page.stopScreencast");
     const probe = collected as ProbeCollection;
     const relative = (epoch: number) => Math.round(epoch - probe.t0Epoch);
+    let cpuProfile: RecordedCpuProfile | null = null;
+    if (profile !== null) {
+      if (this.clockOffsetMs === null) {
+        throw new Error(
+          "The CPU profile cannot be aligned: the page made no request.",
+        );
+      }
+      cpuProfile = {
+        profile,
+        startOffsetMs:
+          profile.startTime / 1000 + this.clockOffsetMs - probe.t0Epoch,
+      };
+    }
     mkdirSync(args.framesDir, { recursive: true });
     const frames: FilmstripFrame[] = [];
     let previousData: string | null = null;
@@ -307,7 +395,8 @@ export class LabSession {
       writeFileSync(file, Buffer.from(frame.data, "base64"));
       frames.push({ at, file });
     }
-    return {
+    const recording: Recording = {
+      cpuProfileStartMs: cpuProfile?.startOffsetMs ?? null,
       frames,
       loafs: probe.loafs,
       network: this.requests.slice(requestsFrom).map((request) => ({
@@ -333,6 +422,7 @@ export class LabSession {
           kind: frame.kind,
         })),
     };
+    return { cpuProfile, recording };
   }
 
   async renderContactSheet(

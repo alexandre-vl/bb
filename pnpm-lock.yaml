@@ -6074,6 +6074,9 @@ importers:
       '@bb/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@jridgewell/trace-mapping':
+        specifier: ^0.3.31
+        version: 0.3.31
       puppeteer-core:
         specifier: ^24.43.1
         version: 24.43.1

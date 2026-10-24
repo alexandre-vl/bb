@@ -27,6 +27,7 @@ import type {
 } from "@bb/server-contract";
 import { createDeferredPromise } from "@bb/test-helpers";
 import {
+  makeThreadListEntry,
   makeThreadQueuedMessage as makeThreadQueuedMessageFixture,
   makeThreadWithRuntime as makeThreadWithRuntimeFixture,
 } from "@bb/test-helpers/domain-fixtures";
@@ -41,6 +42,11 @@ import {
   vi,
 } from "vitest";
 import { LazyQueuedMessagesList } from "@/components/promptbox/banner/LazyQueuedMessagesList";
+import { sidebarNavigationQueryKey } from "@/hooks/queries/query-keys";
+import {
+  makeProjectWithThreadsResponse,
+  makeSidebarBootstrapResponse,
+} from "@/test/fixtures/projects";
 import { workflowRow } from "@/test/fixtures/thread-timeline-rows";
 import type { PromptDraftAttachment } from "@bb/client-core";
 import { BbHttpError } from "@/lib/sdk";
@@ -227,6 +233,9 @@ beforeEach(() => {
   mocks.defaultExecutionOptions = null;
   mocks.defaultExecutionOptionsIsPlaceholder = false;
   mocks.executionInputSources = {};
+  mocks.modelCatalogIsSettled = true;
+  mocks.modelOptions = [];
+  mocks.permissionModeSupportIsKnown = true;
   mocks.pluginComposerHost = null;
   mocks.composerSubmit = null;
   mocks.composerModifierSubmit = null;
@@ -529,15 +538,91 @@ describe("ThreadDetailPromptArea", () => {
     );
   });
 
-  it("shows queued work while its message details are loading", () => {
+  it("holds queued work's place without a count until its messages load", () => {
     mocks.queuedMessages = undefined;
 
-    renderPromptArea({ queuedMessageCount: 1 });
+    const view = renderPromptArea({ queuedMessageCount: 3 });
 
     screen.getByRole("status", { name: "Loading queued messages" });
-    expect(screen.getByLabelText("Queued messages").textContent).toContain(
-      "Queue1",
+    expect(screen.getByLabelText("Queued messages").textContent).toBe("Queue");
+
+    mocks.queuedMessages = [makeQueuedMessage({ id: "q_loaded" })];
+    view.rerender(buildPromptAreaElement({ queuedMessageCount: 3 }));
+
+    expect(screen.getByTestId("queued-message-count").textContent).toBe("1");
+  });
+
+  it("holds the model and permission controls until the thread provider's catalog settles", () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.modelCatalogIsSettled = false;
+    mocks.permissionModeSupportIsKnown = false;
+
+    const view = renderPromptArea();
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("");
+    expect(screen.getByTestId("model-loading").textContent).toBe("true");
+    expect(screen.getByTestId("permission-loading").textContent).toBe("true");
+
+    mocks.modelCatalogIsSettled = true;
+    mocks.permissionModeSupportIsKnown = true;
+    view.rerender(buildPromptAreaElement());
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("gpt-5");
+    expect(screen.getByTestId("model-loading").textContent).toBe("false");
+    expect(screen.getByTestId("permission-loading").textContent).toBe("false");
+    expect(screen.getByTestId("selected-permission").textContent).toBe("auto");
+  });
+
+  it("routes the composer by the sidebar's host before the thread's environment loads", () => {
+    testQueryClient.setQueryData(
+      sidebarNavigationQueryKey(),
+      makeSidebarBootstrapResponse({
+        projects: [
+          makeProjectWithThreadsResponse({
+            threads: [
+              makeThreadListEntry({
+                id: "thr_1",
+                environmentId: "env_side",
+                environmentHostId: "host_side",
+              }),
+            ],
+          }),
+        ],
+      }),
     );
+
+    renderPromptArea({ thread: makeThread({ environmentId: "env_side" }) });
+
+    expect(mocks.useThreadCreationOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environmentId: "env_side",
+        environmentHostId: "host_side",
+      }),
+    );
+  });
+
+  it("shows a model its cached catalog already lists while that catalog is verified", () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.modelCatalogIsSettled = false;
+    mocks.modelOptions = [{ value: "gpt-5", label: "GPT-5" }];
+
+    renderPromptArea();
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("gpt-5");
+    expect(screen.getByTestId("model-loading").textContent).toBe("false");
+    expect(screen.getByTestId("permission-loading").textContent).toBe("false");
   });
 
   it("keeps sent-message edit submission out of the normal send path", () => {

@@ -6,12 +6,12 @@ import {
   useRef,
   useState,
 } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type {
   AvailableModel,
   PermissionMode,
   ProviderComposerAction,
   ProviderInfo,
-  ProviderModelCatalogScope,
   ProviderOptionDescriptor,
   ReasoningLevel,
   ServiceTier,
@@ -43,12 +43,12 @@ import { getProviderIconInfo } from "@/lib/provider-icon";
 import {
   DEFAULT_SERVICE_TIER,
   permissionModeRank,
-  providerModelCatalogDependsOnWorkspace,
   reconcileServiceTier,
   resolveServiceTierOptions,
 } from "@bb/domain";
 import { selectPrimaryHost, useHosts } from "./queries/host-queries";
 import {
+  resolveThreadComposerCatalogRouting,
   useKnownProviderModelCatalogScope,
   useSystemProviderStates,
   useSystemConfig,
@@ -149,6 +149,7 @@ interface UseThreadCreationOptionsResult<TExecutionInputSources> {
   setSessionOption: (optionId: string, value: SessionOptionValue) => void;
   permissionModeOptions: PickerOption<PermissionMode>[];
   supportsPermissionModeSelection: boolean;
+  permissionModeSupportIsKnown: boolean;
   permissionModeIsVerified: boolean;
   supportsServiceTier: boolean;
   serviceTierSupportByProvider: Record<string, boolean>;
@@ -160,7 +161,8 @@ interface ResolveThreadCreationProviderRoutingArgs {
   environmentId?: string;
   environmentHostId?: string;
   environmentSelectionValue: string;
-  modelCatalogScope?: ProviderModelCatalogScope;
+  providerId: string;
+  queryClient: QueryClient;
   scope: "component-local" | "new-thread";
 }
 
@@ -168,20 +170,16 @@ function resolveThreadCreationProviderRouting({
   environmentId,
   environmentHostId,
   environmentSelectionValue,
-  modelCatalogScope,
+  providerId,
+  queryClient,
   scope,
 }: ResolveThreadCreationProviderRoutingArgs): SystemProvidersQuery {
   if (scope === "component-local") {
-    if (environmentId === undefined) {
-      return {};
-    }
-    if (
-      environmentHostId !== undefined &&
-      !providerModelCatalogDependsOnWorkspace(modelCatalogScope)
-    ) {
-      return { hostId: environmentHostId };
-    }
-    return { environmentId };
+    return resolveThreadComposerCatalogRouting(queryClient, {
+      environmentId,
+      environmentHostId,
+      providerId,
+    });
   }
   const parsed = parseEnvironmentValue(environmentSelectionValue);
   if (parsed?.type === "reuse" && parsed.environmentId !== null) {
@@ -336,9 +334,7 @@ export function useThreadCreationOptions(
         sanitizeStoredEnvironmentValue(storedEnvironmentSelectionValue))
       : renderedThreadSelections.environmentSelectionValue;
 
-  const knownModelCatalogScope = useKnownProviderModelCatalogScope(
-    selectedProviderIdBeforeReadyFallback,
-  );
+  const queryClient = useQueryClient();
   const executionOptionsQueryEnabled = enabled;
   const routingSelectionKey = JSON.stringify([
     scope,
@@ -353,7 +349,8 @@ export function useThreadCreationOptions(
       environmentId,
       environmentHostId,
       environmentSelectionValue: rawEnvironmentSelectionValue,
-      modelCatalogScope: knownModelCatalogScope,
+      providerId: selectedProviderIdBeforeReadyFallback,
+      queryClient,
       scope,
     }),
   }));
@@ -363,7 +360,8 @@ export function useThreadCreationOptions(
       environmentId,
       environmentHostId,
       environmentSelectionValue: rawEnvironmentSelectionValue,
-      modelCatalogScope: knownModelCatalogScope,
+      providerId: selectedProviderIdBeforeReadyFallback,
+      queryClient,
       scope,
     });
     setCatalogRouting({
@@ -556,6 +554,8 @@ export function useThreadCreationOptions(
     activeProviderCapabilities?.permissionModes ??
     DEFAULT_SUPPORTED_PERMISSION_MODES;
   const supportsPermissionModeSelection = permissionModes.length > 1;
+  const permissionModeSupportIsKnown =
+    modelCatalogIsSettled || selectedProviderInfo !== undefined;
   const routedHostCeiling = useMemo(() => {
     const hosts = hostsQuery.data;
     if (!hosts) return null;
@@ -1079,6 +1079,7 @@ export function useThreadCreationOptions(
     setSessionOption,
     permissionModeOptions,
     supportsPermissionModeSelection,
+    permissionModeSupportIsKnown,
     permissionModeIsVerified,
     supportsServiceTier,
     serviceTierSupportByProvider,

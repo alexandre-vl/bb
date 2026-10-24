@@ -69,6 +69,7 @@ import {
 import { useUpdateEnvironment } from "../../hooks/mutations/environment-mutations";
 import {
   useEnvironment,
+  useEnvironmentWorkspaceWatch,
   useEnvironmentWorkStatus,
 } from "../../hooks/queries/environment-queries";
 import {
@@ -90,8 +91,6 @@ import { getPromptDraftAccessor } from "@/hooks/usePromptDraftStorage";
 import { subscribeComposerFocusRequests } from "@/lib/composer-focus-requests";
 import { ThreadGitActionDialog } from "@/components/dialogs/ThreadGitActionDialog";
 import { PageShell } from "@/components/ui/page-shell.js";
-import { RouteLoadingSkeleton } from "@/components/ui/route-loading-skeleton";
-import { ThreadTimelineLoadingSkeleton } from "@/components/thread/timeline/ThreadTimelineLoadingSkeleton";
 import { HEADER_ICON_BUTTON_CLASS } from "@/components/layout/AppPageHeader";
 import type { PluginThreadActionsInlineItem } from "@get-bb/plugin-sdk";
 import { ThreadActionsMenu } from "@/components/thread/ThreadActionsMenu";
@@ -124,7 +123,10 @@ import {
 } from "@/lib/environment-workspace-display";
 import { useSystemEnvironmentProviders } from "@/hooks/queries/environment-provider-queries";
 import { useSystemMachineProviders } from "@/hooks/queries/machine-provider-queries";
-import { formatWorkspaceCheckoutDisplay } from "@/lib/workspace-checkout-display";
+import {
+  formatWorkspaceCheckoutDisplay,
+  resolveWorkspaceCheckout,
+} from "@/lib/workspace-checkout-display";
 import {
   getAbsoluteDirname,
   isAbsoluteFilePathWithinRoot,
@@ -166,6 +168,7 @@ import {
   type ThreadPromptChildThreadsSection,
 } from "@/components/promptbox/banner/ThreadPromptContextBanner";
 import { ThreadDetailSecondaryContent } from "./ThreadDetailSecondaryContent";
+import { ThreadRouteLoadingSkeleton } from "./ThreadRouteLoadingSkeleton";
 import {
   useThreadSecondaryPanelDrawerVisibility,
   useThreadSecondaryPanelVisibility,
@@ -238,6 +241,7 @@ import { useThreadGitActions } from "./useThreadGitActions";
 import { useThreadReadTracking } from "@/hooks/useThreadReadTracking";
 import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
 import { useThreadUnreadDividerState } from "./useThreadUnreadDividerState";
+import { useWorkspaceOpenButtonTargets } from "./useWorkspaceOpenButtonTargets";
 import {
   buildTerminalSyncedSecondaryFileTabs,
   syncTerminalTabsInFixedPanelState,
@@ -483,6 +487,7 @@ function ThreadDetailViewInternal(
       ? false
       : "always",
   });
+  useEnvironmentWorkspaceWatch(thread?.environmentId);
   const environmentQuery = useEnvironment(thread?.environmentId, {
     enabled: hasThreadDetailBootstrapSettled,
     gcTime: THREAD_OPEN_CACHE_GC_MS,
@@ -2011,6 +2016,19 @@ function ThreadDetailViewInternal(
         environment,
         hasWorkspaceOpenTargets: directoryOpenTargets.length > 0,
       });
+  const isEnvironmentPending =
+    thread?.environmentId != null &&
+    environment === undefined &&
+    !environmentQuery.isError;
+  const workspaceOpenButtonTargets = useWorkspaceOpenButtonTargets(
+    workspaceOpenPath !== null && preferredDirectoryTarget !== null
+      ? {
+          preferredTarget: preferredDirectoryTarget,
+          targets: directoryOpenTargets,
+        }
+      : null,
+    isEnvironmentPending,
+  );
   useAppCommandHandler("workspace.openPreferred", () => {
     if (!isFocused) return false;
     if (activeWorkspaceFilePath && handleOpenFileInEditor) {
@@ -2146,9 +2164,10 @@ function ThreadDetailViewInternal(
 
   if (threadQueryState.status === "loading") {
     return (
-      <RouteLoadingSkeleton isBoundedPane={isBoundedPane}>
-        <ThreadTimelineLoadingSkeleton />
-      </RouteLoadingSkeleton>
+      <ThreadRouteLoadingSkeleton
+        isBoundedPane={isBoundedPane}
+        threadId={threadId}
+      />
     );
   }
   if (!thread || thread.projectId !== projectId) {
@@ -2197,9 +2216,19 @@ function ThreadDetailViewInternal(
       : undefined;
   const promptBannerMergeBaseBranch = effectiveMergeBaseBranch;
   const threadBranchName = workspaceBranch?.currentBranch ?? undefined;
-  const threadCheckoutDisplay = workspaceStatus
-    ? formatWorkspaceCheckoutDisplay({ checkout: workspaceStatus.checkout })
-    : undefined;
+  const isWorkspaceStatusPending =
+    canUseGitUi &&
+    workStatusResponse === undefined &&
+    workspaceStatusError === null;
+  const threadCheckout = resolveWorkspaceCheckout({
+    environment: environment ?? null,
+    workspaceStatus,
+    workspaceStatusPending: isWorkspaceStatusPending,
+  });
+  const threadCheckoutDisplay =
+    threadCheckout === null
+      ? undefined
+      : formatWorkspaceCheckoutDisplay({ checkout: threadCheckout });
   const isWorkspaceDeleted = environment?.status === "destroyed";
   const threadEnvironmentGoneStatus =
     hostLifecycle ??
@@ -2273,18 +2302,20 @@ function ThreadDetailViewInternal(
     ...responsiveGitActions,
   ];
   const workspaceOpenButton =
-    workspaceOpenPath && preferredDirectoryTarget ? (
+    workspaceOpenButtonTargets !== null ? (
       <ThreadWorkspaceOpenButton
-        key={workspaceOpenPath}
-        preferredTarget={preferredDirectoryTarget}
-        targets={directoryOpenTargets}
+        disabled={workspaceOpenPath === null}
+        preferredTarget={workspaceOpenButtonTargets.preferredTarget}
+        targets={workspaceOpenButtonTargets.targets}
         onOpenPreferredTarget={async () => {
+          if (workspaceOpenPath === null) return;
           await openPathInPreferredDirectoryTarget({
             lineNumber: null,
             path: workspaceOpenPath,
           });
         }}
         onOpenTarget={async (targetId) => {
+          if (workspaceOpenPath === null) return;
           await openPathInDirectoryTarget({
             lineNumber: null,
             path: workspaceOpenPath,
@@ -2377,9 +2408,7 @@ function ThreadDetailViewInternal(
       workspaceChangedFilesSection={
         canUseGitUi ? workspaceChangedFilesSection : null
       }
-      workspaceStatusPending={
-        canUseGitUi && (environmentQuery.isLoading || workStatusQuery.isLoading)
-      }
+      workspaceStatusPending={isEnvironmentPending || isWorkspaceStatusPending}
       contextBannerMergeBase={
         canUseGitUi && showMergeBase && promptBannerMergeBaseBranch
           ? {
@@ -2753,6 +2782,7 @@ function ThreadDetailViewInternal(
               environmentDisplayHost: environmentDisplayHostContext,
               workspaceStatus,
               workspaceStatusError: workspaceStatusError ?? null,
+              workspaceStatusPending: isWorkspaceStatusPending,
               workspaceUnavailable,
               threadEnvironmentId,
               selectedMergeBaseBranch,

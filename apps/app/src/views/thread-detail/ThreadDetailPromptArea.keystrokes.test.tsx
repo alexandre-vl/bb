@@ -18,6 +18,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   afterEach,
   beforeAll,
@@ -161,7 +162,13 @@ function buildPromptArea({
 }
 
 function renderPromptArea(args: RenderPromptAreaArgs) {
-  return render(buildPromptArea(args));
+  return render(buildPromptArea(args), {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={testQueryClient}>
+        {children}
+      </QueryClientProvider>
+    ),
+  });
 }
 
 function getBottomComposerInput(): HTMLInputElement {
@@ -172,12 +179,16 @@ function getBottomComposerInput(): HTMLInputElement {
 
 let threadCounter = 0;
 let threadId = "";
+let testQueryClient: QueryClient;
 
 beforeAll(() => LazyQueuedMessagesList.preload());
 
 beforeEach(() => {
   threadCounter += 1;
   threadId = `thr_keystrokes_${threadCounter}`;
+  testQueryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   mocks.queuedMessages = [];
   mocks.sendMessageMutateAsync.mockResolvedValue(undefined);
   mocks.updateQueuedMessageMutateAsync.mockResolvedValue(undefined);

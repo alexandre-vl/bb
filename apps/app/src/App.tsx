@@ -80,7 +80,7 @@ import { OnboardingGate } from "./components/onboarding/OnboardingGate";
 import { AppUpdateHost } from "./components/app-update/AppUpdateHost";
 import { PluginInstallJobsHost } from "./components/plugin/PluginInstallJobsHost";
 import { RouteLoadingSkeleton } from "./components/ui/route-loading-skeleton";
-import { ThreadTimelineLoadingSkeleton } from "./components/thread/timeline/ThreadTimelineLoadingSkeleton";
+import { ThreadRouteLoadingSkeleton } from "./views/thread-detail/ThreadRouteLoadingSkeleton";
 import {
   startSplitPreloading,
   trackCriticalLoad,
@@ -285,7 +285,7 @@ export function HashNavigationScroll() {
 }
 
 export function AppRoutes() {
-  const { isThreadView } = useRouteState();
+  const { isThreadView, threadId } = useRouteState();
   const isRootComposeView = useLocation().pathname === APP_ROOT_ROUTE_PATH;
   useEffect(() => {
     if (isThreadView) void trackCriticalLoad(LazyThreadDetailView.preload());
@@ -423,12 +423,17 @@ export function AppRoutes() {
             element={
               <Suspense
                 fallback={
-                  <RouteLoadingSkeleton
-                    isBoundedPane={false}
-                    variant={isRootComposeView ? "root-compose" : "default"}
-                  >
-                    {isThreadView ? <ThreadTimelineLoadingSkeleton /> : null}
-                  </RouteLoadingSkeleton>
+                  isThreadView ? (
+                    <ThreadRouteLoadingSkeleton
+                      isBoundedPane={false}
+                      threadId={threadId}
+                    />
+                  ) : (
+                    <RouteLoadingSkeleton
+                      isBoundedPane={false}
+                      variant={isRootComposeView ? "root-compose" : "default"}
+                    />
+                  )
                 }
               >
                 <SplitWorkspaceRoute />

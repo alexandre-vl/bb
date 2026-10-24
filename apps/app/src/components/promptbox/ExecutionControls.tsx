@@ -61,6 +61,7 @@ export interface ExecutionPermissionConfig {
   options: readonly PickerOption<PermissionMode>[];
   onChange: (value: PermissionMode) => void;
   supported: boolean;
+  loading?: boolean;
 }
 
 export interface ExecutionAgentOptionsConfig {

@@ -53,6 +53,12 @@ The lab assigns the largest visible threads to the roles `primary`,
 | `tour`          | Three switches and a back, each measured                                                         |
 | `reconnect`     | A 4 s network drop on an open thread                                                             |
 
+`return-stale` varies more than the other scenarios: on the sandbox VMs,
+memory-heavy work runs several times slower for a moment after minutes of
+idle, so the same route render takes 250 ms in one run and 570 ms in another.
+Compare builds only through alternating runs, and read the per-run frames in
+`report.json` next to the medians.
+
 Network profiles: `none`, `tunnel` (150 ms RTT, 2.5 MB/s down — a remote
 connection through bb connect), `slow` (400 ms, 200 KB/s). `--cpu 4`
 approximates a mid-range phone.
@@ -98,6 +104,19 @@ crashed browser) is listed under "Failed runs" and the battery goes on. Each
 build's `report.json` is rewritten after every run, so a battery that is
 interrupted still leaves the runs it finished.
 
+Chrome's network emulation occasionally stops delivering response bodies it
+has already received: the proxy has sent every byte, yet the page's requests
+see no data and the navigation waits until its timeout. The lab treats a
+navigation whose in-flight requests receive nothing for 15 s, plus the sum of
+the `--delay` values so a held request does not count, as stalled. It closes
+that browser and starts the run again in a new one, up to three attempts.
+The report lists each restart under "Runs restarted in a new browser"; only a
+third stall fails the run.
+
+Clicks find their thread row in the sidebar even when the row is outside the
+virtualized list's rendered range: the lab scrolls the sidebar until the link
+renders, then clicks it.
+
 Add a scenario in `src/scenarios.ts`; steps are `open`, `click`, `hover`,
 `back`, `idle` and `offline`, and only steps with `measure: true` produce a
 recording.
@@ -109,6 +128,8 @@ recording.
 <out>/report.json                    the same data plus every run's analysis, for scripts
 <out>/<scenario>/run-<n>/measured-<k>/recording.json   raw samples, shifts, frames, trace, network
 <out>/<scenario>/run-<n>/measured-<k>/filmstrip.png    the screen at fixed times after the action
+<out>/<scenario>/run-<n>/measured-<k>/cpu-profile.cpuprofile  with --cpu-profile: the V8 CPU profile
+<out>/<scenario>/run-<n>/measured-<k>/cpu-profile.md           with --cpu-profile: top functions
 ```
 
 Compare two runs by their `report.json`: `steps[].summary[metric].median`
@@ -122,6 +143,55 @@ again; no instance needs to run:
 ```bash
 pnpm perf:lab -- --reanalyze /tmp/bb-perf-lab/<before-run>
 pnpm perf:lab -- --reanalyze /tmp/bb-perf-lab/<after-run> --baseline /tmp/bb-perf-lab/<before-run>/report.json
+```
+
+`--reanalyze` also rewrites each step's `cpu-profile.md` from its
+`cpu-profile.cpuprofile`, reading source maps from the build directory the run
+used if it still exists.
+
+## CPU profiles
+
+`--cpu-profile` records a V8 CPU profile of every measured step. The profiler
+starts just before the action and stops when the recording window ends,
+sampling every 200 µs, and the lab aligns its timestamps with the recording's
+so the summary can cut out the longest animation frame. Next to
+`recording.json` each step gets:
+
+- `cpu-profile.cpuprofile`, the raw profile. Load it in Chrome DevTools
+  (Performance › Load profile) or https://www.speedscope.app for the call tree.
+- `cpu-profile.md`, self time per source file, then functions by self time and
+  by total time, for the longest animation frame and for the whole window.
+
+Names and locations come from the build's source maps: `<app-dist>/<script
+path>.map` with `--app-dist`, otherwise `<script URL>.map` from the app. The
+default build has no maps, so build one for profiling and compress it like
+release builds:
+
+```bash
+(cd apps/app && pnpm exec vite build --sourcemap --outDir /tmp/dist-maps --emptyOutDir)
+node scripts/precompress-app-dist.mjs /tmp/dist-maps
+pnpm perf:lab -- --scenario return-stale,switch-cached --runs 2 --cpu-profile \
+  --app-dist /tmp/dist-maps --label maps
+```
+
+Without maps, rows name the minified function and its `assets/<file>:line:col`.
+Rows without a location are not JavaScript: `getBoundingClientRect` with a
+large self time is a forced style and layout pass, `fetch` is the cost of
+starting requests, and `(garbage collector)`, `(program)` and `(idle)` are
+V8's own buckets. Inline callbacks show as `(anonymous)` with the line they
+start on.
+
+Sampling adds work to the main thread. Compare profiled runs only with other
+profiled runs, and measure the effect of a change with a battery that does not
+profile.
+
+`--chrome-arg` passes a switch to Chrome, for instance to test whether V8
+discarding the bytecode of functions unused for a while explains a slow frame
+after an idle period:
+
+```bash
+pnpm perf:lab -- --scenario return-stale --cpu-profile --app-dist /tmp/dist-maps \
+  --chrome-arg=--js-flags=--no-flush-bytecode
 ```
 
 ## Metrics

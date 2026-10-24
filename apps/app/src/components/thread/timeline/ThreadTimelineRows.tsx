@@ -166,6 +166,7 @@ import {
   TimelineWindowingScrollRootContext,
   type TimelineWindowedItemRenderState,
 } from "./TimelineWindowedItems.js";
+import { useHasPaintedSince } from "./useHasPaintedSince.js";
 
 export interface ThreadTimelineRowsProps {
   initialExpanded?: ReadonlySet<string>;
@@ -2111,6 +2112,9 @@ function TimelineRowsList({
     return keys;
   }, [items, rows, spacing, stableSearchExpandedRowIds, navigationTargetRowId]);
   const isTopLevelList = spacing === "top-level";
+  const hasPaintedRows = useHasPaintedSince(
+    isTopLevelList ? (threadId ?? "") : null,
+  );
   const { measureRef: messageColumnWidthSourceRef, width: messageColumnWidth } =
     useMeasuredWidth({ enabled: isTopLevelList });
   const messageColumnWidthValue = useMemo(
@@ -2147,6 +2151,7 @@ function TimelineRowsList({
             }
             itemKeys={itemKeys}
             measurements={measurements}
+            overscan={hasPaintedRows ? undefined : 0}
             positionKeeper={
               detailScrollRoot?.positionKeeper ??
               bottomAnchor?.positionKeeper ??

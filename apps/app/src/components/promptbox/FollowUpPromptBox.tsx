@@ -647,6 +647,7 @@ function FollowUpPromptBoxWithComposer({
         options={permission.options}
         onChange={permission.onChange}
         supported={permission.supported}
+        loading={permission.loading}
         disabled={permissionPickerDisabled}
         showChevronWhenDisabled={permissionPickerDisabledByPlanMode}
         displayOverride={permissionDisplayOverride}
@@ -654,6 +655,7 @@ function FollowUpPromptBoxWithComposer({
       />
     ),
     [
+      permission.loading,
       permission.onChange,
       permission.options,
       permission.supported,

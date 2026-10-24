@@ -1,8 +1,17 @@
 import { useMemo } from "react";
 import type { PermissionMode } from "@bb/domain";
+import { Button } from "@bb/shared-ui/button";
 import { LIST_HOVER_TRANSITION } from "@bb/shared-ui/motion";
+import {
+  OPTION_BASE_CLASS_NAME,
+  OPTION_INTERACTIVE_CLASS_NAME,
+  OPTION_MUTED_CLASS_NAME,
+} from "@bb/shared-ui/option-display";
+import { Skeleton } from "@bb/shared-ui/skeleton";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { OptionPicker, type PickerOption } from "./OptionPicker";
+
+const PERMISSION_MODE_LABEL = "Permission mode";
 
 type PermissionModeOption = PickerOption<PermissionMode>;
 
@@ -44,8 +53,41 @@ export interface PermissionModePickerProps {
     title?: string;
   };
   disabled?: boolean;
+  loading?: boolean;
   showChevronWhenDisabled?: boolean;
   showWhenSingleOption?: boolean;
+}
+
+function PermissionModeLoadingTrigger({
+  className,
+  muted,
+}: {
+  className?: string;
+  muted: boolean;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      aria-label={PERMISSION_MODE_LABEL}
+      aria-busy="true"
+      disabled
+      className={cn(
+        OPTION_BASE_CLASS_NAME,
+        OPTION_INTERACTIVE_CLASS_NAME,
+        muted && OPTION_MUTED_CLASS_NAME,
+        "cursor-default disabled:opacity-100",
+        className,
+      )}
+    >
+      <Skeleton
+        aria-hidden
+        data-permission-mode-loading-placeholder=""
+        className="h-3 w-14 shrink-0 rounded-sm"
+      />
+    </Button>
+  );
 }
 
 export function PermissionModePicker({
@@ -60,6 +102,7 @@ export function PermissionModePicker({
   align = "end",
   displayOverride,
   disabled,
+  loading = false,
   showChevronWhenDisabled,
   showWhenSingleOption = false,
 }: PermissionModePickerProps) {
@@ -67,6 +110,9 @@ export function PermissionModePicker({
     () => addPermissionModeCompactLabels(options),
     [options],
   );
+  if (loading) {
+    return <PermissionModeLoadingTrigger className={className} muted={muted} />;
+  }
   if (
     !supported ||
     value === undefined ||
@@ -76,7 +122,7 @@ export function PermissionModePicker({
   }
   return (
     <OptionPicker
-      label="Permission mode"
+      label={PERMISSION_MODE_LABEL}
       value={value}
       options={compactOptions}
       onChange={onChange}

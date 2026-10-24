@@ -40,6 +40,7 @@ function sample(at: number, overrides: Partial<ProbeSample> = {}): ProbeSample {
 
 function recording(overrides: Partial<Recording>): Recording {
   return {
+    cpuProfileStartMs: null,
     frames: [],
     loafs: [],
     network: [],

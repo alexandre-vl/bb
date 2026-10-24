@@ -85,6 +85,7 @@ export interface FilmstripFrame {
 }
 
 export interface Recording {
+  cpuProfileStartMs: number | null;
   frames: FilmstripFrame[];
   loafs: LongFrameEntry[];
   network: NetworkRequest[];

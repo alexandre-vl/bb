@@ -64,6 +64,7 @@ export interface TimelineWindowedItemsProps {
   initialWindowAnchor?: TimelineWindowAnchor | null;
   itemKeys: readonly string[];
   measurements: Map<string, number>;
+  overscan?: number;
   positionKeeper: ScrollPositionKeeper | null;
   renderItem: (
     index: number,
@@ -86,6 +87,7 @@ interface IndexRange {
 interface WindowState {
   keys: ReadonlySet<string>;
   heights: ReadonlyMap<string, number>;
+  overscan: number;
 }
 
 const EMPTY_KEY_SET: ReadonlySet<string> = new Set();
@@ -158,10 +160,11 @@ function windowKeysAround(
   itemKeys: readonly string[],
   visible: IndexRange,
   mountToTop: boolean,
+  overscan: number,
 ): Set<string> {
   const keys = new Set<string>();
-  const start = mountToTop ? 0 : Math.max(0, visible.start - OVERSCAN_ITEMS);
-  const end = Math.min(itemKeys.length - 1, visible.end + OVERSCAN_ITEMS);
+  const start = mountToTop ? 0 : Math.max(0, visible.start - overscan);
+  const end = Math.min(itemKeys.length - 1, visible.end + overscan);
   for (let index = start; index <= end; index += 1) {
     const key = itemKeys[index];
     if (key !== undefined) keys.add(key);
@@ -209,6 +212,7 @@ export function TimelineWindowedItems({
   initialWindowAnchor = null,
   itemKeys,
   measurements,
+  overscan = OVERSCAN_ITEMS,
   positionKeeper,
   renderItem,
   pinnedToEnd,
@@ -228,7 +232,7 @@ export function TimelineWindowedItems({
   const [windowState, setWindowState] = useState<WindowState>(() => {
     const heights = new Map(measurements);
     if (itemKeys.length < DEFAULT_WINDOWING_MIN_ITEM_COUNT) {
-      return { keys: new Set(itemKeys), heights };
+      return { keys: new Set(itemKeys), heights, overscan };
     }
     const model = buildModel(itemKeys, heights, estimateItemHeight, gap);
     const viewportHeight =
@@ -249,8 +253,10 @@ export function TimelineWindowedItems({
         itemKeys,
         visible,
         reachesListTop(model, visible, viewportHeight),
+        overscan,
       ),
       heights,
+      overscan,
     };
   });
   const [interactionPins, setInteractionPins] = useState<readonly string[]>([]);
@@ -289,9 +295,11 @@ export function TimelineWindowedItems({
     indexByKey,
     itemKeys,
     mountedIndexes,
+    overscan,
     renderedHeights: windowState.heights,
     scrollRootUsable,
     windowKeys: windowState.keys,
+    windowOverscan: windowState.overscan,
     windowingEnabled,
   });
   useLayoutEffect(() => {
@@ -301,9 +309,11 @@ export function TimelineWindowedItems({
       indexByKey,
       itemKeys,
       mountedIndexes,
+      overscan,
       renderedHeights: windowState.heights,
       scrollRootUsable,
       windowKeys: windowState.keys,
+      windowOverscan: windowState.overscan,
       windowingEnabled,
     };
   });
@@ -468,8 +478,14 @@ export function TimelineWindowedItems({
           last < live.itemKeys.length - 1) ||
         (!mountToTop && visible.start - first > 3 * OVERSCAN_ITEMS) ||
         last - visible.end > 3 * OVERSCAN_ITEMS;
-      if (!uncovered && !nearEdge) return;
-      const keys = windowKeysAround(live.itemKeys, visible, mountToTop);
+      const widened = live.windowOverscan < live.overscan;
+      if (!uncovered && !nearEdge && !widened) return;
+      const keys = windowKeysAround(
+        live.itemKeys,
+        visible,
+        mountToTop,
+        live.overscan,
+      );
       const heldKey = heldKeyOf(positionKeeper);
       if (heldKey !== null && live.indexByKey.has(heldKey)) keys.add(heldKey);
       if (sameKeys(keys, live.windowKeys) || !takeFrameUpdate()) return;
@@ -479,7 +495,8 @@ export function TimelineWindowedItems({
           measurements.get(key) ?? live.renderedHeights.get(key);
         if (height !== undefined) heights.set(key, height);
       }
-      const apply = () => setWindowState({ keys, heights });
+      const apply = () =>
+        setWindowState({ keys, heights, overscan: live.overscan });
       if (urgent && uncovered) {
         flushSync(apply);
       } else {
@@ -521,6 +538,7 @@ export function TimelineWindowedItems({
     setWindowState((current) => ({
       keys: new Set([...current.keys, heldKey]),
       heights: current.heights,
+      overscan: current.overscan,
     }));
     return true;
   }, [positionKeeper]);

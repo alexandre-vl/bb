@@ -35,6 +35,7 @@ export interface LabReport {
   label: string | null;
   perfDiagnostics: PerfDiagnosticsState;
   profile: string;
+  retries: RunFailure[];
   runs: number;
   steps: StepReport[];
   threads: Partial<Record<ThreadRole, ThreadFixture>>;
@@ -115,6 +116,16 @@ export function renderMarkdownReport(
             .map(
               (failure) =>
                 `${failure.scenario} run ${failure.run} (${failure.error})`,
+            )
+            .join("; ")}`,
+          "",
+        ]
+      : []),
+    ...(report.retries.length > 0
+      ? [
+          `↻ Runs restarted in a new browser after a stalled navigation: ${report.retries
+            .map(
+              (retry) => `${retry.scenario} run ${retry.run} (${retry.error})`,
             )
             .join("; ")}`,
           "",

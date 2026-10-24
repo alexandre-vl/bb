@@ -551,7 +551,9 @@ payloads. Use it to reproduce performance problems that only appear at scale.
 running instance and reports what the user saw, when, and why: see its
 [README](../tests/perf-lab/README.md). Start the instance with
 `pnpm start:worktree --perf-diagnostics` so the app writes its own trace; the
-lab enables the `performanceDiagnostics` experiment itself.
+lab enables the `performanceDiagnostics` experiment itself. To find what a long
+frame runs, add `--cpu-profile` and serve a build with source maps; the
+README's "CPU profiles" section shows how.
 
 While both gates are on, the app adds User Timing entries next to the stream
 traces:
@@ -561,7 +563,7 @@ traces:
 - `bb:thread-open:prefetch` when that intent, a hover of at least 80 ms, or
   keyboard focus started requests (`threadId`, `input`, `requested`: a comma
   list of `bootstrap`, `timeline`, `interactions`, `queued-messages`,
-  `execution-defaults`).
+  `execution-defaults`, `provider-catalog`, `providers`).
 - `bb:thread-open:<milestone>` the first time the thread view has that piece
   for the thread (`threadId`): `route`, `thread`, `bootstrap`, `environment`,
   `interactions`, `work-status`, `execution-defaults`, `queued-messages`,
@@ -580,6 +582,20 @@ retained thread uses that environment. Deleting a thread removes them at once.
 Execution defaults keep TanStack Query's five-minute default: the composer
 sends them with the next message, so an older copy could override a change
 made from another client.
+
+The same intent loads the composer's provider catalog and provider list under
+the keys the composer reads: at once when the sidebar or an earlier visit
+already names the thread's environment and provider, otherwise as soon as the
+bootstrap does.
+
+Leaving a thread keeps its environment's workspace watch subscribed for 60
+seconds, for at most four environments, so a quick return reads the work
+status once instead of arming the watcher again. A work-status change that
+arrives before a status read starts does not refetch that read. A thread's
+first render mounts only the timeline rows in view; the window widens to its
+normal overscan once that frame has painted. A hosts refetch that changes only
+a connected host's `lastSeenAt` or `updatedAt` keeps the previous host objects,
+so coming back to the app does not re-render every reader of the hosts list.
 
 ## Opt-in Benchmarks
 

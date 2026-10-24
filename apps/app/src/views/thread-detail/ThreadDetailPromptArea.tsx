@@ -12,6 +12,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useImmediateRouteNavigate } from "@/components/ui/app-route-anchor";
 import type { IconName } from "@bb/shared-ui/icon";
 import type { PromptMentionLinkResolver } from "@bb/client-core";
@@ -100,6 +101,7 @@ import { useComposerTextEffects } from "@/lib/composer-text-effects";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
 import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
+import { resolveThreadComposerEnvironmentHostId } from "@/hooks/queries/system-queries";
 import { useProjectDisplayName } from "@/hooks/queries/sidebar-navigation-query";
 import {
   useActiveComposerDraft,
@@ -685,6 +687,15 @@ export function ThreadDetailPromptArea({
       ),
     [placedSessionOptions.picker, sessionOptionChoices.choices],
   );
+  const queryClient = useQueryClient();
+  const composerEnvironmentHostId =
+    environmentHostId ??
+    (thread.environmentId === null
+      ? undefined
+      : resolveThreadComposerEnvironmentHostId(queryClient, {
+          environmentId: thread.environmentId,
+          threadId: thread.id,
+        }));
   const {
     executionOptionsRouting,
     selectedProviderId,
@@ -712,6 +723,7 @@ export function ThreadDetailPromptArea({
     reasoningOptions,
     permissionModeOptions,
     supportsPermissionModeSelection,
+    permissionModeSupportIsKnown,
     supportsServiceTier,
     serviceTierSupportByProvider,
     serviceTierOptions,
@@ -719,7 +731,7 @@ export function ThreadDetailPromptArea({
   } = useThreadCreationOptions({
     enabled: thread.archivedAt === null,
     environmentId: thread.environmentId ?? undefined,
-    environmentHostId,
+    environmentHostId: composerEnvironmentHostId,
     scope: "component-local",
     resetKey: thread.id,
     sessionOptionSelections: liveSessionOptionSelections,
@@ -745,6 +757,17 @@ export function ThreadDetailPromptArea({
   const effectiveSelectedModel = isFallbackModelActive
     ? modelFallback.fallbackModel
     : (activeModel?.model ?? selectedModel);
+  const intendedModel = isFallbackModelActive
+    ? modelFallback.fallbackModel
+    : selectedModel;
+  const isAwaitingModelCatalog =
+    !modelCatalogIsSettled &&
+    !modelOptions.some((option) => option.value === intendedModel);
+  const isModelSelectionPending =
+    isAwaitingExecutionDefaults || isAwaitingModelCatalog;
+  const isPermissionModePending =
+    !permissionModeSupportIsKnown ||
+    (supportsPermissionModeSelection && isAwaitingExecutionDefaults);
   const handleModelChange = useCallback(
     (model: string) => {
       if (fallbackIdentity !== null) {
@@ -1563,13 +1586,13 @@ export function ThreadDetailPromptArea({
       },
       model: {
         active:
-          effectiveSelectedModel && !isAwaitingExecutionDefaults
+          effectiveSelectedModel && !isModelSelectionPending
             ? { model: effectiveSelectedModel }
             : null,
-        selected: isAwaitingExecutionDefaults ? "" : selectedModel,
+        selected: isModelSelectionPending ? "" : selectedModel,
         options: modelOptions,
         moreOptions: moreModelOptions,
-        isLoading: isLoadingModels || isAwaitingExecutionDefaults,
+        isLoading: isLoadingModels || isModelSelectionPending,
         loadFailed: modelLoadFailed,
         loadError: modelLoadError,
         onChange: handleModelChange,
@@ -1614,7 +1637,7 @@ export function ThreadDetailPromptArea({
       exitHandoff,
       handleModelChange,
       handleProviderChange,
-      isAwaitingExecutionDefaults,
+      isModelSelectionPending,
       isLoadingModels,
       modelLoadFailed,
       modelLoadError,
@@ -1673,9 +1696,11 @@ export function ThreadDetailPromptArea({
       onChange: setPermissionMode,
       supported:
         hasKnownDefaultExecutionOptions && supportsPermissionModeSelection,
+      loading: isPermissionModePending,
     }),
     [
       hasKnownDefaultExecutionOptions,
+      isPermissionModePending,
       permissionMode,
       permissionModeOptions,
       setPermissionMode,
@@ -2189,7 +2214,7 @@ export function ThreadDetailPromptArea({
           />
         ) : null}
         {shouldHideComposer ? null : queuedMessagesPending ? (
-          <QueuedMessagesPendingCard queuedMessageCount={queuedMessageCount} />
+          <QueuedMessagesPendingCard />
         ) : (
           <LazyQueuedMessagesList
             attachedToComposer={true}
@@ -2259,7 +2284,6 @@ export function ThreadDetailPromptArea({
       childThreadsSection,
       pendingTodos,
       displayedProcessingQueuedMessage,
-      queuedMessageCount,
       queuedMessages,
       queuedMessagesPending,
       resolveMentionLink,
