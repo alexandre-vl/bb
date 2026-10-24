@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   detailPullStatus,
+  linkKey,
   splitTitle,
   stateNameOf,
   type PullRowModel,
@@ -383,7 +384,7 @@ export function PullDetailView({
   const navigate = useBbNavigate();
   const key = itemKey({ repo, number });
   const { pull, fresh, error, load } = useDetail(repo, number);
-  const agent = useAgents().get(`pr:${key}`) ?? null;
+  const agent = useAgents().get(linkKey("pr", { repo, number })) ?? null;
   const settings = useRepoSettings();
   const activity = useActivities().get(key) ?? null;
   const changeState = useChangePullState();
