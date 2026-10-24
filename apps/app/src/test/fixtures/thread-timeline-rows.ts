@@ -19,6 +19,8 @@ import type {
   TimelineParentChange,
   TimelineNonOperationSystemRow,
   TimelinePermissionGrantApprovalGrantScope,
+  TimelineProvisioningEstimate,
+  TimelineProvisioningStep,
   TimelineQuestionWorkRow,
   TimelineRow,
   TimelineRowBase,
@@ -277,13 +279,16 @@ interface SystemRowArgs extends RowBaseOverrideArgs {
   completedAt?: number | null;
   detail?: string | null;
   durationMs?: number | null;
+  estimate?: TimelineProvisioningEstimate | null;
   id?: string;
   parentChange?: TimelineParentChange;
   operationKind?: TimelineSystemOperationKind;
+  provisioningId?: string;
   seq?: number;
   sourceSeqEnd?: number;
   sourceSeqStart?: number;
   status?: TimelineSystemRow["status"];
+  steps?: TimelineProvisioningStep[];
   systemKind?: TimelineSystemRow["systemKind"];
   title?: string;
   turnId?: string | null;
@@ -291,7 +296,14 @@ interface SystemRowArgs extends RowBaseOverrideArgs {
 
 interface NonOperationSystemRowArgs extends Omit<
   SystemRowArgs,
-  "completedAt" | "durationMs" | "parentChange" | "operationKind" | "systemKind"
+  | "completedAt"
+  | "durationMs"
+  | "estimate"
+  | "parentChange"
+  | "operationKind"
+  | "provisioningId"
+  | "steps"
+  | "systemKind"
 > {
   systemKind: TimelineNonOperationSystemRow["systemKind"];
 }
@@ -1140,14 +1152,17 @@ export function systemRow({
   createdAt,
   detail = "Running setup\nProvisioned thread (2s)",
   durationMs,
+  estimate = null,
   id = DEFAULT_SYSTEM_ID,
   parentChange,
   operationKind,
+  provisioningId = "tpv_1",
   seq,
   sourceSeqEnd,
   sourceSeqStart,
   startedAt,
   status = "completed",
+  steps = [],
   systemKind = "operation",
   threadId,
   title = "Provisioned thread",
@@ -1204,6 +1219,21 @@ export function systemRow({
         nextParentThreadId: null,
         nextParentThreadTitle: null,
       },
+    };
+  }
+  if (resolvedOperationKind === "thread-provisioning") {
+    if (status === null) {
+      throw new Error("Thread provisioning system row requires a status");
+    }
+    return {
+      ...base,
+      systemKind,
+      operationKind: resolvedOperationKind,
+      provisioningId,
+      status,
+      completedAt: resolvedCompletedAt,
+      steps,
+      estimate,
     };
   }
   return {
