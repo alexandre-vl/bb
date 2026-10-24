@@ -33,3 +33,4 @@ bb/remember-environment-inputs
 fix/host-daemon-survives-oom-killer
 fix/resume-active-machine-without-daemon
 bb/fix-bb-connect-tunnel-timeout-thr_3zrcprcati
+thread-loading-experience
