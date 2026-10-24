@@ -136,6 +136,7 @@ import {
 } from "@/components/workspace/workspace-change-summary";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { hasThreadProvisioningFailure } from "@/lib/thread-provisioning-failure";
+import { findActiveProvisioningEstimate } from "@/lib/thread-provisioning-estimate";
 import { showMutationErrorToast } from "@/lib/mutation-errors";
 import {
   promptInputToDraft,
@@ -773,6 +774,10 @@ function ThreadDetailViewInternal(
     threadId,
     enabled: timelineEnabled,
   });
+  const provisioningEstimate = useMemo(
+    () => findActiveProvisioningEstimate(timelineRows),
+    [timelineRows],
+  );
   const sendMessage = useSendThreadMessage();
   const editMessage = useEditThreadMessage();
   const createQueuedMessage = useCreateThreadQueuedMessage();
@@ -2388,6 +2393,7 @@ function ThreadDetailViewInternal(
         defaultAppSettings.steerActiveThreadOnEnter
       }
       pendingInteractions={pendingInteractions}
+      provisioningEstimate={provisioningEstimate}
       queuedMessageCount={thread.queuedMessageCount}
       pendingTodos={pendingTodos}
       activePromptMode={activePromptMode}
