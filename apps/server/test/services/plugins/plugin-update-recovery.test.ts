@@ -64,6 +64,7 @@ describe("plugin update recovery", () => {
         getDaemonSessionIdForHost: () => null,
         notifyPluginChanged: () => {},
         notifyPluginSignal: () => 0,
+        onWatchedTargets: () => () => {},
         notifySystem: () => {},
       },
       logger,
