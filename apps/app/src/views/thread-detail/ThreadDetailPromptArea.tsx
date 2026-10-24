@@ -98,6 +98,7 @@ import type { MachineProviderPresentation } from "@/components/plugin/MachinePro
 import type { WorkspaceCheckoutDisplay } from "@/lib/workspace-checkout-display";
 import { useComposerTextEffects } from "@/lib/composer-text-effects";
 import { useLatestRef } from "@/hooks/useLatestRef";
+import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
 import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
 import { useProjectDisplayName } from "@/hooks/queries/sidebar-navigation-query";
 import {
@@ -464,12 +465,20 @@ export function ThreadDetailPromptArea({
   });
   const isDefaultExecutionOptionsLoading =
     defaultExecutionOptionsState === "loading";
+  const isAwaitingExecutionDefaults =
+    isDefaultExecutionOptionsLoading && defaultExecutionOptions === undefined;
+  const hasKnownDefaultExecutionOptions =
+    defaultExecutionOptions !== undefined && defaultExecutionOptions !== null;
   const queuedMessagesQuery = useThreadQueuedMessages(thread.id, {
     enabled: true,
   });
   const queuedMessages = queuedMessagesQuery.data ?? EMPTY_QUEUED_MESSAGES;
   const queuedMessagesPending =
     queuedMessagesQuery.data === undefined && queuedMessageCount > 0;
+  useThreadOpenTraceMilestones(thread.id, {
+    "execution-defaults": hasResolvedDefaultExecutionOptions,
+    "queued-messages": queuedMessagesQuery.data !== undefined,
+  });
   const queuedMessagesRef =
     useLatestRef<readonly ThreadQueuedMessage[]>(queuedMessages);
   const [bottomPluginFocusNonce, setBottomPluginFocusNonce] = useState(0);
@@ -1553,13 +1562,14 @@ export function ThreadDetailPromptArea({
         hasMultiple: hasMultipleProviders,
       },
       model: {
-        active: effectiveSelectedModel
-          ? { model: effectiveSelectedModel }
-          : null,
-        selected: selectedModel,
+        active:
+          effectiveSelectedModel && !isAwaitingExecutionDefaults
+            ? { model: effectiveSelectedModel }
+            : null,
+        selected: isAwaitingExecutionDefaults ? "" : selectedModel,
         options: modelOptions,
         moreOptions: moreModelOptions,
-        isLoading: isLoadingModels,
+        isLoading: isLoadingModels || isAwaitingExecutionDefaults,
         loadFailed: modelLoadFailed,
         loadError: modelLoadError,
         onChange: handleModelChange,
@@ -1604,6 +1614,7 @@ export function ThreadDetailPromptArea({
       exitHandoff,
       handleModelChange,
       handleProviderChange,
+      isAwaitingExecutionDefaults,
       isLoadingModels,
       modelLoadFailed,
       modelLoadError,
@@ -1657,14 +1668,14 @@ export function ThreadDetailPromptArea({
 
   const bottomPermissionConfig = useMemo(
     () => ({
-      value: hasConcreteDefaultExecutionOptions ? permissionMode : undefined,
-      options: hasConcreteDefaultExecutionOptions ? permissionModeOptions : [],
+      value: hasKnownDefaultExecutionOptions ? permissionMode : undefined,
+      options: hasKnownDefaultExecutionOptions ? permissionModeOptions : [],
       onChange: setPermissionMode,
       supported:
-        hasConcreteDefaultExecutionOptions && supportsPermissionModeSelection,
+        hasKnownDefaultExecutionOptions && supportsPermissionModeSelection,
     }),
     [
-      hasConcreteDefaultExecutionOptions,
+      hasKnownDefaultExecutionOptions,
       permissionMode,
       permissionModeOptions,
       setPermissionMode,
@@ -1682,6 +1693,8 @@ export function ThreadDetailPromptArea({
     [bottomPermissionConfig, inlineEditingQueuedMessage],
   );
 
+  const environmentCheckoutLoading =
+    environmentCheckout === undefined && workspaceStatusPending;
   const environmentSummary = useMemo(
     () =>
       thread.environmentId !== null ? (
@@ -1694,11 +1707,13 @@ export function ThreadDetailPromptArea({
           environmentProviderName={environmentProviderName}
           environmentMachineProvider={environmentMachineProvider}
           environmentCheckout={environmentCheckout}
+          environmentCheckoutLoading={environmentCheckoutLoading}
           onCreateNewThreadInEnvironment={onCreateNewThreadInEnvironment}
         />
       ) : null,
     [
       environmentCheckout,
+      environmentCheckoutLoading,
       environmentCompactLabel,
       environmentHost,
       environmentIcon,
@@ -1721,6 +1736,16 @@ export function ThreadDetailPromptArea({
         />
       );
     }
+    if (environmentCheckoutLoading) {
+      return (
+        <ThreadDetailsButton
+          icon="GitBranch"
+          label="Loading branch"
+          loading
+          onOpenDetails={onOpenThreadInfo}
+        />
+      );
+    }
     if (environmentLabel) {
       return (
         <ThreadDetailsButton
@@ -1733,6 +1758,7 @@ export function ThreadDetailPromptArea({
     return null;
   }, [
     environmentCheckout,
+    environmentCheckoutLoading,
     environmentCompactLabel,
     environmentIcon,
     environmentLabel,
@@ -2327,6 +2353,7 @@ export function ThreadDetailPromptArea({
       }
       execution={bottomExecutionConfig}
       permission={bottomPermissionConfig}
+      permissionReadOnly={!hasConcreteDefaultExecutionOptions}
       sessionOptionsControl={sessionOptionsControl}
       typeahead={typeaheadConfig}
       promptActions={promptActions}

@@ -287,3 +287,75 @@ describe("ThreadTimelineSurface working indicator", () => {
     expect(grewFromCollapsed(styleChanges.takeRecords(), wrapper)).toBe(true);
   });
 });
+
+describe("ThreadTimelineSurface loading skeleton", () => {
+  const generatedRows = Array.from({ length: 60 }, (_, index) =>
+    conversationRow({
+      id: `switch-row-${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      seq: index + 1,
+      text: `Generated message ${index}\n\n${"Detailed agent output line.\n".repeat(8)}`,
+      turnId: `turn-${index}`,
+    }),
+  );
+
+  function surface(
+    threadId: string,
+    pending: boolean,
+    replacesThreadRows = false,
+  ) {
+    return (
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <ThreadTimelineSurface
+            key={threadId}
+            activeThinking={null}
+            contextBoundarySeq={null}
+            isThreadTimelinePending={pending}
+            replacesThreadRows={replacesThreadRows}
+            showOngoingIndicator={false}
+            threadId={threadId}
+            threadRuntimeDisplayStatus="idle"
+            timelineError={false}
+            timelineRows={pending ? [] : generatedRows}
+            workspaceRootPath={undefined}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+  }
+
+  it("waits before showing a skeleton for a first load", async () => {
+    vi.useFakeTimers();
+    render(surface("thread-cold", true));
+
+    expect(screen.queryByRole("status", { name: "Loading thread" })).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    expect(
+      screen.getByRole("status", { name: "Loading thread" }),
+    ).not.toBeNull();
+  });
+
+  it("shows the skeleton at once when it replaces another thread's rows", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe(): void {}
+        disconnect(): void {}
+        unobserve(): void {}
+      },
+    );
+    const view = render(surface("thread-a", false));
+    expect(screen.getByText(/Generated message 59/)).not.toBeNull();
+
+    view.rerender(surface("thread-b", true, true));
+
+    expect(
+      screen.getByRole("status", { name: "Loading thread" }),
+    ).not.toBeNull();
+  });
+});

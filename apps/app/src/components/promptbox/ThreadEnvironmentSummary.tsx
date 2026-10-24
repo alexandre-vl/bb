@@ -22,13 +22,24 @@ const CHECKOUT_CHIP_BASE_CLASS_NAME =
   "flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground";
 const CHECKOUT_CHIP_BUTTON_CLASS_NAME = `${CHECKOUT_CHIP_BASE_CLASS_NAME} cursor-pointer transition-colors hover:bg-state-hover hover:text-foreground`;
 
+function LabelSkeleton() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-3 w-16 animate-pulse rounded-sm bg-surface-selected"
+    />
+  );
+}
+
 export function ThreadDetailsButton({
   icon,
   label,
+  loading = false,
   onOpenDetails,
 }: {
   icon: IconName;
   label: string;
+  loading?: boolean;
   onOpenDetails: () => void;
 }) {
   return (
@@ -46,7 +57,11 @@ export function ThreadDetailsButton({
       )}
     >
       <Icon name={icon} className="size-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0 truncate">{label}</span>
+      {loading ? (
+        <LabelSkeleton />
+      ) : (
+        <span className="min-w-0 truncate">{label}</span>
+      )}
     </Button>
   );
 }
@@ -60,6 +75,7 @@ interface ThreadEnvironmentSummaryProps {
   environmentHost?: MachineLabelHost;
   environmentMachineProvider?: MachineProviderPresentation | null;
   environmentCheckout?: WorkspaceCheckoutDisplay;
+  environmentCheckoutLoading?: boolean;
   onCreateNewThreadInEnvironment?: () => void;
 }
 
@@ -72,6 +88,7 @@ export const ThreadEnvironmentSummary = memo(function ThreadEnvironmentSummary({
   environmentHost,
   environmentMachineProvider,
   environmentCheckout,
+  environmentCheckoutLoading = false,
   onCreateNewThreadInEnvironment,
 }: ThreadEnvironmentSummaryProps) {
   if (
@@ -79,6 +96,7 @@ export const ThreadEnvironmentSummary = memo(function ThreadEnvironmentSummary({
     !environmentLabel &&
     !environmentHost &&
     !environmentCheckout &&
+    !environmentCheckoutLoading &&
     !onCreateNewThreadInEnvironment
   ) {
     return null;
@@ -169,6 +187,15 @@ export const ThreadEnvironmentSummary = memo(function ThreadEnvironmentSummary({
         >
           <Icon name="GitBranch" className="size-3.5 shrink-0" />
           <span className="truncate">{environmentCheckout.label}</span>
+        </span>
+      ) : environmentCheckoutLoading ? (
+        <span
+          data-promptbox-hide-branch-compact=""
+          data-testid="environment-checkout-loading"
+          className={CHECKOUT_CHIP_BASE_CLASS_NAME}
+        >
+          <Icon name="GitBranch" className="size-3.5 shrink-0" />
+          <LabelSkeleton />
         </span>
       ) : null}
       {onCreateNewThreadInEnvironment ? (

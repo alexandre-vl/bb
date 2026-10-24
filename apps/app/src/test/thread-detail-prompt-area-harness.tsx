@@ -23,7 +23,11 @@ export const promptAreaMocks = {
   clearThreadGoalMutate: vi.fn(),
   createQueuedMessageMutateAsync: vi.fn(),
   createThreadMutateAsync: vi.fn(),
-  defaultExecutionOptions: null as ResolvedThreadExecutionOptions | null,
+  defaultExecutionOptions: null as
+    | ResolvedThreadExecutionOptions
+    | null
+    | undefined,
+  defaultExecutionOptionsIsPlaceholder: false,
   executionInputSources: {} as ExistingThreadExecutionInputSources,
   deleteQueuedMessageMutateAsync: vi.fn(),
   navigate: vi.fn(),
@@ -136,6 +140,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
         providerRouting: { environmentId?: string; hostId?: string };
         model: {
           active?: { model: string } | null;
+          isLoading?: boolean;
         };
         provider: {
           selectedId: string;
@@ -226,6 +231,9 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
           {execution.serviceTier?.value}
         </div>
         <div data-testid="selected-permission">{permission.value}</div>
+        <div data-testid="model-loading">
+          {execution.model.isLoading ? "true" : "false"}
+        </div>
         <div data-testid="session-options-control">{sessionOptionsControl}</div>
         <div data-testid="picker-agent-options">
           {(execution.agentOptions?.sections ?? []).map((section) => (
@@ -398,8 +406,18 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
 });
 
 vi.mock("@/components/promptbox/ThreadEnvironmentSummary", () => ({
-  ThreadEnvironmentSummary: () => (
-    <div data-testid="thread-environment-summary" />
+  ThreadEnvironmentSummary: ({
+    environmentCheckout,
+    environmentCheckoutLoading,
+  }: {
+    environmentCheckout?: { label: string };
+    environmentCheckoutLoading?: boolean;
+  }) => (
+    <div
+      data-testid="thread-environment-summary"
+      data-checkout={environmentCheckout?.label ?? ""}
+      data-checkout-loading={String(environmentCheckoutLoading ?? false)}
+    />
   ),
 }));
 
@@ -720,6 +738,7 @@ vi.mock("@/hooks/queries/thread-default-execution-options-query", () => ({
     return {
       data: promptAreaMocks.defaultExecutionOptions,
       isError: false,
+      isPlaceholderData: promptAreaMocks.defaultExecutionOptionsIsPlaceholder,
     };
   },
 }));

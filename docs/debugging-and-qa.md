@@ -537,7 +537,49 @@ payloads. Use it to reproduce performance problems that only appear at scale.
   `--data-dir <path>` for another target. The command refuses to touch `~/.bb`.
 - Scale flags: `--projects`, `--threads`, `--events`, `--seed`. `--reset`
   deletes the database file first. Without `--reset` the fixture appends.
-- Example: `pnpm seed:perf -- --reset --events 400000`.
+- `--max-thread-events <n>` caps one thread's transcript (default 9000).
+  `--open-long-threads <n>` keeps the n largest threads unarchived, visible and
+  on their project's root environment, so they appear in the sidebar for
+  thread-loading measurements (default 0, which keeps the fixture unchanged).
+- Example: `pnpm seed:perf -- --reset --events 400000`. For the perf lab:
+  `pnpm seed:perf -- --reset --events 500000 --max-thread-events 60000
+--open-long-threads 8`.
+
+## Thread Loading Measurements
+
+`tests/perf-lab` drives Chrome through scripted thread switches against a
+running instance and reports what the user saw, when, and why: see its
+[README](../tests/perf-lab/README.md). Start the instance with
+`pnpm start:worktree --perf-diagnostics` so the app writes its own trace; the
+lab enables the `performanceDiagnostics` experiment itself.
+
+While both gates are on, the app adds User Timing entries next to the stream
+traces:
+
+- `bb:thread-open:intent` when a pointer press or keyboard activation targets a
+  thread link (`threadId`, `input`: `press` or `click`).
+- `bb:thread-open:prefetch` when that intent, a hover of at least 80 ms, or
+  keyboard focus started requests (`threadId`, `input`, `requested`: a comma
+  list of `bootstrap`, `timeline`, `interactions`, `queued-messages`,
+  `execution-defaults`).
+- `bb:thread-open:<milestone>` the first time the thread view has that piece
+  for the thread (`threadId`): `route`, `thread`, `bootstrap`, `environment`,
+  `interactions`, `work-status`, `execution-defaults`, `queued-messages`,
+  `timeline-skeleton`, `timeline`, `timeline-rows`.
+- A `bb:query` measure per TanStack Query fetch (`key`, `outcome`: `success`,
+  `error` or `cancelled`, `initial` for a first fetch, `observers`).
+
+Pointing at a thread link (hover or press with a mouse or pen, keyboard
+focus) prefetches the thread's bootstrap, its timeline when it is missing or
+marked stale by realtime, and its first pending interactions, queued messages
+and execution defaults. A prefetch that no thread screen uses expires after
+five minutes. Once a thread opens, its screen's queries stay cached for an hour
+while the thread is among the last 20 opened (8 on touch devices); evicting a
+thread removes them together, and its environment and work status when no
+retained thread uses that environment. Deleting a thread removes them at once.
+Execution defaults keep TanStack Query's five-minute default: the composer
+sends them with the next message, so an older copy could override a change
+made from another client.
 
 ## Opt-in Benchmarks
 

@@ -21,12 +21,15 @@ import { makeThreadListEntry } from "@bb/test-helpers/domain-fixtures";
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { ARCHIVED_THREADS_PAGE_SIZE } from "./archived-threads-page-size";
 import {
+  environmentQueryKey,
+  environmentWorkStatusQueryKey,
   sidebarNavigationQueryKey,
   threadDetailBootstrapQueryKey,
   threadHostFilePreviewQueryKey,
   threadPendingInteractionsQueryKey,
   threadQueuedMessagesQueryKey,
   threadQueryKey,
+  threadStorageLocationQueryKey,
   threadTimelineQueryKey,
 } from "./query-keys";
 import { paletteRecentArchivedThreadsQueryOptions } from "./palette-thread-queries";
@@ -1000,6 +1003,35 @@ describe("thread open cache retention", () => {
     ).toBe(THREAD_OPEN_CACHE_GC_MS);
   });
 
+  it("keeps the thread screen's other queries as long as its timeline", async () => {
+    const { queryClient } = createQueryClientTestHarness({
+      queries: { gcTime: 0 },
+    });
+    const observers = [
+      observe(queryClient, threadQueryOptions(queryClient, "thread-1")),
+      observe(queryClient, threadPendingInteractionsQueryOptions("thread-1")),
+      observe(queryClient, threadQueuedMessagesQueryOptions("thread-1")),
+      observe(queryClient, threadStorageLocationQueryOptions("thread-1")),
+    ];
+    await vi.waitFor(() => {
+      for (const observer of observers) {
+        expect(observer.getCurrentResult().isSuccess).toBe(true);
+      }
+    });
+
+    stopObserving();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    for (const queryKey of [
+      threadQueryKey("thread-1"),
+      threadPendingInteractionsQueryKey("thread-1"),
+      threadQueuedMessagesQueryKey("thread-1"),
+      threadStorageLocationQueryKey("thread-1"),
+    ]) {
+      expect(queryClient.getQueryData(queryKey)).toBeDefined();
+    }
+  });
+
   it("reopens a retained timeline with a delta from its cached sequence", async () => {
     stubMatchMedia([]);
     const existingRow = {
@@ -1093,6 +1125,64 @@ describe("thread open cache retention", () => {
       expect(hasTimeline(queryClient, threadId)).toBe(true);
       expect(hasBootstrap(queryClient, threadId)).toBe(true);
     }
+  });
+
+  it("evicts the screen's thread and environment queries with its timeline", async () => {
+    stubMatchMedia([]);
+    const { queryClient } = createQueryClientTestHarness();
+    const threadIds = Array.from(
+      { length: THREAD_OPEN_CACHE_MAX_THREADS + 1 },
+      (_, index) => `thread-${index}`,
+    );
+    for (const threadId of threadIds) {
+      seedThreadOpenCache(queryClient, threadId);
+    }
+    const seedScreen = (threadId: string, environmentId: string) => {
+      queryClient.setQueryData(threadDetailBootstrapQueryKey(threadId), {
+        ...THREAD_WITH_INCLUDES,
+        environmentId,
+        id: threadId,
+      });
+      queryClient.setQueryData(threadQueryKey(threadId), {
+        ...THREAD_WITH_INCLUDES,
+        environmentId,
+        id: threadId,
+      });
+      queryClient.setQueryData(threadPendingInteractionsQueryKey(threadId), []);
+      queryClient.setQueryData(threadQueuedMessagesQueryKey(threadId), []);
+      queryClient.setQueryData(environmentQueryKey(environmentId), {
+        id: environmentId,
+      });
+      queryClient.setQueryData(
+        environmentWorkStatusQueryKey(environmentId, null),
+        { outcome: "available" },
+      );
+    };
+    seedScreen("thread-0", "env-evicted");
+    seedScreen("thread-1", "env-shared");
+    seedScreen("thread-2", "env-shared");
+
+    await openTimelines(threadIds.slice(0, 2), queryClient);
+    await openTimelines(threadIds.slice(2), queryClient);
+
+    for (const queryKey of [
+      threadQueryKey("thread-0"),
+      threadPendingInteractionsQueryKey("thread-0"),
+      threadQueuedMessagesQueryKey("thread-0"),
+      environmentQueryKey("env-evicted"),
+      environmentWorkStatusQueryKey("env-evicted", null),
+    ]) {
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+    }
+    expect(hasTimeline(queryClient, "thread-1")).toBe(true);
+    expect(
+      queryClient.getQueryData(environmentQueryKey("env-shared")),
+    ).toBeDefined();
+    expect(
+      queryClient.getQueryData(
+        environmentWorkStatusQueryKey("env-shared", null),
+      ),
+    ).toBeDefined();
   });
 
   it("frees a deleted thread's slot instead of evicting a retained thread", async () => {

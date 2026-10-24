@@ -41,7 +41,12 @@ import {
 } from "./query-policies";
 
 interface EnvironmentQueryOptions extends QueryOptions {
+  gcTime?: number;
   staleTime?: number;
+}
+
+interface EnvironmentWorkStatusQueryOptions extends QueryOptions {
+  gcTime?: number;
 }
 
 interface BranchQueryOptions extends QueryOptions {
@@ -85,6 +90,7 @@ export function useEnvironment(
         signal,
       }),
     enabled,
+    gcTime: options?.gcTime,
     staleTime: options?.staleTime,
   });
 }
@@ -92,7 +98,7 @@ export function useEnvironment(
 export function useEnvironmentWorkStatus(
   environmentId: string | null | undefined,
   mergeBaseBranch?: string,
-  options?: QueryOptions,
+  options?: EnvironmentWorkStatusQueryOptions,
 ) {
   const normalizedMergeBaseBranch = mergeBaseBranch ?? null;
   const enabled = (options?.enabled ?? true) && Boolean(environmentId);
@@ -113,6 +119,7 @@ export function useEnvironmentWorkStatus(
         signal,
       }),
     enabled,
+    gcTime: options?.gcTime,
     ...REALTIME_OWNED_MOUNT_BASELINE_QUERY_POLICY,
     staleTime: 0,
     placeholderData: (previousData, previousQuery) =>

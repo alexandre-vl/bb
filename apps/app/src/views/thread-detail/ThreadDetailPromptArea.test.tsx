@@ -46,6 +46,7 @@ import type { PromptDraftAttachment } from "@bb/client-core";
 import { BbHttpError } from "@/lib/sdk";
 import type { ExperimentalComposerSelection } from "@get-bb/plugin-sdk";
 import { setComposerTextEffect } from "@/lib/composer-text-effects";
+import { formatWorkspaceCheckoutDisplay } from "@/lib/workspace-checkout-display";
 import {
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
@@ -143,6 +144,9 @@ interface RenderPromptAreaOptions {
   goal?: ThreadTimelineGoal | null;
   modelFallback?: ThreadTimelineModelFallback | null;
   pendingInteractions?: readonly PendingInteraction[];
+  environmentCheckout?: ComponentProps<
+    typeof ThreadDetailPromptArea
+  >["environmentCheckout"];
   environmentGoneStatus?: ComponentProps<
     typeof ThreadDetailPromptArea
   >["environmentGoneStatus"];
@@ -150,6 +154,7 @@ interface RenderPromptAreaOptions {
   sentMessageEdit?: ThreadDetailSentMessageEdit;
   sessionOptions?: readonly ThreadTimelineSessionOption[] | null;
   thread?: ThreadWithRuntime;
+  workspaceStatusPending?: boolean;
 }
 
 let testQueryClient: QueryClient;
@@ -161,11 +166,13 @@ function buildPromptAreaElement({
   goal = null,
   modelFallback = null,
   pendingInteractions = [],
+  environmentCheckout,
   environmentGoneStatus = null,
   queuedMessageCount = 0,
   sentMessageEdit,
   sessionOptions = null,
   thread = makeThread(),
+  workspaceStatusPending = false,
 }: RenderPromptAreaOptions = {}) {
   return (
     <QueryClientProvider client={testQueryClient}>
@@ -179,6 +186,7 @@ function buildPromptAreaElement({
         composerFocusRequestNonce={0}
         contextBannerMergeBase={null}
         canRestoreEnvironment={false}
+        environmentCheckout={environmentCheckout}
         environmentGoneStatus={environmentGoneStatus}
         goal={goal}
         providerCommands={null}
@@ -200,7 +208,7 @@ function buildPromptAreaElement({
         steerActiveThreadOnEnter={false}
         thread={thread}
         workspaceChangedFilesSection={null}
-        workspaceStatusPending={false}
+        workspaceStatusPending={workspaceStatusPending}
       />
     </QueryClientProvider>
   );
@@ -217,6 +225,7 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false } },
   });
   mocks.defaultExecutionOptions = null;
+  mocks.defaultExecutionOptionsIsPlaceholder = false;
   mocks.executionInputSources = {};
   mocks.pluginComposerHost = null;
   mocks.composerSubmit = null;
@@ -275,6 +284,30 @@ describe("environment follow-up summary", () => {
     renderPromptArea({ thread: makeThread({ environmentId: "env_1" }) });
 
     expect(screen.getByTestId("thread-environment-summary")).toBeTruthy();
+  });
+
+  it("holds the branch chip's place only until a checkout is known", () => {
+    const thread = makeThread({ environmentId: "env_1" });
+    const view = renderPromptArea({ thread, workspaceStatusPending: true });
+    const summary = () => screen.getByTestId("thread-environment-summary");
+
+    expect(summary().dataset["checkoutLoading"]).toBe("true");
+
+    const environmentCheckout = formatWorkspaceCheckoutDisplay({
+      checkout: { kind: "branch", branchName: "main", headSha: null },
+    });
+    view.rerender(
+      buildPromptAreaElement({
+        environmentCheckout,
+        thread,
+        workspaceStatusPending: true,
+      }),
+    );
+    expect(summary().dataset["checkout"]).toBe("main");
+    expect(summary().dataset["checkoutLoading"]).toBe("false");
+
+    view.rerender(buildPromptAreaElement({ thread }));
+    expect(summary().dataset["checkoutLoading"]).toBe("false");
   });
 
   it("shows no environment row for an errored thread with no environment", () => {
@@ -1806,6 +1839,49 @@ describe("ThreadDetailPromptArea", () => {
       expect(screen.getByTestId("submit-title").textContent).toBe("Submit");
     },
   );
+
+  it("shows the model as loading until the thread's execution defaults arrive", () => {
+    mocks.defaultExecutionOptions = undefined;
+    const view = renderPromptArea();
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("");
+    expect(screen.getByTestId("model-loading").textContent).toBe("true");
+
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5-mini",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    view.rerender(buildPromptAreaElement());
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("gpt-5");
+    expect(screen.getByTestId("model-loading").textContent).toBe("false");
+  });
+
+  it("keeps the last-known permission visible but read-only until the defaults verify", () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.defaultExecutionOptionsIsPlaceholder = true;
+    const view = renderPromptArea();
+
+    expect(screen.getByTestId("selected-permission").textContent).toBe("full");
+    expect(screen.getByTestId("permission-read-only").textContent).toBe("true");
+
+    mocks.defaultExecutionOptionsIsPlaceholder = false;
+    view.rerender(buildPromptAreaElement());
+
+    expect(screen.getByTestId("selected-permission").textContent).toBe("full");
+    expect(screen.getByTestId("permission-read-only").textContent).toBe(
+      "false",
+    );
+  });
 
   it("shows destination permissions instead of the source active Plan mode", async () => {
     mocks.defaultExecutionOptions = {

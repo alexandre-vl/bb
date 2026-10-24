@@ -79,7 +79,7 @@ import {
 import type { ThreadTimelinePluginMessageAction } from "./types.js";
 import type { PromptDraftAttachment } from "@bb/client-core";
 import { buildMarkdownMessageLinkRouting } from "@/components/ui/markdown-message-link-routing";
-import { markStreamTrace } from "@/lib/stream-trace";
+import { markStreamTrace } from "@/lib/perf-trace";
 
 interface ConversationMessageContentBaseProps {
   attachments: TimelineConversationAttachments | null;

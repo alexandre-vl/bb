@@ -12,6 +12,7 @@ import { BrowserTabIcon } from "@/components/secondary-panel/BrowserTabIcon";
 import { getPanelTabHistoryKey } from "@/components/secondary-panel/recentlyClosedPanelTabs";
 import { appendQuoteAndAttachmentsToDraft } from "@bb/client-core";
 import { queueSplitDownload } from "@/lib/split-prefetch";
+import { THREAD_OPEN_CACHE_GC_MS } from "@/hooks/cache-owners/thread-open-cache-owner";
 import { createCoreComposerActions } from "@/lib/plugin-composer-handle";
 import {
   useCallback,
@@ -235,6 +236,7 @@ import type {
 import { useEnvironmentMergeBase } from "@/components/secondary-panel/git-diff/useEnvironmentMergeBase";
 import { useThreadGitActions } from "./useThreadGitActions";
 import { useThreadReadTracking } from "@/hooks/useThreadReadTracking";
+import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
 import { useThreadUnreadDividerState } from "./useThreadUnreadDividerState";
 import {
   buildTerminalSyncedSecondaryFileTabs,
@@ -470,7 +472,7 @@ function ThreadDetailViewInternal(
     threadDetailBootstrapQuery.isSuccess || threadDetailBootstrapQuery.isError;
   const {
     data: thread,
-    isFetching,
+    fetchStatus: threadFetchStatus,
     isLoadingError,
     error,
   } = useThread(threadId, {
@@ -483,6 +485,7 @@ function ThreadDetailViewInternal(
   });
   const environmentQuery = useEnvironment(thread?.environmentId, {
     enabled: hasThreadDetailBootstrapSettled,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     staleTime: 5_000,
   });
   const environment = environmentQuery.data;
@@ -557,7 +560,9 @@ function ThreadDetailViewInternal(
     useToggleThreadSecondaryPanelSelection(threadId, threadId);
   const threadQueryState = useConnectionAwareQueryState({
     hasResolvedData: thread !== undefined,
-    isFetching: threadDetailBootstrapQuery.isFetching || isFetching,
+    isFetching:
+      threadDetailBootstrapQuery.fetchStatus !== "idle" ||
+      threadFetchStatus !== "idle",
     isLoadingError,
     isRecoverableLoadingError: isTransientReadError(error),
   });
@@ -1602,6 +1607,7 @@ function ThreadDetailViewInternal(
     requestedMergeBaseBranch,
     {
       enabled: canUseGitUi && environment !== undefined,
+      gcTime: THREAD_OPEN_CACHE_GC_MS,
     },
   );
   const workspaceStatusError = workStatusQuery.error;
@@ -1770,6 +1776,21 @@ function ThreadDetailViewInternal(
       return { ...childThreadsSection, pendingInteractions };
     }, [childThreadsSection, childPendingInteractions]);
   const isThreadTimelinePending = timelineLoading && timelineRows.length === 0;
+  useThreadOpenTraceMilestones(
+    threadId,
+    timelineEnabled
+      ? {
+          route: true,
+          thread: thread !== undefined,
+          bootstrap: threadDetailBootstrapQuery.isSuccess,
+          environment: environment !== undefined,
+          interactions: pendingInteractionsQuery.data !== undefined,
+          "work-status": workStatusQuery.data !== undefined,
+          timeline: !timelineLoading,
+          "timeline-rows": timelineRows.length > 0,
+        }
+      : {},
+  );
   useThreadReadTracking({
     markThreadRead,
     thread: timelineEnabled ? thread : undefined,
@@ -2223,7 +2244,8 @@ function ThreadDetailViewInternal(
         }))
       : [];
   const showGitChanges =
-    systemConfigQuery.data?.generalSettings.showGitChanges ?? false;
+    systemConfigQuery.data?.generalSettings.showGitChanges ??
+    defaultAppSettings.showGitChanges;
   const threadHeaderGitActions =
     executionUnavailable || !showGitChanges
       ? []
@@ -2253,6 +2275,7 @@ function ThreadDetailViewInternal(
   const workspaceOpenButton =
     workspaceOpenPath && preferredDirectoryTarget ? (
       <ThreadWorkspaceOpenButton
+        key={workspaceOpenPath}
         preferredTarget={preferredDirectoryTarget}
         targets={directoryOpenTargets}
         onOpenPreferredTarget={async () => {

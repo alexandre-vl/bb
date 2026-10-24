@@ -10,7 +10,12 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { ComponentProps, CSSProperties, ReactNode } from "react";
+import type {
+  ComponentProps,
+  CSSProperties,
+  ReactNode,
+  RefObject,
+} from "react";
 import { useComposedRefs } from "@radix-ui/react-compose-refs";
 import { TimelineImageGallery } from "./TimelineImageGallery";
 import type { PromptInput, ThreadRuntimeDisplayStatus } from "@bb/domain";
@@ -181,6 +186,7 @@ export interface ThreadTimelineRowsProps {
   resolveImageViewSrc?: ThreadTimelineImageViewSrcResolver;
   resolveUserAttachmentImageSrc?: UserAttachmentImageSrcResolver;
   hasOlderTimelineRows?: boolean;
+  isCatchingUpTimeline?: boolean;
   isLoadingOlderTimelineRows?: boolean;
   onLoadOlderRows?: () => Promise<void> | void;
   timelineRows: TimelineRow[];
@@ -230,6 +236,7 @@ interface TimelineTurnStateContextValue {
 interface TimelineRowsListProps {
   compactActivityIntents: boolean;
   hasOlderTimelineRows?: boolean;
+  isCatchingUpTimeline?: boolean;
   isLoadingOlderTimelineRows?: boolean;
   navigationTargetRowId?: string | null;
   onLoadOlderRows?: () => Promise<void> | void;
@@ -244,6 +251,7 @@ interface TimelineRowsListProps {
 
 interface TimelineUnreadDividerProps {
   autoScroll: boolean;
+  rowsShownBeforeDividerRef: RefObject<boolean>;
 }
 
 interface TimelineRowViewProps {
@@ -1045,19 +1053,27 @@ const ConversationRowContent = memo(function ConversationRowContent({
   );
 });
 
-function TimelineUnreadDivider({ autoScroll }: TimelineUnreadDividerProps) {
+function TimelineUnreadDivider({
+  autoScroll,
+  rowsShownBeforeDividerRef,
+}: TimelineUnreadDividerProps) {
   const bottomAnchor = useBottomAnchoredScroll();
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledRef = useRef(false);
 
   useLayoutEffect(() => {
-    if (!autoScroll || !bottomAnchor || hasScrolledRef.current) {
+    if (
+      !autoScroll ||
+      !bottomAnchor ||
+      hasScrolledRef.current ||
+      rowsShownBeforeDividerRef.current
+    ) {
       return;
     }
 
     const frameId = window.requestAnimationFrame(() => {
       const divider = dividerRef.current;
-      if (!divider) {
+      if (!divider || bottomAnchor.positionKeeper.hasUserScrolled()) {
         return;
       }
 
@@ -1068,7 +1084,7 @@ function TimelineUnreadDivider({ autoScroll }: TimelineUnreadDividerProps) {
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [autoScroll, bottomAnchor]);
+  }, [autoScroll, bottomAnchor, rowsShownBeforeDividerRef]);
 
   return (
     <div
@@ -2022,6 +2038,7 @@ function estimateTimelineWindowedRowHeight(
 function TimelineRowsList({
   compactActivityIntents,
   hasOlderTimelineRows,
+  isCatchingUpTimeline = false,
   isLoadingOlderTimelineRows,
   navigationTargetRowId,
   onLoadOlderRows,
@@ -2058,6 +2075,15 @@ function TimelineRowsList({
     () => buildTimelineRowsListItems({ rows, unreadDividerPlacement }),
     [rows, unreadDividerPlacement],
   );
+  const rowsShownBeforeDividerRef = useRef(false);
+  const hasUnreadDividerItem = items.some(
+    (item) => item.kind === "unread-divider",
+  );
+  useLayoutEffect(() => {
+    if (rows.length > 0 && !hasUnreadDividerItem && !isCatchingUpTimeline) {
+      rowsShownBeforeDividerRef.current = true;
+    }
+  }, [hasUnreadDividerItem, isCatchingUpTimeline, rows.length]);
   const itemKeys = useMemo(
     () =>
       items.map((item) =>
@@ -2145,6 +2171,7 @@ function TimelineRowsList({
                   >
                     <TimelineUnreadDivider
                       autoScroll={unreadDividerAutoScroll}
+                      rowsShownBeforeDividerRef={rowsShownBeforeDividerRef}
                     />
                   </div>
                 );
@@ -2440,6 +2467,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
                         <div className="relative">
                           <TimelineRowsList
                             hasOlderTimelineRows={props.hasOlderTimelineRows}
+                            isCatchingUpTimeline={props.isCatchingUpTimeline}
                             isLoadingOlderTimelineRows={
                               props.isLoadingOlderTimelineRows
                             }
