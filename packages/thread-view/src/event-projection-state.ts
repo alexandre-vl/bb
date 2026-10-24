@@ -27,6 +27,7 @@ import {
   type OperationProjectionState,
 } from "./operation-projection.js";
 import type { EventMeta } from "./event-decode.js";
+import { provisioningKey } from "./provisioning-helpers.js";
 import {
   createReasoningProjectionState,
   finalizeOpenReasoningLifecycles,
@@ -187,6 +188,27 @@ export function flushProjectionBufferedOutputsAfterTurnCompleted(
   flushPendingFileEditOutput(state);
 }
 
+function isThreadProvisioningMessage(
+  message: EventProjectionMessage,
+): message is Extract<EventProjectionMessage, { kind: "operation" }> {
+  return (
+    message.kind === "operation" && message.opType === "thread-provisioning"
+  );
+}
+
+function interruptInactiveProvisioningMessages(
+  args: FinalizeProjectionMessagesArgs,
+): void {
+  for (const message of args.state.messages) {
+    if (
+      isThreadProvisioningMessage(message) &&
+      provisioningKey(message) !== args.options?.activeProvisioningId
+    ) {
+      interruptOperationMessage(message);
+    }
+  }
+}
+
 function finalizePendingMessages(args: FinalizeProjectionMessagesArgs): void {
   const shouldPreservePending = shouldPreservePendingMessages(
     args.options?.threadStatus,
@@ -194,6 +216,7 @@ function finalizePendingMessages(args: FinalizeProjectionMessagesArgs): void {
   const shouldFinalizeBufferedAssistants =
     args.options?.threadStatus !== undefined && !shouldPreservePending;
   if (shouldPreservePending) {
+    interruptInactiveProvisioningMessages(args);
     flushActiveToolCell(args.state);
     return;
   }

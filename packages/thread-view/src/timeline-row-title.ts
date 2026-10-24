@@ -19,6 +19,7 @@ import type {
   TimelineRowPresentation,
   TimelineRowStatus,
   TimelineSearchWorkRow,
+  TimelineThreadProvisioningSystemRow,
   TimelineToolWorkRow,
   TimelineWebFetchWorkRow,
   TimelineWebSearchWorkRow,
@@ -92,6 +93,12 @@ export type TimelineTitleDecoration =
       status: TimelineStatusDecorationStatus;
       durationMs: number | null;
       emphasis: boolean;
+    }
+  | {
+      kind: "provisioning-estimate";
+      startedAt: number;
+      p50Ms: number;
+      p90Ms: number | null;
     }
   | {
       kind: "summary-status";
@@ -309,6 +316,8 @@ export function formatTimelineDecorationText(
       return d.durationMs !== null
         ? `(${durationToCompactString(d.durationMs)}, ${d.status})`
         : `(${d.status})`;
+    case "provisioning-estimate":
+      return `(usually ~${durationToCompactString(d.p50Ms)})`;
     case "summary-status": {
       const parts: string[] = [];
       if (d.errorCount > 0) {
@@ -1641,10 +1650,64 @@ function systemTitleAccent(
   }
 }
 
+function provisioningEstimateDecoration(
+  row: TimelineThreadProvisioningSystemRow,
+): TimelineTitleDecoration | null {
+  if (row.estimate === null) return null;
+  return {
+    kind: "provisioning-estimate",
+    startedAt: row.startedAt,
+    p50Ms: row.estimate.p50Ms,
+    p90Ms: row.estimate.p90Ms,
+  };
+}
+
+function provisioningDecorations(
+  row: TimelineThreadProvisioningSystemRow,
+): TimelineTitleDecoration[] {
+  const durationMs =
+    row.completedAt !== null ? row.completedAt - row.startedAt : null;
+  switch (row.status) {
+    case "pending":
+      return filterNull([
+        durationDecoration(row.startedAt, null),
+        provisioningEstimateDecoration(row),
+      ]);
+    case "completed":
+    case "interrupted":
+      return filterNull([durationDecoration(row.startedAt, row.completedAt)]);
+    case "error":
+      return [statusDecoration("error", durationMs, { emphasis: true })];
+    default:
+      return assertNever(row.status);
+  }
+}
+
+function mapThreadProvisioningSystemTitle(
+  row: TimelineThreadProvisioningSystemRow,
+): TimelineTitle {
+  const pending = row.status === "pending";
+  return makeTitle({
+    segments: [
+      segment(pending ? `${row.title}…` : row.title, {
+        shimmer: pending,
+        truncate: true,
+      }),
+    ],
+    decorations: provisioningDecorations(row),
+  });
+}
+
 function mapSystemTitle(row: TimelineSystemViewRow): TimelineTitle {
   const showsErrorStatus = row.systemKind !== "error" && row.status === "error";
   if (row.systemKind === "operation" && row.operationKind === "parent-change") {
     return mapParentChangeSystemTitle(row);
+  }
+  if (
+    row.systemKind === "operation" &&
+    row.operationKind === "thread-provisioning"
+  ) {
+    return mapThreadProvisioningSystemTitle(row);
   }
   const isReasoning =
     row.systemKind === "operation" && row.operationKind === "reasoning";

@@ -42,7 +42,9 @@ the most-parsed commands ends with the same shape.
     [{id, projectId, environmentId, providerId, title, status, parentThreadId, sectionId, visibility, archivedAt, pinnedAt, createdAt, updatedAt, activity}]    (bare array; title can be null)
 
   bb thread show <id> --json
-    {thread: {id, status, title, projectId, environmentId, parentThreadId, ...}, environment: {id, hostId, path, branchName, ...} | null, pendingTodos}    (thread fields are under .thread)
+    {thread: {id, status, title, projectId, environmentId, parentThreadId, ...}, environment: {id, hostId, path, branchName, ...} | null, pendingTodos, provisioning}    (thread fields are under .thread)
+    provisioning: the running thread-provisioning timeline row or null:
+      {provisioningId, startedAt, steps: [{label, status, startedAt, completedAt, output}], estimate: {p50Ms, p90Ms (null below 10 runs), runCount, scope: "project" | "all-projects"} | null, ...}
 
   bb thread log <id> --json
     [{id, seq, type, createdAt, threadId, scope, data}]    (bare array of raw events, oldest first; page with --after-seq <seq>); with --message: {message, before, after} of conversation rows
