@@ -19,6 +19,7 @@ import {
 } from "./install-sources.js";
 import { npmSourceString } from "./managed-plugin-artifacts.js";
 import type { PluginServiceDeps } from "./plugin-service-internal.js";
+import { pluginRestoreHoldRefusal } from "./plugin-state-snapshot.js";
 
 export type PluginTrackingRangeOutcome =
   | { ok: true; result: PluginTrackingRangeResult }
@@ -263,6 +264,10 @@ export function createPluginTrackingRange(context: PluginTrackingRangeContext) {
         reason: "unknown-plugin",
         error: `unknown plugin "${id}"`,
       };
+    }
+    const holdRefusal = pluginRestoreHoldRefusal(deps.db, id, "range change");
+    if (holdRefusal !== null) {
+      return { ok: false, reason: "refused", error: holdRefusal };
     }
     const planned = planTrackingRangeChange(row, range);
     return planned.ok

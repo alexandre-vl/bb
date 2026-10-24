@@ -65,10 +65,22 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  --yes); --dry-run only previews; --json
                                  prints the result. Installs nothing: run
                                  `bb plugin update <id>` next
+  bb plugin rollback <id>        Return a git:/npm: plugin to the release its
+                                 most recent update replaced, for 7 days
+                                 after that update. Its settings, KV
+                                 entries, data.db, secrets, and schedules go
+                                 back to their values from before the
+                                 update; changes made since are discarded.
+                                 The tracked source range and whether the
+                                 plugin is enabled stay as they are. Same
+                                 confirmation as update; --json prints the
+                                 result
   bb plugin list                 Status, services, schedules, handler timings,
-                                 and contributed CLI commands. `bb status`
-                                 also names enabled plugins that are
-                                 incompatible, failed, or missing
+                                 contributed CLI commands, and the last
+                                 failed update with what bb restored or
+                                 kept. `bb status` also names enabled
+                                 plugins that are incompatible, failed, or
+                                 missing
   bb plugin source <id> [--json] Requested and resolved source, subdirectory,
                                  semver range and resolved tag, engine ranges,
                                  install time, and recent activation history
@@ -85,7 +97,10 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  refused until it is off
   bb plugin reload [id]          Restart plugins on their current sources.
                                  Exits 1 when one does not come up (the
-                                 previous instance is kept or degraded)
+                                 previous instance is kept or degraded). For
+                                 a plugin held by an unfinished restore, it
+                                 retries the restore instead, and warns when
+                                 bb gives up undoing the change
   bb plugin config <id> [set <key> <value> | unset <key>]
                                  Show or change a plugin's declared settings.
                                  Running plugins receive changes live; a
@@ -105,10 +120,12 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  releases, rolled-back updates, or
                                  interrupted operations) and leftover cache
                                  directories, and print what was freed.
-                                 Updates and removals already delete what
-                                 they replace. Never touches a running
-                                 version or a local path source. Also in the
-                                 command palette
+                                 Removals already delete what they replace;
+                                 an update keeps the version it replaced
+                                 while `bb plugin rollback` can return to
+                                 it. Never touches a running version, a
+                                 version kept for rollback, or a local path
+                                 source. Also in the command palette
 
   bb marketplace add <source>    Add a marketplace from an https manifest URL,
                                  git:<url>[@<ref>], or path:<directory>.
@@ -287,7 +304,28 @@ Updates and pinning
 Updates are manual: `bb plugin outdated` checks tracking sources and
 `bb plugin update` applies compatible candidates. Reinstalling an installed
 managed plugin is refused; use `bb plugin update`. A failed activation restores
-the previous version and leaves the failure visible.
+the previous version and leaves the failure visible. For 7 days after a
+successful update, `bb plugin rollback <id>` returns to the release it replaced,
+restores the plugin's data from before the update, and checks for updates
+again; the plugin's page offers the same. It keeps the range the plugin tracks,
+including one changed since with `bb plugin track`, and whether the plugin is
+enabled. Thread plugin metadata and files the plugin keeps outside data.db and
+its secrets directory are not restored. `bb plugin list --json` shows the
+target and deadline as `updateState.rollback` (`version`, `display`, `until`).
+Each rollback undoes the latest update still inside its 7 days, so rolling back
+again steps back one more release.
+
+Before bb restores a plugin after a failed update or rollback, it checks the
+saved state, then restores the registration before any file. If a saved file is
+missing or damaged, or the release to restore is gone, before bb wrote anything,
+the plugin keeps its current release and data, and the failure says so in
+`bb plugin list` and on the plugin's page. If bb cannot read the saved state for
+another reason, such as file permissions, or a write fails during the restore,
+for example on a disk error, bb holds the plugin stopped with the reason as its
+status and keeps the saved state. Update, track, and rollback refuse a held
+plugin, and bb offers it no update or rollback, until `bb plugin reload <id>` or
+the next start finishes the restore. Removing the plugin, which deletes its
+settings, secrets, and schedules, is the last resort.
 
 Updates stay inside the range recorded at install and never move to a release
 older than the installed one. `bb plugin outdated`, `bb plugin update`, and
@@ -390,6 +428,8 @@ plugins.
 
 ### Background updates
 
-`bb plugin update <id> --yes` starts a server job and waits by polling, so the activation stability check does not hold one HTTP request open. Add `--no-wait` to return immediately. Use `bb plugin update-jobs [job-id] --json` for progress and results, including automatic rollback. Queued/running updates continue after the CLI or app disconnects. Finished jobs remain for ten minutes; jobs do not survive server restarts. Running updates cannot be cancelled midway through activation.
+`bb plugin update <id> --yes` starts a server job and waits by polling, so the activation stability check does not hold one HTTP request open. Add `--no-wait` to return immediately. Use `bb plugin update-jobs [job-id] --json` for progress and results, including automatic rollback; `bb plugin rollback` jobs appear there too, with `kind: "rollback"`. Queued/running updates continue after the CLI or app disconnects. Finished jobs remain for ten minutes; jobs do not survive server restarts. Running updates cannot be cancelled midway through activation.
 
 SDK: `plugins.applyUpdate({ pluginId, expectedVersion? })` waits; `plugins.experimental_startUpdate({ pluginId, expectedVersion? })` returns the job. `expectedVersion` is the `candidate.version` a check returned: when the release the server would install is no longer that one, it refuses and leaves the installation untouched (the fresh check result is still saved). Without it the newest compatible release in range is applied. Inspect with `plugins.experimental_updateJobs.list()` or `.get({ jobId })`. Raw HTTP callers opt in with `Prefer: respond-async`; legacy callers still receive the completed result.
+
+SDK rollback: `plugins.experimental_getRollbackPoint({ pluginId })` changes nothing and answers `{ outcome: "rollback-available", from, point }` or `{ outcome: "unavailable", detail }` with the reason; `plugins.experimental_rollbackUpdate({ pluginId, expectedVersion? })` waits; `plugins.experimental_startRollbackUpdate({ pluginId, expectedVersion? })` returns the job. Against a server that predates rollback these throw `PluginRollbackUnsupportedError`. `expectedVersion` is the `updateState.rollback.version` the caller showed: the server refuses, changing nothing, when the rollback point is no longer that release. The result is a `PluginRollbackUpdateResult` (`applied`, `from`, `to`, `outcome`, `detail?`): outcome `reverted` is a completed rollback; `rolled-back` means the old release failed to start and bb restored the updated release and its data, with the failure in `detail`; if the restored release then fails to start too, `detail` names both failures. Update jobs carry `kind`, and a completed job's `result` has the type its kind names. Raw HTTP: `GET /api/v1/plugins/:id/rollback`, and `POST /api/v1/plugins/:id/rollback` with `{ "expectedVersion"?: string }`.

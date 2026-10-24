@@ -107,6 +107,7 @@ import { runEventLoopWork } from "../system/event-loop-work.js";
 import { abortPluginToolCallsForPlugin } from "./plugin-tool-calls.js";
 import { buildCachedPluginServer } from "./plugin-server-cache.js";
 import { createPluginRpcCallerRegistry } from "./plugin-rpc-caller.js";
+import { pluginRestoreHold } from "./plugin-state-snapshot.js";
 
 const serverRuntimeDir = dirname(fileURLToPath(import.meta.url));
 const pluginSdkRuntimePath = join(serverRuntimeDir, "plugin-sdk-runtime.js");
@@ -368,7 +369,7 @@ export interface SafeModeActivationRefusalArgs {
   pluginId: string;
   provenance: InstalledPluginRow["provenance"];
   builtinName: string | null;
-  action: "install" | "update";
+  action: "install" | "update" | "roll back";
 }
 
 const PLUGIN_SAFE_MODE_DETAIL = "safe mode is on";
@@ -1523,6 +1524,18 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   }
 
   async function loadOne(row: InstalledPluginRow): Promise<string | null> {
+    const restoreHold = pluginRestoreHold(deps.db, row.id);
+    if (restoreHold === null) return loadIgnoringRestoreHold(row);
+    await disposeOne(row.id);
+    await populateIdentity(row);
+    setStatus(row.id, row.enabled ? "error" : "disabled", restoreHold);
+    logger.warn(`plugin ${row.id} not loaded: ${restoreHold}`);
+    return row.enabled ? restoreHold : null;
+  }
+
+  async function loadIgnoringRestoreHold(
+    row: InstalledPluginRow,
+  ): Promise<string | null> {
     const held = await heldDetail(row);
     if (held !== null) {
       await disposeOne(row.id);
@@ -2114,6 +2127,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     isPackagedBuiltinEntry,
     loadAll,
     loaded,
+    loadIgnoringRestoreHold,
     loadOne,
     brandingAssets,
     safeModeActivationRefusal,
