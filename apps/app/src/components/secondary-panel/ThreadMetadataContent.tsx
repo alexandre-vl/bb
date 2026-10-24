@@ -53,8 +53,12 @@ import { useSystemMachineProviders } from "@/hooks/queries/machine-provider-quer
 import { useHosts } from "@/hooks/queries/host-queries";
 import { useProjectDisplayName } from "@/hooks/queries/sidebar-navigation-query";
 import { MachineIcon } from "@/components/machines/MachineLabel";
-import { formatWorkspaceCheckoutDisplay } from "@/lib/workspace-checkout-display";
+import {
+  formatWorkspaceCheckoutDisplay,
+  resolveWorkspaceCheckout,
+} from "@/lib/workspace-checkout-display";
 import { Button } from "@bb/shared-ui/button";
+import { Skeleton } from "@bb/shared-ui/skeleton";
 import { COARSE_POINTER_TEXT_SM_CLASS } from "@bb/shared-ui/coarse-pointer-sizing";
 import { CopyableInlineLabel } from "@/components/ui/copy-button.js";
 import { useFittedPathMiddle } from "@/components/ui/truncate-path-middle";
@@ -457,14 +461,34 @@ function WorkspacePathValue({ path }: { path: string }) {
 }
 
 interface BranchRowProps {
+  environment: Environment | null;
   workspaceStatus: WorkspaceStatus | undefined;
+  workspaceStatusPending: boolean;
 }
 
-export function BranchRow({ workspaceStatus }: BranchRowProps) {
-  const checkoutDisplay = workspaceStatus
-    ? formatWorkspaceCheckoutDisplay({ checkout: workspaceStatus.checkout })
-    : null;
-  if (checkoutDisplay === null) return null;
+function PendingDetailValue() {
+  return <Skeleton className="h-3 w-24 max-w-full rounded-sm" />;
+}
+
+export function BranchRow({
+  environment,
+  workspaceStatus,
+  workspaceStatusPending,
+}: BranchRowProps) {
+  const checkout = resolveWorkspaceCheckout({
+    environment,
+    workspaceStatus,
+    workspaceStatusPending,
+  });
+  const checkoutDisplay =
+    checkout === null ? null : formatWorkspaceCheckoutDisplay({ checkout });
+  if (checkoutDisplay === null) {
+    return workspaceStatusPending ? (
+      <DetailRow icon="GitBranch" label="Branch">
+        <PendingDetailValue />
+      </DetailRow>
+    ) : null;
+  }
   return (
     <DetailRow icon="GitBranch" label={checkoutDisplay.rowLabel}>
       {checkoutDisplay.copyValue !== null ? (
@@ -636,6 +660,7 @@ interface GitStatusRowProps {
   environment: Environment | null;
   workspaceStatus: WorkspaceStatus | undefined;
   workspaceStatusError: Error | null;
+  workspaceStatusPending: boolean;
   workspaceUnavailable?: WorkspaceResolutionFailure;
 }
 
@@ -644,8 +669,16 @@ export function GitStatusRow({
   environment,
   workspaceStatus,
   workspaceStatusError,
+  workspaceStatusPending,
   workspaceUnavailable,
 }: GitStatusRowProps) {
+  if (workspaceStatusPending && workspaceStatus === undefined) {
+    return (
+      <DetailRow icon="FileDiff" label="Git status">
+        <PendingDetailValue />
+      </DetailRow>
+    );
+  }
   if (
     !shouldShowWorkspaceStatus({
       thread,
@@ -762,6 +795,7 @@ export interface ThreadMetadataContentProps {
   environmentDisplayHost: EnvironmentDisplayHostContext;
   workspaceStatus: WorkspaceStatus | undefined;
   workspaceStatusError: Error | null;
+  workspaceStatusPending: boolean;
   workspaceUnavailable?: WorkspaceResolutionFailure;
   threadEnvironmentId: string | null;
   selectedMergeBaseBranch: string | undefined;
@@ -943,7 +977,13 @@ function CoreWorkspacePathRow() {
 function CoreBranchRow() {
   const host = useThreadInfoHost();
   if (!useIsThreadInfoHostActive()) return null;
-  return <BranchRow workspaceStatus={host.workspaceStatus} />;
+  return (
+    <BranchRow
+      environment={host.environment}
+      workspaceStatus={host.workspaceStatus}
+      workspaceStatusPending={host.workspaceStatusPending}
+    />
+  );
 }
 
 function CoreMergeBaseRow() {
@@ -975,6 +1015,7 @@ function CoreGitStatusRow() {
       environment={host.environment}
       workspaceStatus={host.workspaceStatus}
       workspaceStatusError={host.workspaceStatusError}
+      workspaceStatusPending={host.workspaceStatusPending}
       workspaceUnavailable={host.workspaceUnavailable}
     />
   );

@@ -108,6 +108,7 @@ function OpenMenuThreadWorkspaceOpenButtonStory() {
   return (
     <div ref={rootRef}>
       <ThreadWorkspaceOpenButton
+        disabled={false}
         onOpenPreferredTarget={openPreferredTarget}
         onOpenTarget={openTarget}
         preferredTarget={defaultAppTarget}
@@ -125,6 +126,7 @@ export function Overview() {
         hint="Default App is available as the last menu item"
       >
         <ThreadWorkspaceOpenButton
+          disabled={false}
           onOpenPreferredTarget={openPreferredTarget}
           onOpenTarget={openTarget}
           preferredTarget={vscodeTarget}
@@ -136,6 +138,7 @@ export function Overview() {
         hint="production split control with the restored outer border"
       >
         <ThreadWorkspaceOpenButton
+          disabled={false}
           onOpenPreferredTarget={openPreferredTarget}
           onOpenTarget={openTarget}
           preferredTarget={finderTarget}

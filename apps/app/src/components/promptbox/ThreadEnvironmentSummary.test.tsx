@@ -121,6 +121,38 @@ describe("ThreadEnvironmentSummary", () => {
     expect(copyButton.querySelector('[data-icon="Copy"]')).toBeNull();
   });
 
+  it("holds the branch chip's place while the checkout loads", () => {
+    const view = render(
+      <TooltipProvider delayDuration={0}>
+        <ThreadEnvironmentSummary environmentCheckoutLoading />
+      </TooltipProvider>,
+    );
+
+    const placeholder = screen.getByTestId("environment-checkout-loading");
+    expect(placeholder.querySelector('[data-icon="GitBranch"]')).not.toBeNull();
+    expect(placeholder.textContent).toBe("");
+
+    view.rerender(
+      <TooltipProvider delayDuration={0}>
+        <ThreadEnvironmentSummary
+          environmentCheckout={{
+            copyErrorMessage: "Failed to copy branch name",
+            copyLabel: "Copy branch name",
+            copySuccessMessage: "Branch name copied",
+            copyValue: "main",
+            label: "main",
+            rowLabel: "Branch",
+            title: "Copy branch name: main",
+          }}
+          environmentCheckoutLoading
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.queryByTestId("environment-checkout-loading")).toBeNull();
+    expect(screen.getByRole("button", { name: "main" })).toBeTruthy();
+  });
+
   it("names the environment provider from its icon when the label differs", async () => {
     render(
       <TooltipProvider delayDuration={0}>

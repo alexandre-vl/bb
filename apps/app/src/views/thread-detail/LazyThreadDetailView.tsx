@@ -1,16 +1,20 @@
 import type { ComponentProps } from "react";
 import { defineSplit } from "@/lib/define-split";
-import { RouteLoadingSkeleton } from "@/components/ui/route-loading-skeleton";
-import { ThreadTimelineLoadingSkeleton } from "@/components/thread/timeline/ThreadTimelineLoadingSkeleton";
+import { useRouteState } from "@/hooks/useRouteState";
 import { usePaneContext } from "./PaneContext";
 import type { ThreadDetailView } from "./ThreadDetailView";
+import { ThreadRouteLoadingSkeleton } from "./ThreadRouteLoadingSkeleton";
 
-function ThreadDetailViewLoading() {
+function ThreadDetailViewLoading(
+  props: ComponentProps<typeof ThreadDetailView>,
+) {
   const { isBoundedPane } = usePaneContext();
+  const route = useRouteState();
   return (
-    <RouteLoadingSkeleton isBoundedPane={isBoundedPane}>
-      <ThreadTimelineLoadingSkeleton />
-    </RouteLoadingSkeleton>
+    <ThreadRouteLoadingSkeleton
+      isBoundedPane={isBoundedPane}
+      threadId={props.surface === "pane" ? props.threadId : route.threadId}
+    />
   );
 }
 

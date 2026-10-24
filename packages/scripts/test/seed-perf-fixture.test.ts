@@ -21,6 +21,8 @@ describe("seedPerfFixture", () => {
       projectCount: 3,
       threadCount: 12,
       eventCount: 600,
+      maxThreadEventCount: 9_000,
+      openLongThreadCount: 0,
       randomSeed: 7,
     });
 
@@ -97,11 +99,54 @@ describe("seedPerfFixture", () => {
       projectCount: 3,
       threadCount: 12,
       eventCount: 600,
+      maxThreadEventCount: 9_000,
+      openLongThreadCount: 0,
       randomSeed: 7,
     });
     expect(secondResult.threadIds).toEqual(result.threadIds);
     expect(secondResult.eventRowCount).toBe(result.eventRowCount);
     secondDb.$client.close();
+    db.$client.close();
+  }, 15_000);
+
+  it("keeps the longest transcripts open and caps each one", () => {
+    const db = createMigratedConnection();
+
+    seedPerfFixture(db, {
+      hostId: "host_seedtest01",
+      workspacesRootPath: "/tmp/seed-workspaces",
+      projectCount: 2,
+      threadCount: 16,
+      eventCount: 6_000,
+      maxThreadEventCount: 500,
+      openLongThreadCount: 3,
+      randomSeed: 11,
+    });
+
+    const threads = db.$client
+      .prepare(
+        `SELECT archived_at AS archivedAt, visibility,
+                (SELECT COUNT(*) FROM events WHERE events.thread_id = threads.id) AS events
+         FROM threads ORDER BY events DESC`,
+      )
+      .all() as {
+      archivedAt: number | null;
+      events: number;
+      visibility: string;
+    }[];
+    expect(threads[0]?.events).toBeGreaterThan(400);
+    expect(
+      Math.max(...threads.map((thread) => thread.events)),
+    ).toBeLessThanOrEqual(520);
+    expect(
+      threads
+        .slice(0, 3)
+        .map(({ archivedAt, visibility }) => ({ archivedAt, visibility })),
+    ).toEqual([
+      { archivedAt: null, visibility: "visible" },
+      { archivedAt: null, visibility: "visible" },
+      { archivedAt: null, visibility: "visible" },
+    ]);
     db.$client.close();
   }, 15_000);
 });

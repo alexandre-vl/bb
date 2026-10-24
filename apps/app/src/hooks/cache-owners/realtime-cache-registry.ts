@@ -1,4 +1,4 @@
-import type { QueryClient, QueryKey } from "@tanstack/react-query";
+import type { Query, QueryClient, QueryKey } from "@tanstack/react-query";
 import type {
   EnvironmentChangeKind,
   HostChangeKind,
@@ -26,6 +26,7 @@ import {
   updateCachedThreadStatusState,
 } from "./query-cache";
 import { bumpDiffPatchFreshnessGeneration } from "./environment-diff-patch-cache-owner";
+import { queryFetchStartedAfter } from "./query-fetch-order";
 import { invalidateSystemExecutionOptions } from "./system-cache-effects";
 import { markThreadTimelineUnseenEvents } from "./thread-timeline-unseen-events";
 import {
@@ -104,8 +105,11 @@ interface TimelineInvalidationQueryKeysArgs {
   queryKeys: readonly QueryKey[];
 }
 
+type QueryPredicate = (query: Query) => boolean;
+
 interface ScheduleTrailingActiveRefetchArgs {
   exact: boolean;
+  predicate?: QueryPredicate;
   queryClient: QueryClient;
   queryKey: QueryKey;
 }
@@ -133,9 +137,19 @@ const throttledActiveRefetchEntries = new WeakMap<
 interface ThrottledActiveRefetchArgs {
   exact: boolean;
   minIntervalMs: number;
+  predicate?: QueryPredicate;
   queryClient: QueryClient;
   queryKey: QueryKey;
 }
+
+interface WorkStatusChangeWatermark {
+  receivedAtFetchOrder: number;
+}
+
+const workStatusChangeWatermarks = new WeakMap<
+  QueryClient,
+  Map<string, WorkStatusChangeWatermark>
+>();
 
 const WORK_STATUS_REFETCH_MIN_INTERVAL_MS = 1_000;
 
@@ -161,10 +175,11 @@ function hasActiveFetchingQueries(
   queryClient: QueryClient,
   queryKey: QueryKey,
   exact: boolean,
+  predicate?: QueryPredicate,
 ): boolean {
   return queryClient
     .getQueryCache()
-    .findAll({ exact, queryKey, type: "active" })
+    .findAll({ exact, predicate, queryKey, type: "active" })
     .some((query) => query.state.fetchStatus !== "idle");
 }
 
@@ -179,28 +194,40 @@ function hasActiveQueries(
 
 function refetchActiveQueriesWithoutCanceling({
   exact,
+  predicate,
   queryClient,
   queryKey,
 }: ScheduleTrailingActiveRefetchArgs): void {
-  const hadActiveFetch = hasActiveFetchingQueries(queryClient, queryKey, exact);
+  const hadActiveFetch = hasActiveFetchingQueries(
+    queryClient,
+    queryKey,
+    exact,
+    predicate,
+  );
   void queryClient
     .refetchQueries(
-      { exact, queryKey, type: "active" },
+      { exact, predicate, queryKey, type: "active" },
       { cancelRefetch: false },
     )
     .catch(() => {});
   if (hadActiveFetch) {
-    scheduleTrailingActiveRefetch({ exact, queryClient, queryKey });
+    scheduleTrailingActiveRefetch({ exact, predicate, queryClient, queryKey });
   }
 }
 
 function invalidateQueryKeyWithThrottledActiveRefetch({
   exact,
   minIntervalMs,
+  predicate,
   queryClient,
   queryKey,
 }: ThrottledActiveRefetchArgs): void {
-  queryClient.invalidateQueries({ exact, queryKey, refetchType: "none" });
+  queryClient.invalidateQueries({
+    exact,
+    predicate,
+    queryKey,
+    refetchType: "none",
+  });
 
   const scheduleKey = timelineInvalidationKey(queryKey);
   let entries = throttledActiveRefetchEntries.get(queryClient);
@@ -214,7 +241,12 @@ function invalidateQueryKeyWithThrottledActiveRefetch({
   }
   const run = () => {
     entries.set(scheduleKey, { lastRunAt: Date.now(), timer: null });
-    refetchActiveQueriesWithoutCanceling({ exact, queryClient, queryKey });
+    refetchActiveQueriesWithoutCanceling({
+      exact,
+      predicate,
+      queryClient,
+      queryKey,
+    });
   };
   const lastRunAt = entry?.lastRunAt ?? Number.NEGATIVE_INFINITY;
   const delayMs = Math.max(0, lastRunAt + minIntervalMs - Date.now());
@@ -227,6 +259,7 @@ function invalidateQueryKeyWithThrottledActiveRefetch({
 
 function scheduleTrailingActiveRefetch({
   exact,
+  predicate,
   queryClient,
   queryKey,
 }: ScheduleTrailingActiveRefetchArgs): void {
@@ -243,7 +276,7 @@ function scheduleTrailingActiveRefetch({
   const waitingSince = Date.now();
 
   const unsubscribe = queryClient.getQueryCache().subscribe(() => {
-    if (hasActiveFetchingQueries(queryClient, queryKey, exact)) {
+    if (hasActiveFetchingQueries(queryClient, queryKey, exact, predicate)) {
       return;
     }
 
@@ -254,7 +287,7 @@ function scheduleTrailingActiveRefetch({
       unsubscribers.delete(scheduleKey);
       void queryClient
         .refetchQueries(
-          { exact, queryKey, type: "active" },
+          { exact, predicate, queryKey, type: "active" },
           { cancelRefetch: false },
         )
         .catch(() => {});
@@ -311,6 +344,7 @@ function invalidateTerminalTimelineQueryKeys({
 }
 
 export function disposeTrailingActiveRefetches(queryClient: QueryClient): void {
+  workStatusChangeWatermarks.delete(queryClient);
   const throttled = throttledActiveRefetchEntries.get(queryClient);
   if (throttled) {
     for (const entry of throttled.values()) {
@@ -604,6 +638,7 @@ export function createFlushOncePredicate(): (key: string) => boolean {
 interface EnvironmentRealtimeDirtyContext extends RealtimeDirtyContext {
   environmentId: string;
   getCachedThreadIdsForEnvironment: () => string[];
+  receivedAtFetchOrder: number;
 }
 
 interface ProjectRealtimeDirtyContext extends RealtimeDirtyContext {
@@ -1083,14 +1118,32 @@ function dirtyEnvironmentWorkspaceStateQueries(
   }
 }
 
-function dirtyEnvironmentLiveWorkspaceStateQueries({
+function workStatusFetchedBeforeLatestChange({
   environmentId,
   queryClient,
-}: EnvironmentRealtimeDirtyContext): void {
+  receivedAtFetchOrder,
+}: EnvironmentRealtimeDirtyContext): QueryPredicate {
+  let watermarks = workStatusChangeWatermarks.get(queryClient);
+  if (!watermarks) {
+    watermarks = new Map();
+    workStatusChangeWatermarks.set(queryClient, watermarks);
+  }
+  const watermark = watermarks.get(environmentId) ?? { receivedAtFetchOrder };
+  watermark.receivedAtFetchOrder = receivedAtFetchOrder;
+  watermarks.set(environmentId, watermark);
+  return (query) =>
+    !queryFetchStartedAfter(query, watermark.receivedAtFetchOrder);
+}
+
+function dirtyEnvironmentLiveWorkspaceStateQueries(
+  context: EnvironmentRealtimeDirtyContext,
+): void {
+  const { environmentId, queryClient } = context;
   bumpDiffPatchFreshnessGeneration(environmentId);
   invalidateQueryKeyWithThrottledActiveRefetch({
     exact: false,
     minIntervalMs: WORK_STATUS_REFETCH_MIN_INTERVAL_MS,
+    predicate: workStatusFetchedBeforeLatestChange(context),
     queryClient,
     queryKey: environmentWorkStatusQueryKeyPrefix(environmentId),
   });

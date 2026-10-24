@@ -13,6 +13,7 @@ describe("createBufferedEnvironmentInvalidator", () => {
       debounceMs: 100,
       flushChangedEnvironmentIds,
       maxWaitMs: 300,
+      readQueryFetchOrder: () => 7,
     });
 
     invalidator.markChanged("env-1", ["work-status-changed"]);
@@ -29,6 +30,7 @@ describe("createBufferedEnvironmentInvalidator", () => {
       {
         changeKinds: ["work-status-changed", "thread-storage-changed"],
         environmentId: "env-1",
+        receivedAtFetchOrder: 7,
       },
     ]);
   });
@@ -40,6 +42,7 @@ describe("createBufferedEnvironmentInvalidator", () => {
       debounceMs: 100,
       flushChangedEnvironmentIds,
       maxWaitMs: 250,
+      readQueryFetchOrder: () => 7,
     });
 
     invalidator.markChanged("env-1", ["work-status-changed"]);
@@ -58,10 +61,43 @@ describe("createBufferedEnvironmentInvalidator", () => {
       {
         changeKinds: ["work-status-changed"],
         environmentId: "env-1",
+        receivedAtFetchOrder: 7,
       },
       {
         changeKinds: ["thread-storage-changed"],
         environmentId: "env-2",
+        receivedAtFetchOrder: 7,
+      },
+    ]);
+  });
+
+  it("reports the query fetch order at the latest change of each environment", () => {
+    vi.useFakeTimers();
+    const flushChangedEnvironmentIds = vi.fn();
+    let queryFetchOrder = 3;
+    const invalidator = createBufferedEnvironmentInvalidator({
+      debounceMs: 100,
+      flushChangedEnvironmentIds,
+      maxWaitMs: 250,
+      readQueryFetchOrder: () => queryFetchOrder,
+    });
+
+    invalidator.markChanged("env-1", ["work-status-changed"]);
+    invalidator.markChanged("env-2", ["work-status-changed"]);
+    queryFetchOrder = 5;
+    invalidator.markChanged("env-1", ["work-status-changed"]);
+    vi.advanceTimersByTime(100);
+
+    expect(flushChangedEnvironmentIds).toHaveBeenCalledWith([
+      {
+        changeKinds: ["work-status-changed"],
+        environmentId: "env-1",
+        receivedAtFetchOrder: 5,
+      },
+      {
+        changeKinds: ["work-status-changed"],
+        environmentId: "env-2",
+        receivedAtFetchOrder: 3,
       },
     ]);
   });
@@ -73,6 +109,7 @@ describe("createBufferedEnvironmentInvalidator", () => {
       debounceMs: 100,
       flushChangedEnvironmentIds,
       maxWaitMs: 250,
+      readQueryFetchOrder: () => 7,
     });
 
     invalidator.markChanged("env-1", ["work-status-changed"]);

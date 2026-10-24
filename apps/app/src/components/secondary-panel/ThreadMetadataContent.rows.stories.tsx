@@ -268,12 +268,18 @@ export function Branch() {
     <StoryCard>
       <StoryRow label="feature branch">
         <RowStage>
-          <BranchRow workspaceStatus={makeWorkspaceStatus()} />
+          <BranchRow
+            environment={makeEnvironment()}
+            workspaceStatus={makeWorkspaceStatus()}
+            workspaceStatusPending={false}
+          />
         </RowStage>
       </StoryRow>
       <StoryRow label="long branch">
         <RowStage>
           <BranchRow
+            environment={makeEnvironment()}
+            workspaceStatusPending={false}
             workspaceStatus={makeWorkspaceStatus({
               checkout: {
                 kind: "branch",
@@ -290,9 +296,43 @@ export function Branch() {
           />
         </RowStage>
       </StoryRow>
+      <StoryRow
+        label="loading, bb-managed worktree"
+        hint="the provisioned branch shows until git status confirms it"
+      >
+        <RowStage>
+          <BranchRow
+            environment={makeEnvironment({
+              managed: true,
+              branchName: "bb/sidebar-rail",
+            })}
+            workspaceStatus={undefined}
+            workspaceStatusPending
+          />
+        </RowStage>
+      </StoryRow>
+      <StoryRow
+        label="loading, user checkout"
+        hint="the branch may have moved since provisioning"
+      >
+        <RowStage>
+          <BranchRow
+            environment={makeEnvironment({
+              environmentProviderId: "project-checkout",
+              isWorktree: false,
+              managed: false,
+              workspaceProvisionType: "unmanaged",
+            })}
+            workspaceStatus={undefined}
+            workspaceStatusPending
+          />
+        </RowStage>
+      </StoryRow>
       <StoryRow label="detached checkout">
         <RowStage>
           <BranchRow
+            environment={makeEnvironment()}
+            workspaceStatusPending={false}
             workspaceStatus={makeWorkspaceStatus({
               checkout: {
                 kind: "detached",
@@ -361,6 +401,7 @@ export function GitStatus() {
             environment={makeEnvironment()}
             workspaceStatus={makeWorkspaceStatus()}
             workspaceStatusError={null}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
@@ -376,6 +417,7 @@ export function GitStatus() {
               },
             })}
             workspaceStatusError={null}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
@@ -401,6 +443,7 @@ export function GitStatus() {
               },
             })}
             workspaceStatusError={null}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
@@ -426,6 +469,7 @@ export function GitStatus() {
               },
             })}
             workspaceStatusError={null}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
@@ -451,6 +495,7 @@ export function GitStatus() {
               },
             })}
             workspaceStatusError={null}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
@@ -490,6 +535,7 @@ export function GitStatus() {
               },
             })}
             workspaceStatusError={null}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
@@ -500,6 +546,7 @@ export function GitStatus() {
             environment={makeEnvironment({ status: "destroyed" })}
             workspaceStatus={undefined}
             workspaceStatusError={null}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
@@ -510,6 +557,7 @@ export function GitStatus() {
             environment={makeEnvironment()}
             workspaceStatus={undefined}
             workspaceStatusError={new Error("git status failed: ENOENT")}
+            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>

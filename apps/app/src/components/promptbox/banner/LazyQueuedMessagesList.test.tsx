@@ -71,7 +71,7 @@ it("downloads the queue only for queued work, warming it from the pending summar
   expect(view.container.innerHTML).toBe("");
   expect(mocks.imported).not.toHaveBeenCalled();
 
-  view.rerender(<QueuedMessagesPendingCard queuedMessageCount={2} />);
+  view.rerender(<QueuedMessagesPendingCard />);
   await waitFor(() => expect(mocks.imported).toHaveBeenCalledOnce());
   view.rerender(
     <Queue
@@ -90,13 +90,16 @@ it("downloads the queue only for queued work, warming it from the pending summar
   expect(
     screen.queryByRole("button", { name: "Send queued message 1 now" }),
   ).toBeNull();
-  view.rerender(<QueuedMessagesPendingCard queuedMessageCount={2} />);
+  view.rerender(<QueuedMessagesPendingCard />);
   mocks.releaseImport();
   await act(() => LazyQueuedMessagesList.preload());
   expect(mocks.imported).toHaveBeenCalledOnce();
   screen.getByRole("status", { name: "Loading queued messages" });
   expect(
     screen.queryByRole("button", { name: "Send queued message 1 now" }),
+  ).toBeNull();
+  expect(
+    view.container.querySelector("[data-queued-messages-count]"),
   ).toBeNull();
 
   view.rerender(
@@ -110,6 +113,9 @@ it("downloads the queue only for queued work, warming it from the pending summar
   expect(
     screen.queryByRole("status", { name: "Loading queued messages" }),
   ).toBeNull();
+  expect(
+    view.container.querySelector("[data-queued-messages-count]")?.textContent,
+  ).toBe("2");
   fireEvent.click(
     screen.getByRole("button", { name: "Toggle queued messages" }),
   );

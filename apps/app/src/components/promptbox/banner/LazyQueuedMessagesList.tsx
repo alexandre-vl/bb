@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from "react";
 import type { ThreadQueuedMessage } from "@bb/domain";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { PROMPT_STACK_TRAILING_SLOT_CLASS } from "@bb/shared-ui/prompt-stack-disclosure";
+import { Skeleton } from "@bb/shared-ui/skeleton";
 import { formatQueuedMessagePreview } from "@bb/client-core";
 import { queuedMessageFallbackTitle } from "@/lib/queued-message-wait";
 import {
@@ -66,7 +68,7 @@ function QueuedMessagesCardFrame({
   children: ReactNode;
   expanded: boolean;
   height: number;
-  queuedMessageCount: number;
+  queuedMessageCount: number | null;
 }) {
   return (
     <PromptStackCard
@@ -86,7 +88,17 @@ function QueuedMessagesCardFrame({
           )}
         >
           <span className="font-normal">Queue</span>
-          <QueuedMessagesCountPill arrivals={0} count={queuedMessageCount} />
+          {queuedMessageCount === null ? (
+            <span className={PROMPT_STACK_TRAILING_SLOT_CLASS}>
+              <Skeleton
+                aria-hidden
+                data-queued-messages-count-placeholder=""
+                className="size-4 rounded-full"
+              />
+            </span>
+          ) : (
+            <QueuedMessagesCountPill arrivals={0} count={queuedMessageCount} />
+          )}
         </div>
       </header>
       {children}
@@ -160,11 +172,7 @@ export const LazyQueuedMessagesList = defineSplit<QueuedMessagesListProps>({
   tier: "intent",
 });
 
-export function QueuedMessagesPendingCard({
-  queuedMessageCount,
-}: {
-  queuedMessageCount: number;
-}) {
+export function QueuedMessagesPendingCard() {
   useEffect(() => {
     void LazyQueuedMessagesList.preload();
   }, []);
@@ -173,7 +181,7 @@ export function QueuedMessagesPendingCard({
       attached
       expanded={false}
       height={QUEUED_MESSAGES_COLLAPSED_HEIGHT}
-      queuedMessageCount={queuedMessageCount}
+      queuedMessageCount={null}
     >
       <span role="status" aria-label="Loading queued messages" />
     </QueuedMessagesCardFrame>

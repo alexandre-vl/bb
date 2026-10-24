@@ -206,8 +206,9 @@ export function useThreadTimelineController({
     },
     [],
   );
-  const [isLoadingOlderTimelineRows, setIsLoadingOlderTimelineRows] =
-    useState(false);
+  const [loadingOlderTimelineRowsFor, setLoadingOlderTimelineRowsFor] =
+    useState<string | null>(null);
+  const isLoadingOlderTimelineRows = loadingOlderTimelineRowsFor === surfaceKey;
   const refetchLatestTimeline = latestTimelineQuery.refetch;
 
   const nextOlderCursor =
@@ -225,7 +226,7 @@ export function useThreadTimelineController({
       return;
     }
 
-    setIsLoadingOlderTimelineRows(true);
+    setLoadingOlderTimelineRowsFor(surfaceKey);
     try {
       const response = await sdk.threads.timeline({
         beforeAnchorId: nextOlderCursor.anchorId,
@@ -281,7 +282,9 @@ export function useThreadTimelineController({
         });
       });
     } finally {
-      setIsLoadingOlderTimelineRows(false);
+      setLoadingOlderTimelineRowsFor((current) =>
+        current === surfaceKey ? null : current,
+      );
     }
   }, [
     enabled,
@@ -309,7 +312,8 @@ export function useThreadTimelineController({
     latestTimelineQuery.isLoading ||
     (!hasResolvedTimeline &&
       (timelineQueryState.status === "loading" ||
-        latestTimelineQuery.isFetching));
+        latestTimelineQuery.isFetching ||
+        (enabled && latestTimelineQuery.error === null)));
   const isCatchingUpTimeline =
     enabled &&
     hasThreadTimelineUnseenEvents(queryClient, threadId) &&

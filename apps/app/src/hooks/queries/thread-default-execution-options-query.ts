@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import type { ResolvedThreadExecutionOptions } from "@bb/domain";
 import { sdk } from "@/lib/sdk";
 import {
@@ -39,21 +39,18 @@ async function fetchThreadDefaultExecutionOptions(
   return options;
 }
 
-export function useThreadDefaultExecutionOptions(
+export function threadDefaultExecutionOptionsQueryOptions(
   id: string,
   options?: ThreadDefaultExecutionOptionsQueryOptions,
 ) {
-  const enabled = (options?.enabled ?? true) && Boolean(id);
-  useThreadDetailRealtimeSubscription(id, { enabled });
-
-  return useQuery<ResolvedThreadExecutionOptions | null>({
+  return queryOptions<ResolvedThreadExecutionOptions | null>({
     queryKey: threadDefaultExecutionOptionsQueryKey(id),
     queryFn: ({ signal }) =>
       fetchThreadDefaultExecutionOptions(
         requireThreadId(id, "useThreadDefaultExecutionOptions"),
         signal,
       ),
-    enabled,
+    enabled: (options?.enabled ?? true) && Boolean(id),
     refetchOnMount: options?.refetchOnMount ?? true,
     ...REALTIME_OWNED_NO_FOCUS_QUERY_POLICY,
     staleTime: options?.staleTime,
@@ -64,4 +61,13 @@ export function useThreadDefaultExecutionOptions(
           ) ?? undefined)
         : undefined,
   });
+}
+
+export function useThreadDefaultExecutionOptions(
+  id: string,
+  options?: ThreadDefaultExecutionOptionsQueryOptions,
+) {
+  const enabled = (options?.enabled ?? true) && Boolean(id);
+  useThreadDetailRealtimeSubscription(id, { enabled });
+  return useQuery(threadDefaultExecutionOptionsQueryOptions(id, options));
 }

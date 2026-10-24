@@ -22,6 +22,7 @@ import {
 } from "@bb/test-helpers/domain-fixtures";
 import { makeWorkspaceMergeBase, makeWorkspaceStatus } from "@bb/test-helpers";
 import {
+  BranchRow,
   EnvironmentProvisioningFailureRow,
   EnvironmentRow,
   formatBranchComparison,
@@ -308,6 +309,72 @@ describe("EnvironmentProvisioningFailureRow", () => {
   });
 });
 
+describe("workspace rows while git status loads", () => {
+  const userCheckout = makeEnvironment({
+    environmentProviderId: "project-checkout",
+    isWorktree: false,
+    managed: false,
+    workspaceProvisionType: "unmanaged",
+  });
+
+  it("holds the branch row with a placeholder in a checkout the user can switch", () => {
+    const markup = renderToStaticMarkup(
+      <BranchRow
+        environment={userCheckout}
+        workspaceStatus={undefined}
+        workspaceStatusPending
+      />,
+    );
+
+    expect(markup).toContain("Branch");
+    expect(markup).toContain("animate-pulse");
+    expect(markup).not.toContain(userCheckout.branchName ?? "");
+  });
+
+  it("shows a bb-managed worktree's branch before git status arrives", () => {
+    const markup = renderToStaticMarkup(
+      <TooltipProvider>
+        <BranchRow
+          environment={makeEnvironment({ branchName: "bb/info-row" })}
+          workspaceStatus={undefined}
+          workspaceStatusPending
+        />
+      </TooltipProvider>,
+    );
+
+    expect(markup).toContain("bb/info-row");
+    expect(markup).not.toContain("animate-pulse");
+  });
+
+  it("holds the git status row instead of reporting a failure", () => {
+    const markup = renderToStaticMarkup(
+      <GitStatusRow
+        thread={makeThread()}
+        environment={userCheckout}
+        workspaceStatus={undefined}
+        workspaceStatusError={null}
+        workspaceStatusPending
+      />,
+    );
+
+    expect(markup).toContain("Git status");
+    expect(markup).toContain("animate-pulse");
+    expect(markup).not.toContain("unavailable");
+  });
+
+  it("drops both rows when the workspace has no git status to wait for", () => {
+    expect(
+      renderToStaticMarkup(
+        <BranchRow
+          environment={userCheckout}
+          workspaceStatus={undefined}
+          workspaceStatusPending={false}
+        />,
+      ),
+    ).toBe("");
+  });
+});
+
 describe("GitStatusRow", () => {
   it("qualifies counts when squash detection is incomplete", () => {
     const markup = renderToStaticMarkup(
@@ -322,6 +389,7 @@ describe("GitStatusRow", () => {
             }),
           })}
           workspaceStatusError={null}
+          workspaceStatusPending={false}
         />
       </TooltipProvider>,
     );
@@ -343,6 +411,7 @@ describe("GitStatusRow", () => {
         })}
         workspaceStatus={undefined}
         workspaceStatusError={new Error("should not have queried")}
+        workspaceStatusPending={false}
       />,
     );
 
@@ -359,6 +428,7 @@ describe("GitStatusRow", () => {
           environment={null}
           workspaceStatus={makeWorkspaceStatus({ mergeBase })}
           workspaceStatusError={null}
+          workspaceStatusPending={false}
         />,
       );
 
@@ -384,6 +454,7 @@ describe("GitStatusRow", () => {
               }),
             })}
             workspaceStatusError={workspaceStatusError}
+            workspaceStatusPending={false}
           />
         </TooltipProvider>,
       );
@@ -403,6 +474,7 @@ describe("GitStatusRow", () => {
         environment={null}
         workspaceStatus={undefined}
         workspaceStatusError={new Error("bb connect hit a temporary problem")}
+        workspaceStatusPending={false}
       />,
     );
 

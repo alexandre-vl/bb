@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ThreadTabsResponse } from "@bb/server-contract";
+import { THREAD_OPEN_CACHE_GC_MS } from "@/hooks/cache-owners/thread-open-cache-owner";
 import { sdk } from "@/lib/sdk";
 import { threadTabsQueryKey } from "./query-keys";
 import { RESUME_REFETCH_QUERY_POLICY } from "./query-policies";
@@ -18,6 +19,7 @@ export function useThreadTabs(
     queryKey: threadTabsQueryKey(threadId),
     queryFn: ({ signal }) => sdk.threads.tabs.get({ threadId, signal }),
     enabled,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     ...RESUME_REFETCH_QUERY_POLICY,
   });
 }
