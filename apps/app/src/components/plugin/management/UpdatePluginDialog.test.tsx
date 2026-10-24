@@ -148,6 +148,7 @@ describe("UpdatePluginDialog", () => {
             version: "1.7.0",
             at: failedAt,
             detail: "factory threw during activation",
+            restored: true,
           },
         })}
         open
@@ -237,6 +238,7 @@ describe("UpdatePluginDialog", () => {
             version: "1.7.0",
             at: null,
             detail: "factory threw during activation",
+            restored: true,
           },
         })}
         open
@@ -249,11 +251,42 @@ describe("UpdatePluginDialog", () => {
     expect(screen.queryByRole("button", { name: /Retry update/ })).toBeNull();
   });
 
+  it("says bb kept the release it could not undo instead of claiming a restore", () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const { wrapper } = createDialogTestHarness();
+    render(
+      <UpdatePluginDialog
+        plugin={plugin({
+          lastFailure: {
+            version: "1.6.2",
+            at: null,
+            detail: "its saved host state is missing",
+            restored: false,
+          },
+        })}
+        open
+        onOpenChange={() => {}}
+      />,
+      { wrapper },
+    );
+
+    expect(
+      screen.getByText(
+        "bb couldn’t activate 1.6.2 or undo the change. It kept 1.6.2 and its data.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/restored/u)).toBeNull();
+    expect(
+      screen.getByText("Try again when a compatible update becomes available."),
+    ).toBeTruthy();
+  });
+
   it("closes on job acceptance without waiting for the update to finish", async () => {
     const job = {
       id: "update-1",
       pluginId: "linear",
       displayName: "Linear",
+      kind: "update",
       state: "running",
       phase: "checking",
     };

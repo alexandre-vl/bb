@@ -22,3 +22,10 @@ export function startPluginUpdate(args: {
 }): Promise<PluginUpdateJob> {
   return createPluginsClient(fetch).experimental_startUpdate(args);
 }
+
+export function startPluginRollback(args: {
+  pluginId: string;
+  expectedVersion: string;
+}): Promise<PluginUpdateJob> {
+  return createPluginsClient(fetch).experimental_startRollbackUpdate(args);
+}
