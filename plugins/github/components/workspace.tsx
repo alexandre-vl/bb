@@ -9,6 +9,7 @@ import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport
 import { useMediaQuery } from "@/components/ui/hooks/use-media-query";
 import {
   inboxCount,
+  linkKey,
   parseCollapsed,
   parseQuery,
   pullRowModels,
@@ -316,7 +317,7 @@ export function PullWorkspace({
       return {
         canEdit: write || own,
         canMerge: settings?.[row.item.repo] === undefined ? null : write,
-        hasAgent: agents.has(`pr:${row.key}`),
+        hasAgent: agents.has(linkKey("pr", row.item)),
       };
     },
     [agents, settings, viewer],
@@ -385,7 +386,7 @@ export function PullWorkspace({
   );
   const openThread = useCallback(
     (row: PullRowModel) => {
-      const agent = agents.get(`pr:${row.key}`);
+      const agent = agents.get(linkKey("pr", row.item));
       if (agent === undefined) {
         toast(`No agent works on #${row.item.number} yet`, {
           id: `github-thread-${row.key}`,
