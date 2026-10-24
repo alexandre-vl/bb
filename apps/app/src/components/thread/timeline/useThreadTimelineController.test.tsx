@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { MemoryRouter } from "react-router-dom";
-import type { QueryClient } from "@tanstack/react-query";
+import { onlineManager, type QueryClient } from "@tanstack/react-query";
 import type {
   ThreadTimelineResponse,
   TimelineUserConversationRow,
@@ -1262,6 +1262,52 @@ describe("useThreadTimelineController commits", () => {
 
     expect(queryClient.isFetching({ queryKey: TIMELINE_QUERY_KEY })).toBe(1);
     expect(view.latest().timelineLoading).toBe(false);
+  });
+
+  it("stays loading while the first timeline fetch waits for the network", async () => {
+    onlineManager.setOnline(false);
+    onTestFinished(() => onlineManager.setOnline(true));
+    vi.mocked(sdk.threads.timeline).mockResolvedValue(
+      makeTimelineResponse({ rows: [newestLoadedRow], maxSeq: 1 }),
+    );
+    const { queryClient, wrapper } = createQueryClientTestHarness();
+
+    const view = renderProfiledController(wrapper);
+    await flushQueryNotifications();
+
+    expect(queryClient.getQueryState(TIMELINE_QUERY_KEY)?.fetchStatus).toBe(
+      "paused",
+    );
+    expect(sdk.threads.timeline).not.toHaveBeenCalled();
+    expect(view.latest().timelineLoading).toBe(true);
+
+    act(() => {
+      onlineManager.setOnline(true);
+    });
+    await waitFor(() => {
+      expect(rowIds(view.latest())).toEqual([newestLoadedRow.id]);
+    });
+    expect(view.latest().timelineLoading).toBe(false);
+  });
+
+  it("stays loading when the first timeline fetch is cancelled", async () => {
+    vi.mocked(sdk.threads.timeline).mockReturnValueOnce(new Promise(() => {}));
+    const { queryClient, wrapper } = createQueryClientTestHarness();
+    const view = renderProfiledController(wrapper);
+    await waitFor(() => {
+      expect(sdk.threads.timeline).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await queryClient.cancelQueries({ queryKey: TIMELINE_QUERY_KEY });
+    });
+    await flushQueryNotifications();
+
+    expect(queryClient.getQueryState(TIMELINE_QUERY_KEY)?.fetchStatus).toBe(
+      "idle",
+    );
+    expect(view.latest().timelineLoading).toBe(true);
+    expect(view.latest().timelineError).toBeNull();
   });
 
   it("reads only query result properties covered by the notify lists", async () => {

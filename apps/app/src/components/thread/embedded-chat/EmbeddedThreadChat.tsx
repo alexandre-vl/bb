@@ -169,11 +169,30 @@ export function EmbeddedThreadChat(props: EmbeddedThreadChatProps) {
   return <EmbeddedThreadChatWithComposer {...props} />;
 }
 
+function useReplacesOtherThreadRows(
+  surface: ThreadTimelineSurfaceProps,
+): boolean {
+  const [threadWithVisibleRows, setThreadWithVisibleRows] = useState<
+    string | null
+  >(null);
+  const showsRows =
+    !surface.isThreadTimelinePending &&
+    !surface.timelineError &&
+    surface.timelineRows.length > 0;
+  if (showsRows && threadWithVisibleRows !== surface.threadId) {
+    setThreadWithVisibleRows(surface.threadId);
+  }
+  return (
+    threadWithVisibleRows !== null && threadWithVisibleRows !== surface.threadId
+  );
+}
+
 function EmbeddedThreadChatHostedFooter({
   footer,
   scrollOverlay,
   surface,
 }: EmbeddedThreadChatHostedFooterProps) {
+  const replacesThreadRows = useReplacesOtherThreadRows(surface);
   return (
     <div
       data-thread-window=""
@@ -190,7 +209,10 @@ function EmbeddedThreadChatHostedFooter({
         footer={footer}
         scrollOverlay={scrollOverlay}
       >
-        <ThreadTimelineSurface {...surface} />
+        <ThreadTimelineSurface
+          {...surface}
+          replacesThreadRows={replacesThreadRows}
+        />
       </PageShell>
     </div>
   );

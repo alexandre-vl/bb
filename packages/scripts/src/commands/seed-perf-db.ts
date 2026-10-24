@@ -16,6 +16,8 @@ import { bold, cyan, dim, green, log, endStep } from "../lib/script-helpers.js";
 interface SeedCommandArgs {
   dataDir: string | null;
   eventCount: number;
+  maxThreadEventCount: number;
+  openLongThreadCount: number;
   projectCount: number;
   randomSeed: number;
   reset: boolean;
@@ -36,6 +38,11 @@ function renderHelpText(): string {
     --projects <n>     Project count (default: 12)
     --threads <n>      Thread count (default: 1200)
     --events <n>       Approximate total event rows (default: 400000)
+    --max-thread-events <n>
+                       Event cap for one thread (default: 9000)
+    --open-long-threads <n>
+                       Keep the n longest threads unarchived and visible on
+                       their project's root environment (default: 0)
     --seed <n>         Deterministic random seed (default: 1)
     --reset            Delete the existing database file before seeding
 
@@ -55,10 +62,20 @@ function parsePositiveInteger(name: string, rawValue: string): number {
   return value;
 }
 
+function parseNonNegativeInteger(name: string, rawValue: string): number {
+  const value = Number(rawValue);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
 function parseArgs(argv: string[]): SeedCommandArgs | null {
   const args: SeedCommandArgs = {
     dataDir: null,
     eventCount: 400_000,
+    maxThreadEventCount: 9_000,
+    openLongThreadCount: 0,
     projectCount: 12,
     randomSeed: 1,
     reset: false,
@@ -91,6 +108,18 @@ function parseArgs(argv: string[]): SeedCommandArgs | null {
         break;
       case "--events":
         args.eventCount = parsePositiveInteger("--events", readValue());
+        break;
+      case "--max-thread-events":
+        args.maxThreadEventCount = parsePositiveInteger(
+          "--max-thread-events",
+          readValue(),
+        );
+        break;
+      case "--open-long-threads":
+        args.openLongThreadCount = parseNonNegativeInteger(
+          "--open-long-threads",
+          readValue(),
+        );
         break;
       case "--seed":
         args.randomSeed = parsePositiveInteger("--seed", readValue());
@@ -164,6 +193,8 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
       projectCount: args.projectCount,
       threadCount: args.threadCount,
       eventCount: args.eventCount,
+      maxThreadEventCount: args.maxThreadEventCount,
+      openLongThreadCount: args.openLongThreadCount,
       randomSeed: args.randomSeed,
       onProgress: (message) => log(dim("○"), dim(message)),
     });

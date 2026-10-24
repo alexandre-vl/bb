@@ -7,7 +7,7 @@ import {
   type ThreadTimelineResponse,
   type ThreadTimelineSignal,
 } from "@bb/server-contract";
-import { markStreamTrace } from "@/lib/stream-trace";
+import { markStreamTrace } from "@/lib/perf-trace";
 import {
   systemConfigQueryKey,
   threadTimelineQueryKey,

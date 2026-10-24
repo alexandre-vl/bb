@@ -1703,6 +1703,95 @@ describe("createRealtimeCacheEffects", () => {
     effects.dispose();
   });
 
+  it.each([
+    { readSettles: "before the change flushes", settleAfterMs: 100 },
+    { readSettles: "after the change flushes", settleAfterMs: 400 },
+  ])(
+    "reads work status once when the change arrived before the first read started and the read settles $readSettles",
+    async ({ settleAfterMs }) => {
+      vi.useFakeTimers();
+      const { effects, queryClient } = createRealtimeEffectsTestContext();
+      const workStatusKey = environmentWorkStatusQueryKey("env-1", "main");
+      const resolveFetches: Array<(value: unknown) => void> = [];
+      const workStatusQueryFn = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetches.push(resolve);
+          }),
+      );
+
+      effects.handleChanged({
+        type: "changed",
+        entity: "environment",
+        id: "env-1",
+        changes: ["work-status-changed"],
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      const workStatusObserver = new QueryObserver(queryClient, {
+        queryKey: workStatusKey,
+        queryFn: workStatusQueryFn,
+        staleTime: Infinity,
+      });
+      const unsubscribeWorkStatus = workStatusObserver.subscribe(() => {});
+      await vi.advanceTimersByTimeAsync(settleAfterMs);
+      resolveFetches[0]?.(null);
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(workStatusQueryFn).toHaveBeenCalledTimes(1);
+      expect(queryClient.getQueryState(workStatusKey)?.isInvalidated).toBe(
+        false,
+      );
+
+      unsubscribeWorkStatus();
+      effects.dispose();
+    },
+  );
+
+  it("rereads work status after a read that started between two coalesced changes settles", async () => {
+    vi.useFakeTimers();
+    const { effects, queryClient } = createRealtimeEffectsTestContext();
+    const workStatusKey = environmentWorkStatusQueryKey("env-1", "main");
+    queryClient.setQueryData(workStatusKey, null);
+    const resolveFetches: Array<(value: unknown) => void> = [];
+    const workStatusQueryFn = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetches.push(resolve);
+        }),
+    );
+    const workStatusObserver = new QueryObserver(queryClient, {
+      queryKey: workStatusKey,
+      queryFn: workStatusQueryFn,
+      staleTime: Infinity,
+    });
+    const unsubscribeWorkStatus = workStatusObserver.subscribe(() => {});
+    const emitWorkStatusChanged = () => {
+      effects.handleChanged({
+        type: "changed",
+        entity: "environment",
+        id: "env-1",
+        changes: ["work-status-changed"],
+      });
+    };
+
+    emitWorkStatusChanged();
+    void workStatusObserver.refetch();
+    await vi.advanceTimersByTimeAsync(20);
+    emitWorkStatusChanged();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(workStatusQueryFn).toHaveBeenCalledTimes(1);
+
+    resolveFetches[0]?.(null);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(workStatusQueryFn).toHaveBeenCalledTimes(2);
+    resolveFetches[1]?.(null);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(workStatusQueryFn).toHaveBeenCalledTimes(2);
+
+    unsubscribeWorkStatus();
+    effects.dispose();
+  });
+
   it("refetches active thread storage preview queries for thread storage changes", async () => {
     vi.useFakeTimers();
     const { effects, queryClient } = createRealtimeEffectsTestContext();

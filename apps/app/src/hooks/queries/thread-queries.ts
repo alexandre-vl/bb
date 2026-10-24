@@ -66,7 +66,7 @@ import {
   isCachedThreadTimelinePushEnabled,
   resolveThreadTimelineSegmentLimit,
 } from "../cache-owners/thread-timeline-push-owner";
-import { markStreamTrace } from "@/lib/stream-trace";
+import { markStreamTrace } from "@/lib/perf-trace";
 import { THREAD_OPEN_CACHE_GC_MS } from "../cache-owners/thread-open-cache-owner";
 
 export interface QueryOptions {
@@ -718,6 +718,7 @@ export function threadQueryOptions(
     ),
     enabled: (options?.enabled ?? true) && Boolean(id),
     staleTime: THREAD_DETAIL_STALE_TIME_MS,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     refetchOnMount: options?.refetchOnMount ?? true,
     retry: shouldRetryTransientReadQuery,
     retryDelay: TRANSIENT_READ_RETRY_DELAY_MS,
@@ -817,6 +818,7 @@ export function threadPendingInteractionsQueryOptions(
         signal,
       }),
     enabled: (options?.enabled ?? true) && Boolean(id),
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     refetchOnMount:
       options?.refetchOnMount ??
       ((query) => (query.getObserversCount() === 1 ? "always" : true)),

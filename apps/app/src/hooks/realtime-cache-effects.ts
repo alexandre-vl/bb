@@ -21,6 +21,10 @@ import {
 } from "./cache-owners/system-cache-effects";
 import { createBufferedEnvironmentInvalidator } from "./buffered-environment-invalidator";
 import {
+  readLatestQueryFetchOrder,
+  trackQueryFetchOrder,
+} from "./cache-owners/query-fetch-order";
+import {
   isDocumentVisible,
   subscribeToDocumentVisibility,
 } from "@/lib/document-visibility";
@@ -121,6 +125,7 @@ interface EnvironmentArg {
 
 interface RealtimeEnvironmentChangedArg extends EnvironmentArg {
   changeKinds: readonly EnvironmentChangeKind[];
+  receivedAtFetchOrder: number;
 }
 
 function mergeEventTypes(
@@ -331,6 +336,7 @@ function invalidateRealtimeEnvironmentChange({
   changeKinds,
   environmentId,
   queryClient,
+  receivedAtFetchOrder,
 }: RealtimeEnvironmentChangedArg): void {
   for (const changeKind of changeKinds) {
     executeRealtimeDirtyHandlers({
@@ -339,6 +345,7 @@ function invalidateRealtimeEnvironmentChange({
         getCachedThreadIdsForEnvironment: () =>
           collectCachedThreadIdsForEnvironment({ environmentId, queryClient }),
         queryClient,
+        receivedAtFetchOrder,
       },
       handlers: REALTIME_ENVIRONMENT_CHANGE_REGISTRY[changeKind].dirty,
     });
@@ -396,6 +403,7 @@ export function createRealtimeCacheEffects({
   const threadChangeState = createThreadChangeState();
   let hasDeferredThreadChanges = false;
   const deferredNonThreadChanges = createDeferredNonThreadChanges();
+  const stopTrackingQueryFetchOrder = trackQueryFetchOrder(queryClient);
   const invalidationScheduler = createDebouncedCallbackScheduler({
     debounceMs: INVALIDATION_DEBOUNCE_MS,
     maxWaitMs: INVALIDATION_MAX_WAIT_MS,
@@ -421,15 +429,21 @@ export function createRealtimeCacheEffects({
         }
         return;
       }
-      for (const { changeKinds, environmentId } of changedEnvironments) {
+      for (const {
+        changeKinds,
+        environmentId,
+        receivedAtFetchOrder,
+      } of changedEnvironments) {
         invalidateRealtimeEnvironmentChange({
           changeKinds,
           environmentId,
           queryClient,
+          receivedAtFetchOrder,
         });
       }
     },
     maxWaitMs: ENVIRONMENT_INVALIDATION_MAX_WAIT_MS,
+    readQueryFetchOrder: readLatestQueryFetchOrder,
   });
 
   const applyHostChanges = (
@@ -558,6 +572,7 @@ export function createRealtimeCacheEffects({
   return {
     dispose: () => {
       unsubscribeVisibility();
+      stopTrackingQueryFetchOrder();
       invalidationScheduler.dispose();
       environmentInvalidator.dispose();
       disposeTrailingActiveRefetches(queryClient);

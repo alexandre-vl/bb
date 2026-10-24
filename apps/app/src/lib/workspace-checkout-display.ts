@@ -1,4 +1,4 @@
-import type { GitCheckoutRef } from "@bb/domain";
+import type { Environment, GitCheckoutRef, WorkspaceStatus } from "@bb/domain";
 
 const SHORT_SHA_LENGTH = 7;
 
@@ -14,6 +14,35 @@ export interface WorkspaceCheckoutDisplay {
 
 interface FormatWorkspaceCheckoutDisplayArgs {
   checkout: GitCheckoutRef;
+}
+
+interface ResolveWorkspaceCheckoutArgs {
+  environment: Pick<
+    Environment,
+    "branchName" | "isGitRepo" | "managed" | "status"
+  > | null;
+  workspaceStatus: Pick<WorkspaceStatus, "checkout"> | undefined;
+  workspaceStatusPending: boolean;
+}
+
+export function resolveWorkspaceCheckout({
+  environment,
+  workspaceStatus,
+  workspaceStatusPending,
+}: ResolveWorkspaceCheckoutArgs): GitCheckoutRef | null {
+  if (workspaceStatus !== undefined) {
+    return workspaceStatus.checkout;
+  }
+  if (
+    !workspaceStatusPending ||
+    environment?.managed !== true ||
+    !environment.isGitRepo ||
+    environment.status !== "ready" ||
+    environment.branchName === null
+  ) {
+    return null;
+  }
+  return { kind: "branch", branchName: environment.branchName, headSha: null };
 }
 
 function shortSha(sha: string): string {

@@ -69,8 +69,13 @@ function setup({
     itemKeys: string[],
     {
       alwaysMountedKeys,
+      overscan,
       pinnedToEnd = attached,
-    }: { alwaysMountedKeys?: ReadonlySet<string>; pinnedToEnd?: boolean } = {},
+    }: {
+      alwaysMountedKeys?: ReadonlySet<string>;
+      overscan?: number;
+      pinnedToEnd?: boolean;
+    } = {},
   ) => (
     <TimelineWindowedItems
       alwaysMountedKeys={alwaysMountedKeys}
@@ -78,6 +83,7 @@ function setup({
       gap={8}
       itemKeys={itemKeys}
       measurements={measurements}
+      overscan={overscan}
       positionKeeper={keeper}
       pinnedToEnd={pinnedToEnd}
       renderItem={(index, state) => {
@@ -326,6 +332,31 @@ describe("TimelineWindowedItems", () => {
     render(harness.view(keys(300)), { container: harness.list });
 
     expect(harness.mounted().length).toBe(300);
+  });
+
+  it("mounts only the rows in view until the overscan widens, keeping the bottom in place", () => {
+    const harness = setup({ attached: true });
+    const itemKeys = keys(400);
+    const last = itemKeys.at(-1) ?? "";
+    const { rerender } = render(harness.view(itemKeys, { overscan: 0 }), {
+      container: harness.list,
+    });
+    const firstPaint = harness.mounted();
+    const inView = harness.visibleKeys();
+
+    expect(firstPaint).toEqual(expect.arrayContaining(inView));
+    expect(firstPaint.length - inView.length).toBeLessThanOrEqual(2);
+    expect(harness.topOf(last) + harness.heightOf(last)).toBe(VIEWPORT_HEIGHT);
+
+    act(() => rerender(harness.view(itemKeys)));
+
+    const widened = harness.mounted();
+    expect(widened).toEqual(expect.arrayContaining(firstPaint));
+    expect(
+      widened.length - harness.visibleKeys().length,
+    ).toBeGreaterThanOrEqual(8);
+    expect(harness.topOf(last) + harness.heightOf(last)).toBe(VIEWPORT_HEIGHT);
+    expect(harness.layout.scrollTop).toBe(harness.layout.maxScrollTop());
   });
 
   it("mounts a bounded window of a long history", () => {

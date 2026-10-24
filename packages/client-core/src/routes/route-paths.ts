@@ -217,6 +217,18 @@ const THREAD_ROUTE_PATHNAME_PATTERN =
   /^\/(?:projects\/[^/]+\/)?threads\/([^/]+)\/?$/;
 const MESSAGE_LINK_SEQ_PATTERN = /^(0|[1-9]\d*)$/;
 
+export function parseThreadRoutePathname(pathname: string): string | null {
+  const encodedThreadId = THREAD_ROUTE_PATHNAME_PATTERN.exec(pathname)?.[1];
+  if (encodedThreadId === undefined) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(encodedThreadId);
+  } catch {
+    return null;
+  }
+}
+
 export function getMessageLinkPath(args: MessageLinkPathArgs): string {
   return `${getThreadRoutePath(args)}#${MESSAGE_LINK_PARAM}=${args.seq}`;
 }
