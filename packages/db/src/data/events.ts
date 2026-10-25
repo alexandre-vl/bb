@@ -4,6 +4,7 @@ import { acquireProjectAttachmentOwnership } from "./project-attachments.js";
 import {
   storedAttachmentPaths,
   type ProjectAttachmentOwnershipMode,
+  type SystemThreadProvisioningStatus,
 } from "@bb/domain";
 import {
   and,
@@ -3637,6 +3638,48 @@ export function getLatestThreadSequence(
   args: GetLatestThreadSequenceArgs,
 ): number {
   return getHighWaterMarks(db, [args.threadId])[args.threadId] ?? 0;
+}
+
+export function getStoredEventCreatedAt(
+  db: DbQueryConnection,
+  args: { sequence: number; threadId: string },
+): number | null {
+  return (
+    db
+      .select({ createdAt: events.createdAt })
+      .from(events)
+      .where(
+        and(
+          eq(events.threadId, args.threadId),
+          eq(events.sequence, args.sequence),
+        ),
+      )
+      .get()?.createdAt ?? null
+  );
+}
+
+export function getTerminalThreadProvisioningStatus(
+  db: DbQueryConnection,
+  args: { provisioningId: string; threadId: string },
+): Exclude<SystemThreadProvisioningStatus, "active"> | null {
+  const status = db
+    .select({
+      status: sql<unknown>`json_extract(${events.data}, '$.status')`,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "system/thread-provisioning"),
+        sql`json_extract(${events.data}, '$.provisioningId') = ${args.provisioningId}`,
+      ),
+    )
+    .orderBy(desc(events.sequence))
+    .limit(1)
+    .get()?.status;
+  return status === "completed" || status === "failed" || status === "cancelled"
+    ? status
+    : null;
 }
 
 export function getActiveStoredTurnId(

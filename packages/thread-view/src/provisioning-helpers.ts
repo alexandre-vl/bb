@@ -7,6 +7,7 @@ import type {
 
 export function readProvisioningTranscript(
   entries: ProvisioningTranscriptEntry[] | undefined,
+  receivedAt: number,
 ): EventProjectionProvisioningTranscriptEntry[] | undefined {
   if (!Array.isArray(entries) || entries.length === 0) return undefined;
 
@@ -24,20 +25,14 @@ export function readProvisioningTranscript(
         key,
         text,
         status: entry.status ?? "started",
-        ...(entry.startedAt !== undefined
-          ? { startedAt: entry.startedAt }
-          : {}),
-        ...(entry.metadata ? { metadata: entry.metadata } : {}),
+        receivedAt,
       });
     } else if (entry.type === "output") {
       result.push({
         type: "output",
         key,
         text,
-        ...(entry.startedAt !== undefined
-          ? { startedAt: entry.startedAt }
-          : {}),
-        ...(entry.metadata ? { metadata: entry.metadata } : {}),
+        receivedAt,
       });
     }
   }
@@ -71,21 +66,7 @@ function mergeTranscriptEntries(
   existing: EventProjectionProvisioningTranscriptEntry[] | undefined,
   incoming: EventProjectionProvisioningTranscriptEntry[] | undefined,
 ): EventProjectionProvisioningTranscriptEntry[] | undefined {
-  const result = existing?.map((entry) => ({ ...entry })) ?? [];
-  for (const entry of incoming ?? []) {
-    const existingStepIndex =
-      entry.type === "step"
-        ? result.findIndex(
-            (candidate) =>
-              candidate.type === "step" && candidate.key === entry.key,
-          )
-        : -1;
-    if (existingStepIndex === -1) {
-      result.push({ ...entry });
-    } else {
-      result[existingStepIndex] = { ...entry };
-    }
-  }
+  const result = [...(existing ?? []), ...(incoming ?? [])];
   return result.length > 0 ? result : undefined;
 }
 
