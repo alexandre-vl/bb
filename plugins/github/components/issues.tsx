@@ -44,6 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   issueGroups,
+  linkKey,
   parseQuery,
   splitTitle,
   type Item,
@@ -588,7 +589,7 @@ export function IssuesPane({
                     now={now}
                     touch={touch}
                     compact={compact}
-                    agent={agents.get(`issue:${itemKey(item)}`) ?? null}
+                    agent={agents.get(linkKey("issue", item)) ?? null}
                     onOpen={() => onOpen(item)}
                     onStartAgent={onStartAgent}
                   />
@@ -881,13 +882,13 @@ export function IssueDetailView({
 }: {
   repo: string;
   number: number;
-  onBack: () => void;
+  onBack: (() => void) | null;
 }) {
   const rpc = useRpc<typeof githubRpcContract>();
   const navigate = useBbNavigate();
   const viewer = useViewer();
   const settings = useRepoSettings();
-  const agent = useAgents().get(`issue:${repo}#${number}`) ?? null;
+  const agent = useAgents().get(linkKey("issue", { repo, number })) ?? null;
   const actions = useIssueActions();
   const now = useNow(30_000);
   const [detail, setDetail] = useState<IssueDetail | null>(null);
@@ -924,6 +925,7 @@ export function IssueDetailView({
   }, [load]);
   useRealtime("data-changed", load);
   useEffect(() => {
+    if (onBack === null) return;
     const listener = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (agentTarget !== null || isTyping(event.target)) return;
@@ -1010,12 +1012,14 @@ export function IssueDetailView({
   return (
     <div ref={rootRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className={HEADER_CLASS}>
-        <TipButton
-          label="Back"
-          keys={["Esc"]}
-          icon="ArrowLeft"
-          onClick={onBack}
-        />
+        {onBack === null ? null : (
+          <TipButton
+            label="Back"
+            keys={["Esc"]}
+            icon="ArrowLeft"
+            onClick={onBack}
+          />
+        )}
         <span
           className="min-w-0 truncate px-1 text-sm text-subtle-foreground"
           title={`${repo}#${number}`}

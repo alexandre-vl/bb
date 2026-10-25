@@ -78,9 +78,20 @@ bb plugin install github
   `origin/<head>`. On an issue the prompt asks to work on it. A repository
   with no bb project uses the `defaultProject` setting. The thread is linked
   to the item.
-- **Thread panel** (GitHub): the linked pull request's detail, or a
-  picker when none is linked. The palette command GitHub: Open this thread's
-  pull request opens it.
+- **Thread side panel**: one tab beside the chat per pull request or issue.
+  Clicking a GitHub pull request or issue link in a thread, or the thread's
+  pull request in the prompt banner or the Info tab, opens its tab instead of
+  the browser; a second click focuses it. Cmd-, Ctrl-, Shift-, or Alt-click
+  opens GitHub, and so do links to a comment, the files, or the commits. From
+  the panel's + menu, GitHub becomes the thread's pull request tab, or, when
+  the thread has none, offers open pull requests and open issues to pick
+  from; a pick becomes that item's tab. The palette command GitHub: Open this
+  thread's pull request opens the same tab. `bb thread tabs set` opens these
+  tabs too: a `plugin-panel` tab with `pluginId` `github`, `actionId` `pull`,
+  and `paramsJson` `{"repo":"owner/name","number":N}` for a pull request or
+  `{"kind":"issue","repo":"owner/name","number":N}` for an issue, with the
+  repository in lowercase and the keys in that order, the form a clicked link
+  opens, so a second click focuses that tab.
 - **Home page**: the first four pull requests that need you, and a link to
   the inbox.
 - **Issues**: open issues first, closed ones folded; each row says who is
