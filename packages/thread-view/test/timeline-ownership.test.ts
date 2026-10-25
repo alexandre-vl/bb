@@ -66,9 +66,12 @@ describe("timeline source ownership", () => {
     expect(rows[0]).toMatchObject({
       title: "Provisioning thread failed",
       detail: expect.stringContaining("Cannot checkout branch"),
-    });
-    expect(rows[0]).toMatchObject({
-      detail: expect.stringContaining("Workspace setup failed"),
+      steps: [
+        expect.objectContaining({
+          label: "Workspace setup failed",
+          status: "error",
+        }),
+      ],
     });
   });
 

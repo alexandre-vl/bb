@@ -76,6 +76,7 @@ import {
 import { TimelineSelectionMenu } from "./TimelineSelectionMenu.js";
 import type { MessageProseSelection } from "./SelectableMessageProse.js";
 import { TimelineReasoningDetail } from "./TimelineReasoningDetail.js";
+import { ProvisioningStepsDetail } from "./ProvisioningStepsDetail.js";
 import { ExpandableTimelineRow } from "./ExpandableTimelineRow.js";
 import { TimelineRowBodyPlaceholder } from "./TimelineRowBodyPlaceholder.js";
 import {
@@ -1211,6 +1212,14 @@ function TimelineExpandableBodyContent({
       if (row.systemKind === "operation" && row.operationKind === "reasoning") {
         return row.detail ? (
           <TimelineReasoningDetail text={row.detail} />
+        ) : null;
+      }
+      if (
+        row.systemKind === "operation" &&
+        row.operationKind === "thread-provisioning"
+      ) {
+        return row.steps.length > 0 || row.detail !== null ? (
+          <ProvisioningStepsDetail error={row.detail} steps={row.steps} />
         ) : null;
       }
       return row.detail ? (

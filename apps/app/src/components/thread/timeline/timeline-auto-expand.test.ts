@@ -67,6 +67,23 @@ describe("isRowExpandable", () => {
       }),
       expandable: true,
     },
+    {
+      label: "a provisioning row with timed steps and no detail",
+      row: systemRow({
+        operationKind: "thread-provisioning",
+        detail: null,
+        steps: [
+          {
+            label: "Creating worktree",
+            status: "completed",
+            startedAt: 0,
+            completedAt: 300,
+            output: null,
+          },
+        ],
+      }),
+      expandable: true,
+    },
   ])("treats $label as expandable: $expandable", ({ row, expandable }) => {
     expect(isRowExpandable(row)).toBe(expandable);
   });
