@@ -20,6 +20,18 @@ export function displayPluginVersion(version: string): string {
   return /^[0-9a-f]{12,}$/iu.test(version) ? version.slice(0, 7) : version;
 }
 
+export function pluginUpdateFailureSummary(
+  plugin: PluginListItem,
+): string | null {
+  const failure = plugin.updateState.lastFailure;
+  if (failure === null) return null;
+  const attempted = displayPluginVersion(failure.version);
+  const current = displayPluginVersion(plugin.version);
+  return failure.restored
+    ? `bb couldn’t activate ${attempted}. It restored ${current} and its data.`
+    : `bb couldn’t activate ${attempted} or undo the change. It kept ${current} and its data.`;
+}
+
 export function pluginReleaseLabel(
   version: string,
   display: string | null,
@@ -130,7 +142,9 @@ const PLUGIN_CATEGORY_ICONS: Record<string, string> = {
 export function pluginCatalogCategoryIconName(
   categoryId: string | undefined,
 ): string | undefined {
-  return categoryId === undefined ? undefined : PLUGIN_CATEGORY_ICONS[categoryId];
+  return categoryId === undefined
+    ? undefined
+    : PLUGIN_CATEGORY_ICONS[categoryId];
 }
 
 export function PluginCategoryIcon({

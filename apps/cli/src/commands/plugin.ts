@@ -18,6 +18,7 @@ import type {
   PluginCatalogInstallPlan,
   PluginCatalogResolvedSource,
   PluginCatalogSearchResult,
+  PluginRollbackPointResponse,
   PluginTrackingRangeResult,
   PluginUpdateCheckEntry as PluginUpdateResult,
   PluginUpdateJob,
@@ -26,6 +27,7 @@ import { PLUGIN_SDK_VERSION } from "@bb/domain";
 import {
   BbHttpError,
   pluginMutationResponseSchema,
+  PluginRollbackUnsupportedError,
   PluginUpdateExpectedVersionUnsupportedError,
 } from "@bb/sdk";
 import { parseDataDirEnvValue, resolveProdDataDir } from "@bb/config/runtime";
@@ -745,11 +747,24 @@ function installPlanSummary(plan: PluginCatalogInstallPlan): string {
   ].join("\n");
 }
 
+function releaseLabel(version: string): string {
+  return /^[0-9a-f]{40}$/u.test(version) ? version.slice(0, 12) : version;
+}
+
 function printPlugin(plugin: PluginEntry): void {
   const state = plugin.enabled ? plugin.status : "disabled";
   const detail = plugin.statusDetail ? `  (${plugin.statusDetail})` : "";
   console.log(`${plugin.id}@${plugin.version}  ${state}${detail}`);
   console.log(`  source: ${plugin.source}`);
+  const failure = plugin.updateState.lastFailure;
+  if (failure !== undefined) {
+    const outcome = failure.restored
+      ? "restored the release before it"
+      : "kept it because it could not undo the change";
+    console.log(
+      `  update failed: bb couldn't activate ${releaseLabel(failure.version)} on ${formatAbsoluteDate(failure.at)} and ${outcome}: ${failure.detail}`,
+    );
+  }
   const stats = plugin.handlerStats;
   if (stats && stats.count > 0) {
     const errors = stats.errorCount > 0 ? `, ${stats.errorCount} errors` : "";
@@ -796,6 +811,11 @@ function olderServerUpdateMessage(error: unknown): string | null {
     return null;
   }
   return `${error.pluginId}: not updated — the bb server is older than this bb CLI and cannot guarantee that it installs ${error.expectedVersion}, the release this check showed. Upgrade bb on the server, then run \`bb plugin update ${error.pluginId}\` again.`;
+}
+
+function olderServerRollbackMessage(error: unknown): string | null {
+  if (!(error instanceof PluginRollbackUnsupportedError)) return null;
+  return `${error.pluginId}: not rolled back — the bb server is older than this bb CLI and predates plugin rollback. Upgrade bb on the server, then run \`bb plugin rollback ${error.pluginId}\` again.`;
 }
 
 function printSettings(result: PluginSettingsResult): void {
@@ -1480,7 +1500,7 @@ export function registerPluginCommands(
   plugin
     .command("update-jobs [job-id]")
     .description(
-      "Show background plugin updates and results retained for ten minutes; running jobs survive client disconnections, but not a server restart",
+      "Show background plugin updates and rollbacks, and their results retained for ten minutes; running jobs survive client disconnections, but not a server restart",
     )
     .option("--json", "Output JSON")
     .action(
@@ -1502,13 +1522,14 @@ export function registerPluginCommands(
         console.log(
           renderBorderlessTable(
             {
-              head: ["Job", "Plugin", "State", "Detail"],
-              colWidths: [38, 28, 12, 60],
+              head: ["Job", "Plugin", "Kind", "State", "Detail"],
+              colWidths: [38, 28, 10, 12, 60],
               trimTrailingWhitespace: true,
             },
             jobs.map((job) => [
               job.id,
               job.displayName,
+              job.kind,
               job.state,
               job.state === "running"
                 ? job.phase
@@ -1655,6 +1676,65 @@ export function registerPluginCommands(
               );
             }
           }
+        },
+      ),
+    );
+
+  plugin
+    .command("rollback <id>")
+    .description(
+      "Roll a git or npm plugin back to the release its most recent update replaced, while bb still keeps that release; the plugin's settings, KV entries, data.db, secrets, and schedules return to their values from before the update",
+    )
+    .option("--yes", "Skip the confirmation prompt")
+    .option("--json", "Output JSON")
+    .action(
+      action(
+        async (id: string, opts: JsonOutputOptions & { yes?: boolean }) => {
+          const sdk = createCliBbSdk(getUrl());
+          let availability: PluginRollbackPointResponse;
+          try {
+            availability = await sdk.plugins.experimental_getRollbackPoint({
+              pluginId: id,
+            });
+          } catch (error) {
+            const message = olderServerRollbackMessage(error);
+            if (message === null) throw error;
+            exitWithError({ error: message });
+          }
+          if (availability.outcome === "unavailable") {
+            throw new Error(availability.detail);
+          }
+          const { from, point } = availability;
+          if (!opts.json) {
+            console.log(
+              `${id}: roll back ${from.display} to ${point.display}, the release its last update replaced (kept until ${formatAbsoluteDate(point.until)}).`,
+            );
+            console.log(
+              `${id}: settings, KV entries, data.db, secrets, and schedules return to their values from before the update; changes made since then are discarded.`,
+            );
+          }
+          await confirmPluginAction(
+            "Roll back and activate?",
+            "Refusing to roll back without confirmation — re-run with --yes.",
+            opts.yes === true,
+          );
+          const result = await sdk.plugins.experimental_rollbackUpdate({
+            pluginId: id,
+            expectedVersion: point.version,
+          });
+          if (!result.applied) {
+            throw new Error(result.detail ?? `rolling back ${id} failed`);
+          }
+          if (opts.json) {
+            outputJson(opts, { ok: true as const, result });
+            return;
+          }
+          console.log(
+            `${id}: rolled back ${result.from.display} → ${result.to.display}; its settings, KV entries, data.db, secrets, and schedules are back to their values from before the update.`,
+          );
+          console.log(
+            `${id}: its tracked source is unchanged, so \`bb plugin update ${id}\` can offer ${result.from.display} again.`,
+          );
         },
       ),
     );
@@ -1986,6 +2066,9 @@ export function registerPluginCommands(
         for (const entry of reloaded) {
           printPlugin(entry);
         }
+        for (const warning of response.warnings ?? []) {
+          console.warn(`Warning: ${warning}`);
+        }
         if (!result.ok) exitWithError(result);
       }),
     );
@@ -2061,7 +2144,7 @@ export function registerPluginCommands(
   plugin
     .command("prune")
     .description(
-      "Delete cached plugin versions that no installed plugin uses, such as versions left by earlier bb releases, rolled-back updates, or interrupted operations, and unrecorded cache directories. Updates and removals already delete what they replace. Never touches a version an installed plugin runs or a local path source",
+      "Delete cached plugin versions that no installed plugin uses, such as versions left by earlier bb releases, rolled-back updates, or interrupted operations, and unrecorded cache directories. Removals already delete what they replace; an update keeps the version it replaced while `bb plugin rollback` can return to it. Never touches a version an installed plugin runs, a version kept for rollback, or a local path source",
     )
     .option("--dry-run", "List what would be deleted without deleting it")
     .option("--json", "Output JSON")

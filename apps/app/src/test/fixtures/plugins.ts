@@ -87,6 +87,7 @@ export function makePluginListItem(
       blockedReasons: [],
       lastCheckAt: null,
       lastFailure: null,
+      rollback: null,
     },
     handlerStats: { count: 0, totalMs: 0, maxMs: 0, errorCount: 0 },
     services: [],
