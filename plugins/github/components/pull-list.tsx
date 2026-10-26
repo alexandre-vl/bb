@@ -11,6 +11,7 @@ import {
 import { OverflowFade } from "@/components/ui/overflow-fade";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  linkKey,
   queryChips,
   splitTitle,
   type PullRowGroup,
@@ -195,7 +196,7 @@ export function PullListRow({
 }) {
   const { actions } = context;
   const activity = context.activities.get(row.key) ?? null;
-  const agent = context.agents.get(`pr:${row.key}`) ?? null;
+  const agent = context.agents.get(linkKey("pr", row.item)) ?? null;
   const permissions = context.permissions(row);
   const isCursor = context.cursor === row.key;
   const isOpen = context.openKey === row.key;
