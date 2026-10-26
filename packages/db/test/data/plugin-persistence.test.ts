@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createPluginArtifact,
+  createPluginStateSnapshot,
   deletePluginArtifact,
   deleteInstalledPlugin,
   getInstalledPluginRegistration,
@@ -8,13 +9,16 @@ import {
   listPluginArtifacts,
   listPluginArtifactsAtOrUnderPath,
   listPluginArtifactsUnderPath,
+  listExpiredPluginStateSnapshots,
   listPluginKvKeys,
   markInstalledPluginRemoved,
   setInstalledPluginLastFailure,
   setInstalledPluginTrackingRange,
   setPluginKvValue,
+  setPluginStateSnapshotFailed,
   upsertInstalledPlugin,
   type DbConnection,
+  type PluginStateSnapshotRow,
 } from "../../src/index.js";
 import type { UpsertInstalledPluginInput } from "../../src/data/plugins.js";
 import { createMigratedConnection } from "../../src/testing.js";
@@ -425,5 +429,63 @@ describe("plugin tracking range changes", () => {
       npmIntegrity: "sha512-example",
       updateStatusDetail: null,
     });
+  });
+});
+
+describe("plugin state snapshot failures", () => {
+  let db: DbConnection;
+
+  beforeEach(() => {
+    db = createMigratedConnection();
+  });
+
+  afterEach(() => db.$client.close());
+
+  function snapshot(
+    id: string,
+    status: PluginStateSnapshotRow["status"],
+  ): PluginStateSnapshotRow {
+    return createPluginStateSnapshot(db, {
+      id,
+      pluginId: "linear",
+      fromArtifactId: "artifact-old",
+      toArtifactId: "artifact-new",
+      snapshotPath: `/snapshots/${id}`,
+      databasePath: null,
+      statePath: `/snapshots/${id}/host-state.json`,
+      secretsPath: null,
+      registrationPath: `/snapshots/${id}/previous-registration.json`,
+      status,
+      operation: "update",
+      rollbackCandidateVersion: null,
+      rollbackSourceFingerprint: null,
+      rollbackBbVersion: null,
+      rollbackSdkVersion: null,
+      rollbackDetail: null,
+      failureDetail: null,
+      createdAt: 1,
+      retainedUntil: 2,
+      updatedAt: 1,
+    });
+  }
+
+  it("fails only a snapshot nothing was restored from, so cleanup never takes one a restore wrote from", () => {
+    for (const status of ["pending", "rollback-pending", "restoring"] as const) {
+      snapshot(status, status);
+      setPluginStateSnapshotFailed(db, status, {
+        detail: "its saved host state is missing",
+        updatedAt: 3,
+      });
+    }
+
+    expect(
+      listExpiredPluginStateSnapshots(db, 10).map(({ id, status }) => ({
+        id,
+        status,
+      })),
+    ).toEqual([
+      { id: "pending", status: "failed" },
+      { id: "rollback-pending", status: "failed" },
+    ]);
   });
 });
