@@ -1586,7 +1586,7 @@ export const publicApiRoutes = {
       path: "/threads/:id/compact",
       method: "post",
       request: noRequest<PathId>(),
-      response: jsonResponse<{ ok: true }>(),
+      response: jsonResponse<SendMessageResponse>(),
     }),
     clearContext: defineRoute({
       path: "/threads/:id/context/clear",
