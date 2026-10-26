@@ -1,6 +1,7 @@
 import {
   getLatestThreadSequence,
   getEnvironment,
+  getTerminalThreadProvisioningStatus,
   getThread,
   type EnvironmentRow,
   type DbTransaction,
@@ -113,12 +114,15 @@ export function failThreadProvisioning(
   clearThreadProvisionSchedule(args.thread.id);
   if (
     context !== null &&
-    context.state.environmentId === null &&
-    context.state.provisionEventSequence !== null
+    context.state.provisionEventSequence !== null &&
+    getTerminalThreadProvisioningStatus(deps.db, {
+      provisioningId: context.state.provisioningId,
+      threadId: args.thread.id,
+    }) === null
   ) {
     appendThreadProvisioningEvent(deps, {
       threadId: args.thread.id,
-      environmentId: null,
+      environmentId: context.state.environmentId,
       provisioningId: context.state.provisioningId,
       status: "failed",
       entries: [

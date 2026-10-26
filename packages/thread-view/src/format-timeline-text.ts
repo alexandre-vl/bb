@@ -1,10 +1,13 @@
 import type {
   TimelineCommandWorkRow,
+  TimelineProvisioningStep,
   TimelineRow,
   TimelineRowStatus,
+  TimelineThreadProvisioningSystemRow,
 } from "@bb/server-contract";
 import { displayWidth } from "@bb/text-utils";
 import { assertNever } from "./assert-never.js";
+import { durationToCompactString } from "./format-helpers.js";
 import {
   buildTimelineWorkSummaryLabel,
   buildTimelineViewRows,
@@ -388,6 +391,54 @@ function formatConversationRequestLabel(
   return "steer";
 }
 
+function formatProvisioningStepTime(
+  step: TimelineProvisioningStep,
+  color: boolean,
+): string {
+  if (step.completedAt === null) return statusLabel(step.status, color);
+  const elapsedMs = step.completedAt - step.startedAt;
+  const duration = elapsedMs > 0 ? durationToCompactString(elapsedMs) : "";
+  if (step.status === "completed") return duration;
+  return [duration, statusLabel(step.status, color)]
+    .filter((part) => part.length > 0)
+    .join(" ");
+}
+
+const PROVISIONING_STEP_LABEL_COLUMN_MAX_WIDTH = 48;
+
+function formatThreadProvisioningRow(
+  row: TimelineThreadProvisioningSystemRow,
+  context: TimelineTextFormatContext,
+): string {
+  const labelWidth = Math.min(
+    PROVISIONING_STEP_LABEL_COLUMN_MAX_WIDTH,
+    Math.max(0, ...row.steps.map((step) => displayWidth(step.label))),
+  );
+  const stepLines = row.steps.flatMap((step) => {
+    const time = formatProvisioningStepTime(step, context.color);
+    const padding = " ".repeat(
+      Math.max(0, labelWidth - displayWidth(step.label)),
+    );
+    const line =
+      time.length > 0 ? `${step.label}${padding}  ${time}` : step.label;
+    const outputLines =
+      step.output === null
+        ? []
+        : step.output
+            .split("\n")
+            .map((outputLine) => dim(`  ${outputLine}`, context.color));
+    return [line, ...outputLines];
+  });
+  const title = buildTimelineRowTitle(row, cliTitleOptions(row, context));
+  return [
+    rowHeader(title.plain, context),
+    stepLines.length > 0 ? indentBlock(stepLines.join("\n"), "  ") : "",
+    row.detail ? dim(indentBlock(row.detail, "  "), context.color) : "",
+  ]
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
 function formatRow(
   row: ThreadTimelineViewRow,
   context: TimelineTextFormatContext,
@@ -415,6 +466,12 @@ function formatRow(
         ]
           .filter((line) => line.length > 0)
           .join("\n");
+      }
+      if (
+        row.systemKind === "operation" &&
+        row.operationKind === "thread-provisioning"
+      ) {
+        return formatThreadProvisioningRow(row, context);
       }
       return [
         rowHeader(row.title, context),

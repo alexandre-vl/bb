@@ -2,7 +2,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useSecondTick } from "./useSecondTick";
+import { useSecondTick, useSecondTickValue } from "./useSecondTick";
 
 function setDocumentVisibility(state: "hidden" | "visible"): void {
   Object.defineProperty(document, "visibilityState", {
@@ -45,6 +45,40 @@ describe("useSecondTick", () => {
       vi.advanceTimersByTime(1_000);
     });
     expect(result.current).toBe(initial + 7_000);
+
+    unmount();
+  });
+
+  it("keeps no ticker running while a clock value is disabled", () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() =>
+      useSecondTickValue(false, (nowMs) => nowMs),
+    );
+    const initial = result.current;
+
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(result.current).toBe(initial);
+    expect(vi.getTimerCount()).toBe(0);
+
+    unmount();
+  });
+
+  it("re-renders a clock value only when it changes", () => {
+    vi.useFakeTimers({ now: 10_000 });
+    let renders = 0;
+    const { result, unmount } = renderHook(() => {
+      renders += 1;
+      return useSecondTickValue(true, (nowMs) => nowMs >= 12_000);
+    });
+    const rendersAfterMount = renders;
+
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(result.current).toBe(true);
+    expect(renders - rendersAfterMount).toBe(1);
 
     unmount();
   });
