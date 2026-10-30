@@ -42,6 +42,8 @@ export default {
   stories: [
     "src/**/*.stories.tsx",
     "../../plugins/automations/*.stories.tsx",
+    "../../plugins/github-pr-status/ui/*.stories.tsx",
+    "../../plugins/git/ui/commit/*.stories.tsx",
     ".ladle/workflows.stories.tsx",
     "../../plugins/provider-usage/*.stories.tsx",
     "../../plugins/composer/src/**/*.stories.tsx",
