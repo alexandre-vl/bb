@@ -1276,8 +1276,8 @@ describe.each([
     fireEvent.click(await screen.findByRole("menuitem", { name: "Mark read" }));
     await waitFor(() =>
       expect(sdkThreads.markRead.mock.calls).toEqual([
-        [{ threadId: "thr_read" }],
-        [{ threadId: "thr_unread" }],
+        [{ threadId: "thr_read", signal: expect.any(AbortSignal) }],
+        [{ threadId: "thr_unread", signal: expect.any(AbortSignal) }],
       ]),
     );
 
