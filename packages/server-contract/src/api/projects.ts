@@ -3,15 +3,15 @@ import {
   environmentMachineSelectionSchema,
   FILE_LIST_QUERY_MAX_LENGTH,
   getProjectPathValidationMessage,
-  gitBranchNameSchema,
   jsonValueSchema,
   normalizeProjectPathInput,
   projectExecutionDefaultsSchema,
   projectSchema,
-  projectSourceCheckoutSchema,
   projectSourceSchema,
   promptHistoryEntrySchema,
   threadListEntrySchema,
+  gitBranchNameSchema,
+  projectSourceCheckoutSchema,
 } from "@bb/domain";
 import {
   rejectMultipleWorkspaceSelectors,

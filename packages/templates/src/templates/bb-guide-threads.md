@@ -39,7 +39,7 @@ Spawning:
     --reasoning-level <level>      Reasoning level id the model lists: low, medium, high, xhigh, max, or a provider-specific id
     --environment <id-or-path>     Attach to an existing environment (ID or workspace path)
     --new-environment <kind>       Create a fresh personal workspace or managed worktree
-    --base-branch <branch>         Exact Git ref for a new managed worktree
+    --base-branch <branch>         Base branch or ref for a new managed worktree
                                    (--new-environment worktree only; an
                                    --environment-provider takes its branch
                                    through --environment-inputs)
@@ -108,8 +108,14 @@ Spawning:
   workspace. It cannot be combined with an existing environment ID because that
   environment already selects its machine. Without the flag, local/server
   machine resolution is unchanged.
-  Omit --base-branch for bb's default. Explicit values are exact; use
-  origin/<branch> for a remote ref.
+  Omit --base-branch for bb's default. Default and named branches use the
+  remote when local is equal or behind, preserving local commits when ahead
+  or diverged. Explicit refs are honored exactly. Remote refs such as
+  origin/<branch> are fetched before creation. When bb picked the remote and
+  the fetch fails (for example offline or unauthenticated), the worktree
+  starts from the last fetched copy and provisioning reports it; an explicit
+  origin/<branch> fails instead. refs/remotes/origin/<branch> uses the last
+  fetched copy without fetching.
   With no environment flag, a new thread starts in the project's default
   environment when one is set (`bb project default-environment`) and fails,
   rather than falling back, when that default is unusable. Without one, it
@@ -117,7 +123,8 @@ Spawning:
   when the project has no branch) on the primary host, or on the persistent
   machine that holds the project's source when the primary host has none.
   Either way, a child of a live thread in the same project gets a worktree on
-  its parent's machine.
+  its parent's machine; a child of an unmanaged non-Git folder reuses its
+  parent's environment.
   Before selecting a provider, run `bb environment providers --project <id>
   --machine <id-or-name>` to see whether it is available, needs setup, or is
   unavailable and why. The first-party providers are Project checkout,
@@ -139,7 +146,7 @@ Forking:
     --source-seq-end <seq>         Fork after the source turn containing this event sequence (tip by default)
     --environment <id-or-path>     Existing environment ID or unmanaged workspace path
     --new-environment <kind>       Create a fresh personal workspace or managed worktree
-    --base-branch <branch>         Exact Git ref for a new worktree; omit for the project default
+    --base-branch <branch>         Base branch or ref for a new worktree; omit for the project default
     --title <title>                Thread title (idle forks default to "(1) <source title>")
     --permission-mode <mode>       Inherit source by default; accepts accept-edits, auto, full
     --visibility <visibility>      visible (default) or hidden
