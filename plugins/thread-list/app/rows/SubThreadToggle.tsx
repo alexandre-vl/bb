@@ -105,7 +105,7 @@ export function SubThreadToggle({
         "after:absolute after:content-['']",
         inDisclosureSlot
           ? "after:-inset-x-0.5 after:-inset-y-1 max-md:pointer-coarse:after:-inset-y-2.5 max-md:pointer-coarse:after:-right-2.5"
-          : "-my-0.5 -ml-0.5 mr-1 size-5 after:-inset-1 max-md:pointer-coarse:after:-inset-2",
+          : "-my-0.5 -ml-0.5 mr-1.5 size-5 after:-inset-1 max-md:pointer-coarse:after:-inset-2",
         SIDEBAR_CONTROL_STATE_CLASS,
         LIST_HOVER_TRANSITION,
       )}
