@@ -334,6 +334,7 @@ interface DelegationRowArgs extends RowBaseOverrideArgs {
 interface TurnRowArgs extends RowBaseOverrideArgs {
   children?: TimelineRow[] | null;
   durationMs?: number | null;
+  experimental_touchedFilePaths?: string[];
   id?: string;
   seq?: number;
   sourceSeqEnd?: number;
@@ -1300,6 +1301,7 @@ export function turnRow({
   children = null,
   createdAt,
   durationMs = 4_000,
+  experimental_touchedFilePaths = [],
   id = DEFAULT_TURN_ROW_ID,
   seq,
   sourceSeqEnd,
@@ -1328,5 +1330,6 @@ export function turnRow({
     summaryCount,
     completedAt: completedAtFromDuration(base.startedAt, durationMs),
     children,
+    experimental_touchedFilePaths,
   };
 }
