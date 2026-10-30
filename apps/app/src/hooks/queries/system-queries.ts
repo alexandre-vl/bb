@@ -1,4 +1,3 @@
-import { useTaggedQuery } from "@bb/query-tags";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type {
@@ -55,8 +54,6 @@ import {
   systemVersionQueryKey,
   uiPreferencesQueryKey,
 } from "./query-keys";
-import { uiPreferencesRoute } from "@bb/server-contract";
-import { routeTaggedRead } from "./route-tags";
 import { requireEnabledQueryArg, type QueryOptions } from "./query-helpers";
 import {
   SERVER_SESSION_QUERY_POLICY,
@@ -64,6 +61,7 @@ import {
 } from "./query-policies";
 
 interface UseSystemExecutionOptionsArgs {
+  selectedModel?: string;
   enabled?: boolean;
   environmentId?: string;
   hostId?: string;
@@ -72,6 +70,7 @@ interface UseSystemExecutionOptionsArgs {
 }
 
 interface SystemExecutionOptionsQueryArgs {
+  selectedModel?: string;
   environmentId: string | null;
   hostId: string | null;
   providerId: string | null;
@@ -374,6 +373,7 @@ async function requestOfferedProviderExecutionOptions({
   hostId,
   providerId,
   projectId,
+  selectedModel,
   signal,
 }: Omit<SystemExecutionOptionsQueryArgs, "writeLastKnown"> & {
   signal: AbortSignal;
@@ -387,6 +387,8 @@ async function requestOfferedProviderExecutionOptions({
       hostId: hostId ?? undefined,
       providerId: requestedProviderId ?? undefined,
       projectId: projectId ?? undefined,
+      selectedModel:
+        requestedProviderId === providerId ? selectedModel : undefined,
       signal,
     });
   const response = await request(providerId);
@@ -410,6 +412,7 @@ function systemExecutionOptionsQueryOptions({
   providerId,
   projectId,
   writeLastKnown,
+  selectedModel,
 }: SystemExecutionOptionsQueryArgs) {
   return queryOptions<SystemExecutionOptionsResponse>({
     queryKey: systemExecutionOptionsQueryKey({
@@ -417,6 +420,7 @@ function systemExecutionOptionsQueryOptions({
       hostId,
       providerId,
       projectId,
+      selectedModel,
     }),
     queryFn: async ({ signal }) => {
       const { response, loadedProviderId } =
@@ -426,6 +430,7 @@ function systemExecutionOptionsQueryOptions({
           providerId,
           projectId,
           signal,
+          selectedModel,
         });
       const modelsProviderId =
         loadedProviderId ?? response.providers[0]?.id ?? null;
@@ -494,23 +499,28 @@ function systemExecutionOptionsQueryOptions({
 
 export function prefetchSystemExecutionOptions(
   queryClient: QueryClient,
-  args: { routing: SystemProvidersQuery; providerIds: readonly string[] },
+  args: { routing: SystemProvidersQuery; providerId: string },
 ): void {
-  for (const providerId of args.providerIds) {
-    void queryClient.prefetchQuery(
-      systemExecutionOptionsQueryOptions({
-        environmentId: args.routing.environmentId ?? null,
-        hostId: args.routing.hostId ?? null,
-        providerId,
-        projectId: null,
-        writeLastKnown: false,
-      }),
-    );
-  }
+  void queryClient.prefetchQuery(
+    systemExecutionOptionsQueryOptions({
+      environmentId: args.routing.environmentId ?? null,
+      hostId: args.routing.hostId ?? null,
+      providerId: args.providerId,
+      projectId: null,
+      writeLastKnown: false,
+    }),
+  );
 }
 
 export function liveSystemExecutionOptionsQueryOptions(
   args: UseSystemExecutionOptionsArgs = {},
+) {
+  return executionOptionsWithPlaceholderQueryOptions(args, true);
+}
+
+function executionOptionsWithPlaceholderQueryOptions(
+  args: UseSystemExecutionOptionsArgs,
+  writeLastKnown: boolean,
 ) {
   const environmentId = args.environmentId ?? null;
   const hostId = args.hostId ?? null;
@@ -534,7 +544,8 @@ export function liveSystemExecutionOptionsQueryOptions(
       hostId,
       providerId,
       projectId,
-      writeLastKnown: true,
+      writeLastKnown,
+      selectedModel: args.selectedModel,
     }),
     enabled: args.enabled ?? true,
     placeholderData: (previousData, previousQuery) =>
@@ -558,6 +569,15 @@ export function useSystemExecutionOptions(
   useSystemRealtimeSubscription({ enabled });
   useHostListRealtimeSubscription({ enabled });
   return useQuery(liveSystemExecutionOptionsQueryOptions(args));
+}
+
+export function useProviderPreviewExecutionOptions(
+  args: UseSystemExecutionOptionsArgs,
+) {
+  const enabled = args.enabled ?? true;
+  useSystemRealtimeSubscription({ enabled });
+  useHostListRealtimeSubscription({ enabled });
+  return useQuery(executionOptionsWithPlaceholderQueryOptions(args, false));
 }
 
 export function systemConfigQueryOptions() {
@@ -586,28 +606,20 @@ export function useSystemAiServices(options?: QueryOptions) {
   });
 }
 
-export function uiPreferencesQueryOptions(client: QueryClient) {
-  const queryKey = uiPreferencesQueryKey();
+export function uiPreferencesQueryOptions() {
   return queryOptions({
-    queryKey,
-    ...routeTaggedRead(
-      client,
-      queryKey,
-      uiPreferencesRoute,
-      { params: {}, input: undefined },
-      (signal) => sdk.system.uiPreferences.list({ signal }),
-    ),
+    queryKey: uiPreferencesQueryKey(),
+    queryFn: ({ signal }) => sdk.system.uiPreferences.list({ signal }),
     staleTime: 60_000,
   });
 }
 
 export function useUiPreferences(options?: QueryOptions) {
-  const client = useQueryClient();
   const enabled = options?.enabled ?? true;
   useSystemRealtimeSubscription({ enabled });
 
-  return useTaggedQuery({
-    ...uiPreferencesQueryOptions(client),
+  return useQuery({
+    ...uiPreferencesQueryOptions(),
     enabled,
   });
 }

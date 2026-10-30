@@ -2,7 +2,7 @@ import {
   AppPageHeader,
   HEADER_SEAM_CLASS,
 } from "@/components/layout/AppPageHeader";
-import { SecondaryPanelContentSkeleton } from "@/components/secondary-panel/lazySecondaryPanelComponents";
+import { SecondaryPanelContentSkeleton } from "@/components/secondary-panel/SecondaryPanelContentSkeleton";
 import { useOptionalIsSidebarShowing } from "@/components/ui/sidebar.js";
 import { CHROME_ROW_CLASS, CHROME_ROW_HEIGHT_CLASS } from "@/lib/bb-desktop";
 import { PANE_MIN_WIDTH_PX } from "@/lib/split-layout/sizing";

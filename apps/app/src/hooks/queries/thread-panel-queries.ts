@@ -94,7 +94,8 @@ export function threadQueuedMessagesQueryOptions(
       }),
     enabled: (options?.enabled ?? true) && Boolean(id),
     gcTime: THREAD_OPEN_CACHE_GC_MS,
-    refetchOnMount: options?.refetchOnMount ?? true,
+    refetchOnMount:
+      options?.refetchOnMount ?? ((query) => query.getObserversCount() === 1),
     refetchOnWindowFocus: true,
     staleTime: options?.staleTime,
   });

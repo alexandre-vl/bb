@@ -4,7 +4,6 @@ import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
 import { POINTER_COARSE_QUERY } from "@bb/shared-ui/hooks/use-pointer-coarse";
 import {
   environmentQueryKey,
-  environmentWorkStatusQueryKeyPrefix,
   threadConversationOutlineQueryKeyPrefix,
   threadDefaultExecutionOptionsQueryKey,
   threadDetailBootstrapQueryKey,
@@ -58,10 +57,6 @@ function environmentOpenCacheQueryFilters(
 ): RetainedQueryFilter[] {
   return [
     { exact: true, queryKey: environmentQueryKey(environmentId) },
-    {
-      exact: false,
-      queryKey: environmentWorkStatusQueryKeyPrefix(environmentId),
-    },
   ];
 }
 

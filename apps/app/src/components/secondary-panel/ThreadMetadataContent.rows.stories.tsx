@@ -5,14 +5,24 @@ import {
   ParentNotificationsRow,
   EnvironmentRow,
   WorkspacePathRow,
-  BranchRow,
-  MergeBaseRow,
-  GitStatusRow,
   ArchivedRow,
   ThreadMetadataCard,
 } from "./ThreadMetadataContent";
-import { UncommittedChangesSection } from "./info/ChangesSection";
-import { CommitsSection } from "./info/CommitsSection";
+import type {
+  ChangedFileActions,
+} from "../../../../../plugins/git/ui/changed-files";
+import {
+  BranchRowView,
+  GitStatusRowView,
+  MergeBaseRowView,
+} from "../../../../../plugins/git/ui/info/GitInfoRows";
+import {
+  CommitsSectionView,
+} from "../../../../../plugins/git/ui/info/CommitsInfoSection";
+import {
+  UncommittedChangesSectionView,
+} from "../../../../../plugins/git/ui/info/UncommittedChangesInfoSection";
+import type { MergeBaseState } from "../../../../../plugins/git/ui/merge-base";
 import {
   PanelStage,
   baseProps,
@@ -32,6 +42,29 @@ export default {
 };
 
 const noop = () => {};
+
+const noopChangedFileActions: ChangedFileActions = {
+  onChangedFileClick: noop,
+  onOpenChangedFile: noop,
+  onCommitClick: noop,
+};
+
+function storyMergeBase(overrides: Partial<MergeBaseState>): MergeBaseState {
+  return {
+    effectiveMergeBaseBranch: undefined,
+    showMergeBase: true,
+    showBranchComparison: true,
+    selectedBranchRef: null,
+    options: [],
+    remoteOptions: [],
+    optionsLoading: false,
+    optionsLoaded: true,
+    onChange: noop,
+    onPickerOpenChange: noop,
+    onSearchQueryChange: noop,
+    ...overrides,
+  };
+}
 
 const ambiguousEnvironmentDisplayHost: EnvironmentDisplayHostContext = {
   locality: "local",
@@ -268,19 +301,13 @@ export function Branch() {
     <StoryCard>
       <StoryRow label="feature branch">
         <RowStage>
-          <BranchRow
-            environment={makeEnvironment()}
-            workspaceStatus={makeWorkspaceStatus()}
-            workspaceStatusPending={false}
-          />
+          <BranchRowView workspace={makeWorkspaceStatus()} />
         </RowStage>
       </StoryRow>
       <StoryRow label="long branch">
         <RowStage>
-          <BranchRow
-            environment={makeEnvironment()}
-            workspaceStatusPending={false}
-            workspaceStatus={makeWorkspaceStatus({
+          <BranchRowView
+            workspace={makeWorkspaceStatus({
               checkout: {
                 kind: "branch",
                 branchName:
@@ -296,44 +323,10 @@ export function Branch() {
           />
         </RowStage>
       </StoryRow>
-      <StoryRow
-        label="loading, bb-managed worktree"
-        hint="the provisioned branch shows until git status confirms it"
-      >
-        <RowStage>
-          <BranchRow
-            environment={makeEnvironment({
-              managed: true,
-              branchName: "bb/sidebar-rail",
-            })}
-            workspaceStatus={undefined}
-            workspaceStatusPending
-          />
-        </RowStage>
-      </StoryRow>
-      <StoryRow
-        label="loading, user checkout"
-        hint="the branch may have moved since provisioning"
-      >
-        <RowStage>
-          <BranchRow
-            environment={makeEnvironment({
-              environmentProviderId: "project-checkout",
-              isWorktree: false,
-              managed: false,
-              workspaceProvisionType: "unmanaged",
-            })}
-            workspaceStatus={undefined}
-            workspaceStatusPending
-          />
-        </RowStage>
-      </StoryRow>
       <StoryRow label="detached checkout">
         <RowStage>
-          <BranchRow
-            environment={makeEnvironment()}
-            workspaceStatusPending={false}
-            workspaceStatus={makeWorkspaceStatus({
+          <BranchRowView
+            workspace={makeWorkspaceStatus({
               checkout: {
                 kind: "detached",
                 headSha: "abcdef1234567890",
@@ -355,34 +348,32 @@ export function MergeBase() {
     <StoryCard>
       <StoryRow label="feature branch">
         <RowStage>
-          <MergeBaseRow
-            workspaceStatus={makeWorkspaceStatus()}
-            selectedMergeBaseBranch={undefined}
-            mergeBaseBranchOptions={["main", "develop", "release/2026-04"]}
-            isLoadingMergeBaseBranchOptions={false}
-            onMergeBaseBranchChange={noop}
+          <MergeBaseRowView
+            workspace={makeWorkspaceStatus()}
+            mergeBase={storyMergeBase({
+              options: ["main", "develop", "release/2026-04"],
+            })}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="loading candidates">
         <RowStage>
-          <MergeBaseRow
-            workspaceStatus={makeWorkspaceStatus()}
-            selectedMergeBaseBranch={undefined}
-            mergeBaseBranchOptions={undefined}
-            isLoadingMergeBaseBranchOptions
-            onMergeBaseBranchChange={noop}
+          <MergeBaseRowView
+            workspace={makeWorkspaceStatus()}
+            mergeBase={storyMergeBase({
+              optionsLoading: true,
+              optionsLoaded: false,
+            })}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="picker open">
         <RowStage>
-          <MergeBaseRow
-            workspaceStatus={makeWorkspaceStatus()}
-            selectedMergeBaseBranch={undefined}
-            mergeBaseBranchOptions={["main", "develop", "release/2026-04"]}
-            isLoadingMergeBaseBranchOptions={false}
-            onMergeBaseBranchChange={noop}
+          <MergeBaseRowView
+            workspace={makeWorkspaceStatus()}
+            mergeBase={storyMergeBase({
+              options: ["main", "develop", "release/2026-04"],
+            })}
             defaultOpen
           />
         </RowStage>
@@ -396,37 +387,33 @@ export function GitStatus() {
     <StoryCard>
       <StoryRow label="clean">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment()}
-            workspaceStatus={makeWorkspaceStatus()}
-            workspaceStatusError={null}
-            workspaceStatusPending={false}
+          <GitStatusRowView
+            failure={undefined}
+            errorMessage={null}
+            workspace={makeWorkspaceStatus()}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="dirty (uncommitted)">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment()}
-            workspaceStatus={makeWorkspaceStatus({
+          <GitStatusRowView
+            failure={undefined}
+            errorMessage={null}
+            workspace={makeWorkspaceStatus({
               workingTree: {
                 ...STORY_DIRTY_WORKING_TREE,
                 state: "dirty_uncommitted",
               },
             })}
-            workspaceStatusError={null}
-            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="ahead">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment()}
-            workspaceStatus={makeWorkspaceStatus({
+          <GitStatusRowView
+            failure={undefined}
+            errorMessage={null}
+            workspace={makeWorkspaceStatus({
               mergeBase: {
                 mergeBaseBranch: "main",
                 baseRef: "main",
@@ -442,17 +429,15 @@ export function GitStatus() {
                 files: [],
               },
             })}
-            workspaceStatusError={null}
-            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="behind">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment()}
-            workspaceStatus={makeWorkspaceStatus({
+          <GitStatusRowView
+            failure={undefined}
+            errorMessage={null}
+            workspace={makeWorkspaceStatus({
               mergeBase: {
                 mergeBaseBranch: "main",
                 baseRef: "main",
@@ -468,17 +453,15 @@ export function GitStatus() {
                 files: [],
               },
             })}
-            workspaceStatusError={null}
-            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="diverged">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment()}
-            workspaceStatus={makeWorkspaceStatus({
+          <GitStatusRowView
+            failure={undefined}
+            errorMessage={null}
+            workspace={makeWorkspaceStatus({
               mergeBase: {
                 mergeBaseBranch: "main",
                 baseRef: "main",
@@ -494,17 +477,15 @@ export function GitStatus() {
                 files: [],
               },
             })}
-            workspaceStatusError={null}
-            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="untracked">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment()}
-            workspaceStatus={makeWorkspaceStatus({
+          <GitStatusRowView
+            failure={undefined}
+            errorMessage={null}
+            workspace={makeWorkspaceStatus({
               workingTree: {
                 hasUncommittedChanges: false,
                 state: "untracked",
@@ -534,30 +515,28 @@ export function GitStatus() {
                 ],
               },
             })}
-            workspaceStatusError={null}
-            workspaceStatusPending={false}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="workspace not found">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment({ status: "destroyed" })}
-            workspaceStatus={undefined}
-            workspaceStatusError={null}
-            workspaceStatusPending={false}
+          <GitStatusRowView
+            workspace={undefined}
+            failure={{
+              code: "path_not_found",
+              workspacePath: "/Users/michael/Projects/bb",
+              message: "Workspace not found.",
+            }}
+            errorMessage={null}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="error">
         <RowStage>
-          <GitStatusRow
-            thread={makeThread()}
-            environment={makeEnvironment()}
-            workspaceStatus={undefined}
-            workspaceStatusError={new Error("git status failed: ENOENT")}
-            workspaceStatusPending={false}
+          <GitStatusRowView
+            workspace={undefined}
+            failure={undefined}
+            errorMessage="git status failed: ENOENT"
           />
         </RowStage>
       </StoryRow>
@@ -582,8 +561,8 @@ export function Commits() {
     <StoryCard>
       <StoryRow label="ahead of merge base (clickable, truncates at 5)">
         <RowStage>
-          <CommitsSection
-            workspaceStatus={makeWorkspaceStatus({
+          <CommitsSectionView
+            workspace={makeWorkspaceStatus({
               mergeBase: {
                 mergeBaseBranch: "main",
                 baseRef: "main",
@@ -599,15 +578,15 @@ export function Commits() {
                 files: [],
               },
             })}
-            onCommitClick={noop}
+            actions={noopChangedFileActions}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="nothing ahead (hidden)">
         <RowStage>
-          <CommitsSection
-            workspaceStatus={makeWorkspaceStatus()}
-            onCommitClick={noop}
+          <CommitsSectionView
+            workspace={makeWorkspaceStatus()}
+            actions={noopChangedFileActions}
           />
         </RowStage>
       </StoryRow>
@@ -620,48 +599,48 @@ export function ChangedFiles() {
     <StoryCard>
       <StoryRow label="uncommitted">
         <RowStage>
-          <UncommittedChangesSection
-            workspaceStatus={makeWorkspaceStatus({
+          <UncommittedChangesSectionView
+            workspace={makeWorkspaceStatus({
               workingTree: {
                 ...STORY_DIRTY_WORKING_TREE,
                 state: "dirty_uncommitted",
               },
             })}
-            onChangedFileClick={noop}
+            actions={noopChangedFileActions}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="committed, not merged">
         <RowStage>
-          <CommitsSection
-            workspaceStatus={makeWorkspaceStatus({
+          <CommitsSectionView
+            workspace={makeWorkspaceStatus({
               mergeBase: STORY_COMMITTED_MERGE_BASE,
             })}
-            onChangedFileClick={noop}
+            actions={noopChangedFileActions}
           />
         </RowStage>
       </StoryRow>
       <StoryRow label="uncommitted + committed">
         <RowStage>
-          <UncommittedChangesSection
-            workspaceStatus={makeWorkspaceStatus({
+          <UncommittedChangesSectionView
+            workspace={makeWorkspaceStatus({
               workingTree: {
                 ...STORY_DIRTY_WORKING_TREE,
                 state: "dirty_and_committed_unmerged",
               },
               mergeBase: STORY_COMMITTED_MERGE_BASE,
             })}
-            onChangedFileClick={noop}
+            actions={noopChangedFileActions}
           />
-          <CommitsSection
-            workspaceStatus={makeWorkspaceStatus({
+          <CommitsSectionView
+            workspace={makeWorkspaceStatus({
               workingTree: {
                 ...STORY_DIRTY_WORKING_TREE,
                 state: "dirty_and_committed_unmerged",
               },
               mergeBase: STORY_COMMITTED_MERGE_BASE,
             })}
-            onChangedFileClick={noop}
+            actions={noopChangedFileActions}
           />
         </RowStage>
       </StoryRow>

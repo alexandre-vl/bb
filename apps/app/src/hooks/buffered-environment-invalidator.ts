@@ -3,19 +3,15 @@ import {
   type EnvironmentChangeKind,
 } from "@bb/domain";
 
-interface ChangedEnvironment {
-  changeKinds: EnvironmentChangeKind[];
-  environmentId: string;
-  receivedAtFetchOrder: number;
-}
-
 interface BufferedEnvironmentInvalidatorOptions {
   debounceMs: number;
   flushChangedEnvironmentIds: (
-    changedEnvironments: ChangedEnvironment[],
+    changedEnvironments: Array<{
+      changeKinds: EnvironmentChangeKind[];
+      environmentId: string;
+    }>,
   ) => void;
   maxWaitMs: number;
-  readQueryFetchOrder: () => number;
 }
 
 interface BufferedEnvironmentInvalidator {
@@ -26,31 +22,27 @@ interface BufferedEnvironmentInvalidator {
   ) => void;
 }
 
-interface PendingEnvironmentChange {
-  changeKinds: Set<EnvironmentChangeKind>;
-  receivedAtFetchOrder: number;
-}
-
 export function createBufferedEnvironmentInvalidator(
   options: BufferedEnvironmentInvalidatorOptions,
 ): BufferedEnvironmentInvalidator {
-  const pendingChangesById = new Map<string, PendingEnvironmentChange>();
+  const changedEnvironmentKindsById = new Map<
+    string,
+    Set<EnvironmentChangeKind>
+  >();
 
   const flush = () => {
-    if (pendingChangesById.size === 0) {
+    if (changedEnvironmentKindsById.size === 0) {
       return;
     }
     options.flushChangedEnvironmentIds(
-      Array.from(
-        pendingChangesById.entries(),
-        ([environmentId, { changeKinds, receivedAtFetchOrder }]) => ({
+      Array.from(changedEnvironmentKindsById.entries()).map(
+        ([environmentId, changeKinds]) => ({
           changeKinds: Array.from(changeKinds),
           environmentId,
-          receivedAtFetchOrder,
         }),
       ),
     );
-    pendingChangesById.clear();
+    changedEnvironmentKindsById.clear();
   };
 
   const scheduler = createDebouncedCallbackScheduler({
@@ -62,21 +54,19 @@ export function createBufferedEnvironmentInvalidator(
   return {
     dispose: () => {
       scheduler.dispose();
-      pendingChangesById.clear();
+      changedEnvironmentKindsById.clear();
     },
     markChanged: (
       environmentId: string,
       changeKinds: readonly EnvironmentChangeKind[],
     ) => {
-      const receivedAtFetchOrder = options.readQueryFetchOrder();
-      let entry = pendingChangesById.get(environmentId);
+      let entry = changedEnvironmentKindsById.get(environmentId);
       if (!entry) {
-        entry = { changeKinds: new Set(), receivedAtFetchOrder };
-        pendingChangesById.set(environmentId, entry);
+        entry = new Set<EnvironmentChangeKind>();
+        changedEnvironmentKindsById.set(environmentId, entry);
       }
-      entry.receivedAtFetchOrder = receivedAtFetchOrder;
       for (const changeKind of changeKinds) {
-        entry.changeKinds.add(changeKind);
+        entry.add(changeKind);
       }
       scheduler.schedule();
     },

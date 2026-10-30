@@ -28,7 +28,6 @@ import type {
   ThreadTimelineConsumerMessageAction,
   ThreadTimelineLinkHandler,
   ThreadTimelineLocalFileLinkHandler,
-  ThreadTimelineOpenPluginPanelHandler,
   ThreadTimelineUnreadDividerPlacement,
 } from "./types.js";
 
@@ -59,7 +58,6 @@ export interface ThreadTimelineSurfaceProps {
   onLoadOlderRows?: () => Promise<void> | void;
   onOpenLink?: ThreadTimelineLinkHandler;
   onOpenLocalFileLink?: ThreadTimelineLocalFileLinkHandler;
-  onOpenPluginPanel?: ThreadTimelineOpenPluginPanelHandler;
   onTitleAction?: TimelineTitleActionResolver;
   projectId?: string;
   resolveMentionLink?: PromptMentionLinkResolver;
@@ -161,7 +159,6 @@ export function ThreadTimelineSurface({
   onLoadOlderRows,
   onOpenLink,
   onOpenLocalFileLink,
-  onOpenPluginPanel,
   onTitleAction,
   projectId,
   resolveMentionLink,
@@ -249,13 +246,11 @@ export function ThreadTimelineSurface({
             includePluginMessageActions={includePluginMessageActions}
             onOpenLink={onOpenLink}
             onOpenLocalFileLink={onOpenLocalFileLink}
-            onOpenPluginPanel={onOpenPluginPanel}
             onTitleAction={onTitleAction}
             projectId={projectId}
             resolveMentionLink={resolveMentionLink}
             resolveUserAttachmentImageSrc={toUserAttachmentImageSrc}
             hasOlderTimelineRows={hasOlderTimelineRows}
-            isCatchingUpTimeline={isCatchingUpTimeline}
             isLoadingOlderTimelineRows={isLoadingOlderTimelineRows}
             onLoadOlderRows={onLoadOlderRows}
             timelineRows={timelineRowsWithPendingStop}

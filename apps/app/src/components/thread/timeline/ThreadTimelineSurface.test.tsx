@@ -14,7 +14,8 @@ import { conversationRow } from "@/test/fixtures/thread-timeline-rows";
 import { ThreadTimelineSurface } from "./ThreadTimelineSurface";
 import { createInertScrollPositionKeeper } from "@/test/scroll-position-keeper";
 
-vi.mock("@/hooks/queries/system-queries", () => ({
+vi.mock("@/hooks/queries/system-queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/queries/system-queries")>()),
   useSystemConfig: () => ({ data: undefined }),
 }));
 
@@ -68,7 +69,6 @@ describe("ThreadTimelineSurface load-older control", () => {
       getScrollElement: () => scrollElement,
       isAtBottom: false,
       scrollElementIntoView: vi.fn(),
-      scrollElementIntoViewClampedToMaxScroll: vi.fn(),
       scrollToBottom: vi.fn(),
     };
     const onLoadOlderRows = vi
@@ -444,7 +444,6 @@ describe("ThreadTimelineSurface first paint", () => {
       getScrollElement: () => scrollElement,
       isAtBottom: true,
       scrollElementIntoView: vi.fn(),
-      scrollElementIntoViewClampedToMaxScroll: vi.fn(),
       scrollToBottom: vi.fn(),
     };
   }

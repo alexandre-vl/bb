@@ -65,6 +65,7 @@ function setup() {
     bottomThresholdPx: 4,
     deferWritesWhileScrolling: false,
     getContentElement: () => content,
+    getFloorElement: () => null,
     getFooterElement: () => null,
     getScrollElement: () => scrollElement,
     getTopLevelRows: () =>
@@ -81,7 +82,6 @@ function setup() {
     isAtBottom: true,
     positionKeeper,
     scrollElementIntoView: vi.fn(),
-    scrollElementIntoViewClampedToMaxScroll: vi.fn(),
     scrollToBottom: vi.fn(),
   };
   render(

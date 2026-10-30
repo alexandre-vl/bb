@@ -177,7 +177,7 @@ describe("prefetchThreadOpen", () => {
       expect(requestCounts().timeline).toBe(2);
     });
     expect(vi.mocked(sdk.threads.timeline).mock.calls[1]?.[0]).toMatchObject({
-      afterSequence: "4",
+      afterTag: "timeline-4",
       threadId: "thr_a",
     });
     expect(requestCounts().bootstrap).toBe(1);
