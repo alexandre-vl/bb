@@ -18,10 +18,8 @@ import { startPluginUpdate } from "@/hooks/queries/plugin-update-job-queries";
 import type { PluginListItem } from "@/hooks/queries/plugin-settings-queries";
 import {
   DetailsDisclosure,
-  displayPluginVersion,
   formatAbsoluteDate,
   KeyValueGrid,
-  pluginReleaseLabel,
   pluginUpdateFailureSummary,
   RollbackNote,
   SUCCESS_TEXT_STYLE,
@@ -79,11 +77,12 @@ function UpdatePluginDialogContent({
     },
   });
 
-  const fromLine = `Currently ${displayPluginVersion(plugin.version)}`;
+  const fromLine = `Currently ${plugin.version}`;
   const failure = state.lastFailure;
 
   if (failure !== null) {
     const retryVersion = state.availableVersion;
+    const retryLabel = state.availableLabel;
     return (
       <>
         <DialogHeader>
@@ -115,9 +114,9 @@ function UpdatePluginDialogContent({
             </DetailsDisclosure>
           ) : null}
           <p className="text-xs text-muted-foreground">
-            {retryVersion === null
+            {retryVersion === null || retryLabel === null
               ? `${failure.restored ? "The restored version can keep running. " : ""}Try again when a compatible update becomes available.`
-              : `A compatible update to ${pluginReleaseLabel(retryVersion, state.availableDisplay)} is still available. Retry when you’re ready.`}
+              : `A compatible update to ${retryLabel} is still available. Retry when you’re ready.`}
           </p>
         </div>
         <DialogFooter>
@@ -128,12 +127,12 @@ function UpdatePluginDialogContent({
           >
             Close
           </Button>
-          {retryVersion === null ? null : (
+          {retryVersion === null || retryLabel === null ? null : (
             <Button
               type="button"
               disabled={update.isPending}
               aria-busy={update.isPending}
-              aria-label={`Retry update to ${retryVersion}`}
+              aria-label={`Retry update to ${retryLabel}`}
               onClick={() => update.mutate(retryVersion)}
             >
               {update.isPending ? (
@@ -147,12 +146,9 @@ function UpdatePluginDialogContent({
     );
   }
 
-  if (state.availableVersion !== null) {
+  if (state.availableVersion !== null && state.availableLabel !== null) {
     const candidate = state.availableVersion;
-    const candidateLabel = pluginReleaseLabel(
-      candidate,
-      state.availableDisplay,
-    );
+    const candidateLabel = state.availableLabel;
     return (
       <>
         <DialogHeader>
@@ -190,13 +186,13 @@ function UpdatePluginDialogContent({
                 { key: "Current", value: plugin.version },
                 {
                   key: "Candidate",
-                  value: state.availableDisplay ?? candidate,
+                  value: state.availableDisplay ?? candidateLabel,
                 },
               ]}
             />
           </DetailsDisclosure>
           <RollbackNote
-            fromVersion={displayPluginVersion(plugin.version)}
+            fromVersion={plugin.version}
             toVersion={candidateLabel}
           />
         </div>
@@ -227,13 +223,13 @@ function UpdatePluginDialogContent({
     );
   }
 
-  if (state.blockedVersion !== null) {
-    const blocked = state.blockedVersion;
+  if (state.blockedLabel !== null) {
+    const blocked = state.blockedLabel;
     return (
       <>
         <DialogHeader>
           <DialogTitle>
-            Update {name} to {displayPluginVersion(blocked)}?
+            Update {name} to {blocked}?
           </DialogTitle>
           <DialogDescription>{fromLine}</DialogDescription>
         </DialogHeader>
@@ -244,10 +240,7 @@ function UpdatePluginDialogContent({
               className="size-4 shrink-0 text-warning"
               aria-hidden
             />
-            <span>
-              {displayPluginVersion(blocked)} isn&rsquo;t compatible with this
-              bb
-            </span>
+            <span>{blocked} isn&rsquo;t compatible with this bb</span>
           </div>
           <DetailsDisclosure summary="Details" defaultExpanded>
             <div className="space-y-1.5">

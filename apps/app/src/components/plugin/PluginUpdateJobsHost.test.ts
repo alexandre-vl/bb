@@ -49,7 +49,7 @@ it.each(["updated", "rolled-back"] as const)(
       state: "completed",
       result: {
         applied: outcome === "updated",
-        from: { version: "1", display: "1" },
+        from: { version: "1", label: "1", display: "1" },
         outcome,
       },
     };
@@ -73,8 +73,8 @@ it.each([
       state: "completed",
       result: {
         applied: true,
-        from: { version: "1.1.0", display: "1.1.0" },
-        to: { version: "1.0.0", display: "1.0.0" },
+        from: { version: "1.1.0", label: "1.1.0", display: "1.1.0" },
+        to: { version: "1.0.0", label: "1.0.0", display: "1.0.0" },
         outcome: "reverted",
       },
     },
@@ -88,8 +88,8 @@ it.each([
       state: "completed",
       result: {
         applied: false,
-        from: { version: "1.1.0", display: "1.1.0" },
-        to: { version: "1.0.0", display: "1.0.0" },
+        from: { version: "1.1.0", label: "1.1.0", display: "1.1.0" },
+        to: { version: "1.0.0", label: "1.0.0", display: "1.0.0" },
         outcome: "rolled-back",
         detail:
           "rolling back to 1.0.0 failed, so bb restored 1.1.0 and the data it had before the rollback: boom",

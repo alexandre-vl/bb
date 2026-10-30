@@ -70,6 +70,7 @@ describe("PluginDetailReleaseControl", () => {
           updateState: {
             ...EMPTY_PLUGIN_UPDATE_STATE,
             availableVersion: "1.9.0",
+            availableLabel: "1.9.0",
           },
         })}
       />,
@@ -96,6 +97,7 @@ describe("PluginDetailReleaseControl", () => {
           updateState: {
             ...EMPTY_PLUGIN_UPDATE_STATE,
             blockedVersion: "1.9.0",
+            blockedLabel: "1.9.0",
             blockedReasons: ["requires bb >= 0.15"],
           },
         })}
@@ -156,8 +158,10 @@ describe("PluginDetailReleaseControl", () => {
             updateState: {
               ...EMPTY_PLUGIN_UPDATE_STATE,
               availableVersion: "1.9.0",
+              availableLabel: "1.9.0",
               lastFailure: {
                 version: "1.9.0",
+                label: "1.9.0",
                 at: null,
                 detail: "The plugin failed to load.",
                 restored: true,
@@ -170,8 +174,10 @@ describe("PluginDetailReleaseControl", () => {
             updateState: {
               ...EMPTY_PLUGIN_UPDATE_STATE,
               availableVersion: "1.9.0",
+              availableLabel: "1.9.0",
               lastFailure: {
                 version: "1.9.0",
+                label: "1.9.0",
                 at: null,
                 detail: "The plugin failed to load.",
                 restored: true,
@@ -261,6 +267,7 @@ describe("PluginDetailReleaseStatus", () => {
     renderStatus({
       outcome: "update-available",
       availableVersion: "0.6.2",
+      availableLabel: "0.6.2",
       outsideRange,
     });
 
@@ -288,6 +295,7 @@ describe("PluginDetailReleaseStatus", () => {
     renderStatus({
       lastFailure: {
         version: "1.6.2",
+        label: "1.6.2",
         at: null,
         detail: "its saved host state is missing",
         restored: false,
@@ -301,17 +309,18 @@ describe("PluginDetailReleaseStatus", () => {
     );
   });
 
-  it("warns that an available release may break and names it by tag", () => {
+  it("warns that an available release may break and names it by its label", () => {
     renderStatus({
       outcome: "update-available",
       availableVersion: "a985e1d5523398e9c7459d35679142cc4339771e",
+      availableLabel: "2.0.0",
       availableDisplay:
         "https://github.com/acme/bb-plugin-linear.git@v2.0.0 (a985e1d55233)",
       availableBreaking: true,
     });
 
     expect(screen.getByRole("status").textContent).toBe(
-      "v2.0.0AvailableMay include breaking changes",
+      "2.0.0AvailableMay include breaking changes",
     );
   });
 });

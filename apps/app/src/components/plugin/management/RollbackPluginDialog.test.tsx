@@ -22,6 +22,7 @@ const commit = "a985e1d5523398e9c7459d35679142cc4339771e";
 const until = new Date(2026, 9, 28).getTime();
 const rollback = {
   version: commit,
+  label: "1.6.2",
   display: `https://github.com/acme/bb-plugin-linear.git@v1.6.2 (${commit.slice(0, 12)})`,
   until,
 };
@@ -77,15 +78,13 @@ describe("PluginDetailRollback", () => {
     renderRollback();
 
     expect(screen.getByText(/You can return to it until/u).textContent).toBe(
-      `The last update replaced v1.6.2. You can return to it until ${formatAbsoluteDate(until)}.`,
+      `The last update replaced 1.6.2. You can return to it until ${formatAbsoluteDate(until)}.`,
     );
     expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Roll back to v1.6.2" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Roll back to 1.6.2" }));
 
     expect(
-      screen.getByRole("heading", { name: "Roll back Linear to v1.6.2?" }),
+      screen.getByRole("heading", { name: "Roll back Linear to 1.6.2?" }),
     ).toBeTruthy();
     expect(
       screen.getByText(
@@ -98,7 +97,7 @@ describe("PluginDetailRollback", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByTestId("rollback-note").textContent).toContain(
-      "if v1.6.2 fails to start, bb restores 1.7.0 and its data automatically",
+      "if 1.6.2 fails to start, bb restores 1.7.0 and its data automatically",
     );
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -119,9 +118,7 @@ describe("PluginDetailRollback", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { queryClient } = renderRollback();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Roll back to v1.6.2" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Roll back to 1.6.2" }));
     fireEvent.click(screen.getByRole("button", { name: "Roll back" }));
 
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -140,9 +137,7 @@ describe("PluginDetailRollback", () => {
     );
     renderRollback();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Roll back to v1.6.2" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Roll back to 1.6.2" }));
     fireEvent.click(screen.getByRole("button", { name: "Roll back" }));
 
     await vi.waitFor(() => expect(getNotifications()).toHaveLength(1));

@@ -491,6 +491,7 @@ describe("plugin tracking range service and route", () => {
         getDaemonSessionIdForHost: () => null,
         notifyPluginChanged: () => {},
         notifyPluginSignal: () => 0,
+        onWatchedTargets: () => () => {},
         notifySystem: (kinds) => {
           broadcasts.push([...kinds]);
         },
@@ -592,6 +593,7 @@ describe("plugin tracking range service and route", () => {
         outcome: "update-available",
         candidate: {
           version: minor,
+          label: "0.2.0",
           display: expect.stringContaining("@v0.2.0"),
         },
       }),
@@ -1124,6 +1126,7 @@ describe("plugin tracking range service and route", () => {
         outcome: "pinned",
         installed: {
           version: "1.0.0",
+          label: "1.0.0",
           display: "bb-plugin-linear@1.0.0",
         },
         detail: refusal,

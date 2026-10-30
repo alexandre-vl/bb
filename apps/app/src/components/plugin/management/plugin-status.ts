@@ -132,8 +132,8 @@ export function pluginRowSignal(
         state.lastFailure.detail.length > 0
           ? state.lastFailure.detail
           : state.lastFailure.restored
-            ? `Update to ${state.lastFailure.version} failed and was rolled back.`
-            : `Update to ${state.lastFailure.version} failed and couldn’t be undone.`,
+            ? `Update to ${state.lastFailure.label} failed and was rolled back.`
+            : `Update to ${state.lastFailure.label} failed and couldn’t be undone.`,
     };
   }
   const runtimeStatus = pluginRuntimeStatusPresentation(plugin);
@@ -155,8 +155,8 @@ export function pluginRowSignal(
       detail: state.detail,
     };
   }
-  if (state.availableVersion !== null) {
-    return { kind: "update", version: state.availableVersion };
+  if (state.availableLabel !== null) {
+    return { kind: "update", version: state.availableLabel };
   }
   if (state.outsideRange !== null) {
     return {

@@ -26,7 +26,7 @@ it("deduplicates an active update, queues other updates, and proceeds after fail
   });
   const next = vi.fn(async (): Promise<PluginApplyUpdateResult> => ({
     applied: false,
-    from: { version: "1", display: "1" },
+    from: { version: "1", label: "1", display: "1" },
     outcome: "rolled-back",
     detail: "restored",
   }));
@@ -70,7 +70,7 @@ it("joins an active update only when it applies the same reviewed version", asyn
   });
   const result: PluginApplyUpdateResult = {
     applied: false,
-    from: { version: "1.0.0", display: "1.0.0" },
+    from: { version: "1.0.0", label: "1.0.0", display: "1.0.0" },
     outcome: "current",
   };
   const jobs = createPluginUpdateJobs({ notifyChanged: () => {} });
@@ -119,8 +119,8 @@ it("never merges a rollback into an update of the same plugin", async () => {
   });
   const result: PluginRollbackResult = {
     applied: true,
-    from: { version: "1.1.0", display: "1.1.0" },
-    to: { version: "1.0.0", display: "1.0.0" },
+    from: { version: "1.1.0", label: "1.1.0", display: "1.1.0" },
+    to: { version: "1.0.0", label: "1.0.0", display: "1.0.0" },
     outcome: "reverted",
   };
   const jobs = createPluginUpdateJobs({ notifyChanged: () => {} });

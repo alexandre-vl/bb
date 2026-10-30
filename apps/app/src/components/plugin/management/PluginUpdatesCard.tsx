@@ -10,12 +10,7 @@ import { applyPluginUpdateJob } from "@/hooks/cache-owners/plugin-cache-owner";
 import { startPluginUpdate } from "@/hooks/queries/plugin-update-job-queries";
 import type { PluginListItem } from "@/hooks/queries/plugin-settings-queries";
 import { pluginAdminErrorMessage } from "@/lib/plugin-admin-error";
-import {
-  DetailsDisclosure,
-  displayPluginVersion,
-  pluginReleaseLabel,
-  pluginUpdateFailureSummary,
-} from "./plugin-ui";
+import { DetailsDisclosure, pluginUpdateFailureSummary } from "./plugin-ui";
 import { UpdatePluginDialog } from "./UpdatePluginDialog";
 
 export function pluginHasUpdateSurfaces(plugin: PluginListItem): boolean {
@@ -28,8 +23,8 @@ function pluginCompatibilityBlockedVersion(
   plugin: PluginListItem,
 ): string | null {
   if (!pluginHasUpdateSurfaces(plugin)) return null;
-  return plugin.updateState.availableVersion === null
-    ? plugin.updateState.blockedVersion
+  return plugin.updateState.availableLabel === null
+    ? plugin.updateState.blockedLabel
     : null;
 }
 
@@ -48,6 +43,7 @@ export function PluginDetailReleaseControl({
   const queryClient = useQueryClient();
   const notificationAction = usePluginNotificationAction();
   const availableVersion = plugin.updateState.availableVersion;
+  const availableLabel = plugin.updateState.availableLabel;
   const failure = plugin.updateState.lastFailure;
   const retry = useMutation({
     meta: { showErrorToast: false },
@@ -65,11 +61,7 @@ export function PluginDetailReleaseControl({
   });
 
   if (!pluginHasUpdateSurfaces(plugin)) return null;
-  if (availableVersion === null) return null;
-  const availableLabel = pluginReleaseLabel(
-    availableVersion,
-    plugin.updateState.availableDisplay,
-  );
+  if (availableVersion === null || availableLabel === null) return null;
 
   if (failure !== null) {
     return (
@@ -213,17 +205,14 @@ function PluginDetailPrimaryReleaseStatus({
     );
   }
 
-  if (plugin.updateState.availableVersion !== null) {
+  if (plugin.updateState.availableLabel !== null) {
     return (
       <div
         role="status"
         className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1"
       >
         <span className="font-mono text-xs text-foreground">
-          {pluginReleaseLabel(
-            plugin.updateState.availableVersion,
-            plugin.updateState.availableDisplay,
-          )}
+          {plugin.updateState.availableLabel}
         </span>
         <span className="text-xs text-muted-foreground">Available</span>
         {plugin.updateState.availableBreaking ? (
@@ -273,10 +262,10 @@ function PluginDetailPrimaryReleaseStatus({
       <div className="min-w-0">
         <p className="text-xs leading-relaxed text-muted-foreground">
           {blockedReasons[0] === undefined
-            ? `${displayPluginVersion(blockedVersion)} isn’t compatible with this bb.`
+            ? `${blockedVersion} isn’t compatible with this bb.`
             : sentence(blockedReasons[0])}{" "}
-          {displayPluginVersion(plugin.version)} remains installed. Keep using
-          it and check again when a compatible plugin version is available.
+          {plugin.version} remains installed. Keep using it and check again when
+          a compatible plugin version is available.
         </p>
         {blockedReasons.length > 1 ? (
           <div className="mt-1.5">

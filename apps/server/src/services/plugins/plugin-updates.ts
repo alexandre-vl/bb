@@ -1,4 +1,5 @@
 import semver from "semver";
+import { z } from "zod";
 import {
   getInstalledPlugin,
   listInstalledPlugins,
@@ -45,6 +46,7 @@ import {
   isServerMoveFrozen,
 } from "../server-move/freeze-state.js";
 import {
+  pluginResolvedVersionSchema,
   pluginUpdateCheckEntrySchema,
   type PluginApplyUpdateRequest,
   type PluginSourceDetail,
@@ -62,6 +64,56 @@ import {
 } from "./plugin-tracking-range.js";
 
 const PLUGIN_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+
+const persistedResolvedVersionSchema = pluginResolvedVersionSchema.extend({
+  label: z.string().optional(),
+});
+
+const persistedUpdateCheckEntrySchema = pluginUpdateCheckEntrySchema.extend({
+  installed: persistedResolvedVersionSchema,
+  candidate: persistedResolvedVersionSchema.optional(),
+  blocked: z
+    .object({
+      version: z.string(),
+      label: z.string().optional(),
+      reasons: z.array(z.string()),
+    })
+    .optional(),
+});
+
+export function pluginVersionLabelForRow(
+  row: Pick<InstalledPluginRow, "sourceKind">,
+  version: string,
+): string {
+  return row.sourceKind === "git" ? version.slice(0, 7) : version;
+}
+
+export function parsePersistedUpdateEntry(
+  row: InstalledPluginRow,
+): PluginUpdateCheckEntry | null {
+  if (row.updateStatusDetail === null) return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(row.updateStatusDetail);
+  } catch {
+    return null;
+  }
+  const parsed = persistedUpdateCheckEntrySchema.safeParse(json);
+  if (!parsed.success || parsed.data.id !== row.id) return null;
+  const { installed, candidate, blocked, ...entry } = parsed.data;
+  const labelled = <T extends { version: string; label?: string }>(
+    value: T,
+  ): T & { label: string } => ({
+    ...value,
+    label: value.label ?? pluginVersionLabelForRow(row, value.version),
+  });
+  return {
+    ...entry,
+    installed: labelled(installed),
+    ...(candidate === undefined ? {} : { candidate: labelled(candidate) }),
+    ...(blocked === undefined ? {} : { blocked: labelled(blocked) }),
+  };
+}
 const UPDATE_CHECK_CONCURRENCY = 4;
 
 function npmRunForRow(row: InstalledPluginRow): NpmResolverRun {
@@ -165,11 +217,13 @@ export function createPluginUpdates(
       resolution.outcome === "incompatible"
         ? {
             version: resolution.newest.version,
+            label: resolution.newest.label,
             reasons: problemMessages(resolution.reasons),
           }
         : resolution.blocked !== undefined
           ? {
               version: resolution.blocked.version.version,
+              label: resolution.blocked.version.label,
               reasons: problemMessages(resolution.blocked.reasons),
             }
           : undefined;
@@ -211,7 +265,11 @@ export function createPluginUpdates(
     try {
       installed = installedUpdateVersion(row);
     } catch {
-      installed = { version: row.version, display: row.source };
+      installed = {
+        version: row.version,
+        label: row.version,
+        display: row.source,
+      };
     }
     return {
       id: row.id,
@@ -648,21 +706,13 @@ export function createPluginUpdates(
               detail: "updates have not been checked yet",
             };
           }
-          let json: unknown;
-          try {
-            json = JSON.parse(row.updateStatusDetail);
-          } catch {
+          const persisted = parsePersistedUpdateEntry(row);
+          if (persisted === null) {
             throw new Error(
               `plugin "${row.id}" has corrupt persisted update state`,
             );
           }
-          const parsed = pluginUpdateCheckEntrySchema.safeParse(json);
-          if (!parsed.success || parsed.data.id !== row.id) {
-            throw new Error(
-              `plugin "${row.id}" has corrupt persisted update state`,
-            );
-          }
-          return parsed.data;
+          return persisted;
         });
     },
 

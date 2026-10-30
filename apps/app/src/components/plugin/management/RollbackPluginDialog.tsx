@@ -19,10 +19,8 @@ import type { PluginListItem } from "@/hooks/queries/plugin-settings-queries";
 import { pluginAdminErrorMessage } from "@/lib/plugin-admin-error";
 import {
   DetailsDisclosure,
-  displayPluginVersion,
   formatAbsoluteDate,
   KeyValueGrid,
-  pluginReleaseLabel,
   RollbackNote,
 } from "./plugin-ui";
 
@@ -30,7 +28,7 @@ export function PluginDetailRollback({ plugin }: { plugin: PluginListItem }) {
   const [open, setOpen] = useState(false);
   const point = plugin.updateState.rollback;
   if (point === null) return null;
-  const label = pluginReleaseLabel(point.version, point.display);
+  const label = point.label;
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
       <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
@@ -94,8 +92,8 @@ function RollbackPluginDialogContent({
   const queryClient = useQueryClient();
   const notificationAction = usePluginNotificationAction();
   const name = plugin.name ?? plugin.id;
-  const current = displayPluginVersion(plugin.version);
-  const label = pluginReleaseLabel(point.version, point.display);
+  const current = plugin.version;
+  const label = point.label;
   const rollback = useMutation({
     meta: { showErrorToast: false },
     mutationFn: () =>

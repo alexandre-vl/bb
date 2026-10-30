@@ -44,6 +44,7 @@ const GIT_PLUGIN = makePluginListItem({
 
 const installed = {
   version: "a".repeat(40),
+  label: "0.1.0",
   display: "https://github.com/acme/notes@v0.1.0 (aaaaaaaaaaaa)",
 };
 
@@ -64,6 +65,7 @@ function trackingResult(args: {
       installed,
       candidate: {
         version: "b".repeat(40),
+        label: "0.2.0",
         display: "https://github.com/acme/notes@v0.2.0 (bbbbbbbbbbbb)",
       },
     },
@@ -170,7 +172,7 @@ describe("ChangeTrackingRangeDialog", () => {
     expect(
       (await screen.findByRole("status", { name: "Range preview" }))
         .textContent,
-    ).toBe("Offers v0.2.0.");
+    ).toBe("Offers 0.2.0.");
     expect(changeButton().disabled).toBe(false);
     fireEvent.click(changeButton());
 
@@ -193,7 +195,7 @@ describe("ChangeTrackingRangeDialog", () => {
     ).toEqual([
       {
         title: "Notes now tracks >=0.1.0 <1.0.0",
-        description: "Offers v0.2.0.",
+        description: "Offers 0.2.0.",
       },
     ]);
   });
@@ -282,7 +284,7 @@ describe("ChangeTrackingRangeDialog", () => {
       (await screen.findByRole("status", { name: "Range preview" }))
         .textContent,
     ).toBe(
-      "Offers v0.2.0.This range has no upper bound, so every future major release will be offered as an update.",
+      "Offers 0.2.0.This range has no upper bound, so every future major release will be offered as an update.",
     );
     fireEvent.click(changeButton());
 
@@ -418,6 +420,7 @@ describe("ChangeTrackingRangeDialog", () => {
 describe("trackingRangeCheckSummary", () => {
   const candidate = {
     version: "b".repeat(40),
+    label: "0.2.0",
     display: "https://github.com/acme/notes@v0.2.0 (bbbbbbbbbbbb)",
   };
   const outsideRange = {
@@ -436,7 +439,7 @@ describe("trackingRangeCheckSummary", () => {
         installed,
         candidate,
       },
-      "Offers v0.2.0.",
+      "Offers 0.2.0.",
     ],
     [
       {
@@ -447,11 +450,24 @@ describe("trackingRangeCheckSummary", () => {
         candidateBreaking: true as const,
         outsideRange,
       },
-      "Offers v0.2.0, which may include breaking changes. 1.0.0 stays outside this range.",
+      "Offers 0.2.0, which may include breaking changes. 1.0.0 stays outside this range.",
     ],
     [
       { id: "notes", outcome: "current" as const, installed, outsideRange },
-      "v0.1.0 is the newest compatible release in this range. 1.0.0 stays outside this range.",
+      "0.1.0 is the newest compatible release in this range. 1.0.0 stays outside this range.",
+    ],
+    [
+      {
+        id: "notes",
+        outcome: "incompatible" as const,
+        installed,
+        blocked: {
+          version: "c".repeat(40),
+          label: "0.3.0",
+          reasons: ["requires bb >=99.0.0"],
+        },
+      },
+      "0.3.0 doesn’t run on this bb: requires bb >=99.0.0",
     ],
     [
       {

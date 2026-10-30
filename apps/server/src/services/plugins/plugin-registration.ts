@@ -524,6 +524,7 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
       }
       return {
         version: row.npmResolvedVersion,
+        label: row.npmResolvedVersion,
         display: `${row.sourceNpmPackage}@${row.npmResolvedVersion}`,
       };
     }
@@ -539,10 +540,11 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
       return gitResolvedVersion({
         url: row.sourceGitUrl,
         ref,
+        tagPrefix: row.sourceGitTagPrefix ?? "",
         commit: row.gitResolvedCommit,
       });
     }
-    return { version: row.version, display: row.source };
+    return { version: row.version, label: row.version, display: row.source };
   }
 
   function catalogMarketplaceOf(row: InstalledPluginRow): string {

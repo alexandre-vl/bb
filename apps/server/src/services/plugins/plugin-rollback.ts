@@ -261,6 +261,7 @@ export function createPluginRollbackPoints(context: {
     if (incompatibility(row, lookup.point, kept) !== null) return undefined;
     return {
       version: lookup.point.target.version,
+      label: lookup.point.target.label,
       display: lookup.point.target.display,
       until: lookup.point.snapshot.retainedUntil,
     };
@@ -443,6 +444,7 @@ export function createPluginRollback(context: PluginRollbackContext) {
         from: installedUpdateVersion(row),
         point: {
           version: lookup.point.target.version,
+          label: lookup.point.target.label,
           display: lookup.point.target.display,
           until: lookup.point.snapshot.retainedUntil,
         },
