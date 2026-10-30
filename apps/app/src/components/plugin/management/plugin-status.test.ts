@@ -92,6 +92,7 @@ describe("pluginRowSignal (the one-signal rule)", () => {
       pluginRowSignal(
         plugin({
           availableVersion: "1.7.0",
+          availableLabel: "1.7.0",
           outsideRange: {
             version: "2.0.0",
             display: "@example/linear@2.0.0",
