@@ -1,5 +1,5 @@
 import { createMachineLabelProxy } from "../src/machine-label.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   GATE_PRESENCE_BATCH_MAX,
   GATE_RESOLVE_BATCH_MAX,
@@ -192,6 +192,10 @@ describe("account API client", () => {
   });
 
   it("serves the last good answer through an outage, but not past the max staleness", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     let clock = 0;
     let status = 200;
     const failures: unknown[] = [];
@@ -208,21 +212,29 @@ describe("account API client", () => {
       onRevalidateFailed: (error) => failures.push(error),
       now: () => clock,
     });
-    await api.resolve(ASK);
+    await Promise.all([api.resolve(ASK), vi.runAllTimersAsync()]);
     status = 502;
     clock = 61_000;
     expect(await api.resolve(ASK)).toEqual(OWNED);
-    await waitUntil(() => failures.length === 1);
+    await vi.runAllTimersAsync();
+    expect(failures).toHaveLength(1);
     clock = 62_000;
     expect(await api.resolve(ASK)).toEqual(OWNED);
     expect(calls).toHaveLength(2);
     clock = 67_000;
     expect(await api.resolve(ASK)).toEqual(OWNED);
-    await waitUntil(() => failures.length === 2);
+    await vi.runAllTimersAsync();
+    expect(failures).toHaveLength(2);
     clock = 300_001;
-    await expect(api.resolve(ASK)).rejects.toThrow("HTTP 502");
+    await Promise.all([
+      expect(api.resolve(ASK)).rejects.toThrow("HTTP 502"),
+      vi.runAllTimersAsync(),
+    ]);
     status = 200;
-    expect(await api.resolve(ASK)).toEqual(OWNED);
+    await Promise.all([
+      expect(api.resolve(ASK)).resolves.toEqual(OWNED),
+      vi.runAllTimersAsync(),
+    ]);
   });
 
   it("forgets every answer for a label, session or credential once one answer refutes it", async () => {
@@ -351,6 +363,10 @@ describe("account API client", () => {
   });
 
   it("retries transient failures with backoff inside the deadline and gives up on the rest", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     let failuresLeft = 2;
     const { calls, fetchImpl } = stubFetch(
       () => OWNED,
@@ -362,7 +378,11 @@ describe("account API client", () => {
       fetch: fetchImpl,
       random: () => 0,
     });
-    expect(await api.resolve(ASK, { deadlineMs: 5_000 })).toEqual(OWNED);
+    const recovered = expect(
+      api.resolve(ASK, { deadlineMs: 5_000 }),
+    ).resolves.toEqual(OWNED);
+    await vi.runAllTimersAsync();
+    await recovered;
     expect(calls).toHaveLength(3);
     const refused = createAccountApi({
       baseUrl: "https://connect.test",
@@ -370,35 +390,49 @@ describe("account API client", () => {
       fetch: async () => new Response("no", { status: 404 }),
     });
     const started = Date.now();
-    await expect(refused.resolve(ASK)).rejects.toThrow("HTTP 404");
+    const refusal = expect(refused.resolve(ASK)).rejects.toThrow("HTTP 404");
+    await vi.runAllTimersAsync();
+    await refusal;
     expect(Date.now() - started).toBeLessThan(1_000);
     const down = createAccountApi({
       baseUrl: "https://connect.test",
       secret: "s",
+      random: () => 0,
       fetch: async () => new Response("no", { status: 503 }),
     });
     const tried = Date.now();
-    await expect(down.resolve(ASK, { deadlineMs: 600 })).rejects.toThrow(
-      "HTTP 503",
-    );
+    const exhausted = expect(
+      down.resolve(ASK, { deadlineMs: 600 }),
+    ).rejects.toThrow("HTTP 503");
+    await vi.runAllTimersAsync();
+    await exhausted;
     expect(Date.now() - tried).toBeLessThan(1_500);
   });
 
   it("treats a null batch answer as could-not-check and a malformed one as an error", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const unchecked = createAccountApi({
       baseUrl: "https://connect.test",
       secret: "s",
+      random: () => 0,
       fetch: async () => Response.json({ answers: [null] }),
     });
-    await expect(unchecked.resolve(ASK, { deadlineMs: 300 })).rejects.toThrow(
-      "could not check",
-    );
+    const uncheckedResult = expect(
+      unchecked.resolve(ASK, { deadlineMs: 300 }),
+    ).rejects.toThrow("could not check");
+    await Promise.all([uncheckedResult, vi.runAllTimersAsync()]);
     const malformed = createAccountApi({
       baseUrl: "https://connect.test",
       secret: "s",
       fetch: async () => Response.json({ answers: [{ label: null }] }),
     });
-    await expect(malformed.resolve(ASK)).rejects.toThrow("malformed");
+    const malformedResult = expect(malformed.resolve(ASK)).rejects.toThrow(
+      "malformed",
+    );
+    await Promise.all([malformedResult, vi.runAllTimersAsync()]);
   });
 
   it(`sends presence in calls of at most ${GATE_PRESENCE_BATCH_MAX} and checks the results`, async () => {

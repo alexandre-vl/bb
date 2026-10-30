@@ -13,6 +13,7 @@ import {
   type ThreadVisibility,
 } from "@bb/domain";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
+import { assertProviderAcceptsPromptActions } from "../providers/provider-plan-command.js";
 import { ApiError } from "../../errors.js";
 import { ensureHostSessionReadyForWork } from "../hosts/host-lifecycle.js";
 import { buildExecutionOptions } from "./thread-commands.js";
@@ -686,6 +687,7 @@ export async function createThreadFromRequest(
   } = resolveProjectExecutionDefaultsForCreate(deps, {
     executionInputSources: requestInput.executionInputSources,
     model: requestInput.model,
+    parentThread,
     projectId: requestInput.projectId,
     providerId: requestInput.providerId,
   });
@@ -794,6 +796,10 @@ export async function createThreadFromRequest(
   ) {
     request.providerId = catalogExecutionDefaults.providerId;
   }
+  assertProviderAcceptsPromptActions(deps.providerRegistry, {
+    input: request.input,
+    providerId: request.providerId,
+  });
   const resolvedExecutionDefaults = await resolveSessionOptionExecutionDefaults(
     deps,
     {
