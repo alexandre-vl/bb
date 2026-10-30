@@ -123,6 +123,7 @@ function makePendingInteraction(): PendingInteraction {
           prompt: "Continue?",
           multiSelect: false,
           allowFreeText: true,
+          required: true,
         },
       ],
     },
@@ -143,6 +144,9 @@ interface RenderPromptAreaOptions {
   goal?: ThreadTimelineGoal | null;
   modelFallback?: ThreadTimelineModelFallback | null;
   pendingInteractions?: readonly PendingInteraction[];
+  permissionPolicy?: ComponentProps<
+    typeof ThreadDetailPromptArea
+  >["permissionPolicy"];
   environmentGoneStatus?: ComponentProps<
     typeof ThreadDetailPromptArea
   >["environmentGoneStatus"];
@@ -161,6 +165,7 @@ function buildPromptAreaElement({
   goal = null,
   modelFallback = null,
   pendingInteractions = [],
+  permissionPolicy = "editable",
   environmentGoneStatus = null,
   queuedMessageCount = 0,
   sentMessageEdit,
@@ -170,21 +175,20 @@ function buildPromptAreaElement({
   return (
     <QueryClientProvider client={testQueryClient}>
       <ThreadDetailPromptArea
-        showGitChanges={true}
         activeBackgroundCommands={[]}
         activePromptMode={activePromptMode}
         activeWorkflows={activeWorkflows}
-        canUseGitUi={false}
         childThreadsSection={childThreadsSection}
-        composerFocusRequestNonce={0}
-        contextBannerMergeBase={null}
+        composerFocusRequestKey={0}
+        composerId="thread-detail-follow-up-composer"
+        isPrimaryComposer
+        permissionPolicy={permissionPolicy}
         canRestoreEnvironment={false}
         environmentGoneStatus={environmentGoneStatus}
         goal={goal}
         providerCommands={null}
         sessionOptions={sessionOptions}
         modelFallback={modelFallback}
-        onChangedFileClick={vi.fn()}
         parentThreadSection={null}
         pendingInteractions={pendingInteractions}
         provisioningEstimate={null}
@@ -200,8 +204,6 @@ function buildPromptAreaElement({
         sentMessageEdit={sentMessageEdit}
         steerActiveThreadOnEnter={false}
         thread={thread}
-        workspaceChangedFilesSection={null}
-        workspaceStatusPending={false}
       />
     </QueryClientProvider>
   );
@@ -219,6 +221,7 @@ beforeEach(() => {
   });
   mocks.defaultExecutionOptions = null;
   mocks.executionInputSources = {};
+  mocks.unknownReasoning = false;
   mocks.pluginComposerHost = null;
   mocks.composerSubmit = null;
   mocks.composerModifierSubmit = null;
@@ -408,12 +411,36 @@ describe("ThreadDetailPromptArea", () => {
       await mocks.composerSubmit?.({ pluginSubmission });
     });
 
-    expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
     expect(mocks.sendMessageMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "thr_1",
         mode: "queue-if-active",
         pluginSubmission,
+      }),
+    );
+  });
+
+  it("lets the server decide whether an Enter submitted while the thread looks busy queues", async () => {
+    mocks.promptDraft.text = "Try again";
+    renderPromptArea({
+      thread: makeThread({
+        runtime: { displayStatus: "stopping" },
+        status: "stopping",
+      }),
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Capture plugin host" }),
+    );
+
+    await act(async () => {
+      await mocks.composerSubmit?.();
+    });
+
+    expect(mocks.sendMessageMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "thr_1",
+        mode: "queue-if-active",
+        input: [{ type: "text", text: "Try again", mentions: [] }],
       }),
     );
   });
@@ -464,6 +491,30 @@ describe("ThreadDetailPromptArea", () => {
       mocks.composerModifierSubmit?.({ sendAt: 1234567890 }),
     ).rejects.toThrow("There is no new message to schedule or attach data to.");
     expect(mocks.sendQueuedMessageMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("preserves the reasoning preference on follow-ups when the selected model's levels are unknown", async () => {
+    mocks.unknownReasoning = true;
+    mocks.executionInputSources = { reasoningLevel: "explicit" };
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.promptDraft.text = "Continue";
+    renderPromptArea();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Capture plugin host" }),
+    );
+    await act(async () => {
+      await mocks.composerSubmit?.();
+    });
+    expect(mocks.sendMessageMutateAsync).toHaveBeenCalledOnce();
+    const request = mocks.sendMessageMutateAsync.mock.calls[0]?.[0];
+    expect(request.reasoningLevel).toBe("medium");
+    expect(request.executionInputSources.reasoningLevel).toBe("explicit");
   });
 
   it("preserves plugin submission data through a follow-up composer", async () => {
@@ -603,7 +654,6 @@ describe("ThreadDetailPromptArea", () => {
       input: [{ type: "text", text: "Edited request", mentions: [] }],
     });
     expect(mocks.promptDraft.clearIfCurrentMatches).not.toHaveBeenCalled();
-    expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
 
     fireEvent.click(
       inlineEditor.getByRole("button", {
@@ -1561,6 +1611,35 @@ describe("ThreadDetailPromptArea", () => {
     return result as unknown as ExperimentalComposerSelection;
   }
 
+  it("pins a snapshot-policy composer to the thread's permission mode", async () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.promptDraft.text = "Keep going";
+    renderPromptArea({ permissionPolicy: "snapshot" });
+    expect(screen.getByTestId("permission-read-only").textContent).toBe("true");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Capture plugin host" }),
+    );
+
+    const result = await settledSelection(
+      mocks.pluginComposerHost!.setSelection!({ permissionMode: "auto" }),
+    );
+
+    expect(result.permissionMode).toBe("full");
+    expect(mocks.setPermissionMode).not.toHaveBeenCalled();
+    await act(async () => {
+      await mocks.composerSubmit?.();
+    });
+    expect(mocks.sendMessageMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "thr_1", permissionMode: "full" }),
+    );
+  });
+
   it("starts a handoff when a plugin sets another provider, and drops the fields a thread has no picker for", async () => {
     mocks.promptDraft.text = "Keep going";
     mocks.createThreadMutateAsync.mockResolvedValue({
@@ -1695,7 +1774,6 @@ describe("ThreadDetailPromptArea", () => {
       ),
     );
     expect(mocks.sendMessageMutateAsync).not.toHaveBeenCalled();
-    expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
   });
 
   it("creates a same-provider handoff with unchanged execution marked explicit", async () => {
@@ -1723,7 +1801,6 @@ describe("ThreadDetailPromptArea", () => {
       ),
     );
     expect(mocks.sendMessageMutateAsync).not.toHaveBeenCalled();
-    expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
   });
 
   it("marks a supported handoff service tier explicit", async () => {
@@ -1952,7 +2029,6 @@ describe("ThreadDetailPromptArea", () => {
       }),
     );
     expect(mocks.sendMessageMutateAsync).not.toHaveBeenCalled();
-    expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
     expect(mocks.promptDraft.clearIfCurrentMatches).toHaveBeenCalledTimes(1);
   });
 });
