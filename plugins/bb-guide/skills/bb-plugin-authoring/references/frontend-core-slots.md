@@ -86,12 +86,14 @@ Slot props contracts (versioned, additive-only):
   not need React context. Experimental: see `docs/api_to_audit.md`.
 - `navPanel` → `{ subPath: string }` — owns the whole route at
   `/plugins/<pluginId>/<path>/*` and gets its own navigation rail destination. `subPath`
-  is the route remainder after the panel root (`""` at the root), so deep
-  links like `/plugins/notes/notes/work/ideas.md` land with
-  `subPath: "work/ideas.md"`. Navigate within the panel via
-  `useBbNavigate().toPluginPanel(path, { subPath, replace? })` — browser
-  back/forward then walks panel-internal history (prefer this over hash
-  routing).
+  is the route remainder after the panel root (`""` at the root) as it appears
+  in the URL, with each segment still percent-encoded, so deep links like
+  `/plugins/notes/notes/work/my%20ideas.md` land with
+  `subPath: "work/my%20ideas.md"`; decode each segment with
+  `decodeURIComponent`. Navigate within the panel via
+  `useBbNavigate().toPluginPanel(path, { subPath, replace? })`, passing
+  unencoded segments (bb encodes them) — browser back/forward then walks
+  panel-internal history (prefer this over hash routing).
   Registration:
   `{ id, title, icon, path, component, experimental_useBadge?, experimental_usePageTitle?, headerContent?, experimental_sidebar? }`.
   The host renders your compact plugin icon + `title` into the shared app
@@ -157,33 +159,32 @@ Slot props contracts (versioned, additive-only):
   Thread components receive `{ threadId }`; navigation-page components receive
   `{ subPath }`. `availability: "fixed"` pins one non-closable destination.
   `availability: "action"` adds a launcher; its component also receives persisted
-  JSON `params`, and optional `run` receives context plus `openPanel`.
+  JSON `params`, and optional `run` receives context plus `experimental_panel`.
   Without `run`, selection opens with default params. Matching owner/id/params
   focuses an existing instance; different params open siblings. `useVisible`
   controls the fixed destination or action launcher, and never closes opened
   action instances. `tooltip` defaults to title; layout is padded or flush.
-  All opening uses `experimental_useAppPanel().experimental_openTab`; existing
-  action `openPanel` and navigation `openThreadPanel` calls remain wrappers.
+  Open tabs with the [panel controller](frontend-hooks-and-ui.md#panel-controller).
   See [Tab API migration](frontend-registration.md#tab-api-migration).
   A thread action tab may set `experimental_claimUrl(url: URL)` to claim web
   links it can show: in a thread view, a plain click on an http(s) link in
   Markdown (its messages and side panel) and another plugin's
   `useBbNavigate().openUrl` (such as the GitHub PR Status plugin's pull
-  request in the prompt banner and the Info tab) ask it first, and returned
-  `openPanel` options (`{ title?, params? }`) open that tab instead of the
-  browser; null or undefined leaves the link alone. Keep it synchronous and
-  cheap, and return the same `params` for the same resource so a second click
-  focuses its tab. Modified clicks still open the URL, the first claim in
-  slot order wins, and a plugin's own `openUrl` never reaches its own claims.
-  A tab that learns what it shows after opening (a picker, or a lookup
-  of the thread's item) calls `useBbNavigate().openThreadPanel({ actionId,
-title, params, experimental_replace: true })` to become that item's tab.
+  request in the composer's context row and the Info tab) ask it first, and
+  the returned `{ title?, params? }` open that tab, as `openTab` would,
+  instead of the browser; null or undefined leaves the link alone. Keep it
+  synchronous and cheap, and return the same `params` for the same resource
+  so a second click focuses its tab. Modified clicks still open the URL, the
+  first claim in slot order wins, and a plugin's own `openUrl` never reaches
+  its own claims. A tab that learns what it shows after opening (a picker, or
+  a lookup of the thread's item) calls `experimental_useAppPanel().openTab`
+  with `experimental_replace: true` to become that item's tab.
   Experimental: see `docs/api_to_audit.md`.
 - `experimental_newThreadPanelAction` → the root New thread counterpart to
   thread action tabs. It appears in that screen's right-panel Actions list
   and never appears beside an existing thread. Registration has the same
   `{ id, title, icon?, component, layout?, run? }` shape, but activating it
-  calls `run({ projectId, openPanel })` and its component receives
+  calls `run({ projectId, experimental_panel })` and its component receives
   `{ projectId: string | null, params: JsonValue | null }`; `projectId` is
   null in projectless compose. Panel opening, JSON params, layout, persistence,
   deduplication, the `boolean` return, and error containment otherwise match
@@ -243,10 +244,11 @@ experimental_Original }` — draws the sidebar navigation. Registration:
   navigation is active. Read items and host actions
   with `experimental_useSidebarNavigation()`. Exclusive; see
   frontend-sidebar-navigation.md. Experimental: see `docs/api_to_audit.md`.
-- `experimental_threadList`, `experimental_threadHeaderAction`,
+- `experimental_threadList`, `experimental_threadRowMetadata`,
   `experimental_threadInfoRow`, `experimental_threadInfoSection`,
-  `experimental_threadAction`, and `experimental_browserToolbarAction` are
-  covered in frontend-registration.md.
+  `experimental_threadContextCardRow`, `experimental_threadContextCardSection`,
+  `experimental_threadAction` (menu entries and header buttons), and
+  `experimental_browserToolbarAction` are covered in frontend-registration.md.
 - `fileOpener` → `{ path: string, source, experimental_lineRange?, Original }` — register as a viewer/editor
   for file extensions: `{ id, title, extensions: ["md"], component }`.
   Matching files use the first applicable opener in deterministic slot order
@@ -302,8 +304,11 @@ and testable outside the plugin runtime.
 ## Tab API migration
 
 Use `app.slots.experimental_tab` for tabs on thread and plugin navigation pages.
-Declare `context: { kind: "thread" }` for `{ threadId }`, or
+Declare `context: { kind: "thread" }` for `{ threadId, environment }`, or
 `context: { kind: "nav-panel", panelId: "board" }` for `{ subPath }`.
+`environment` is `{ id }` taken straight from the thread, null only when the
+thread has no environment; read anything else about it (status, path) yourself
+and show the tab's own loading, failure and Retry.
 Choose `availability: "fixed"` for one non-closable destination or `"action"`
 for a launcher opening closable instances with persisted JSON `params`.
 Only actions accept `run`, default `params`, and per-open `params`/`title`.
@@ -322,8 +327,11 @@ app.slots.experimental_tab({
   title: "Issue",
   icon: "FileText",
   component: IssuePanel,
-  run: ({ threadId, openPanel }) => {
-    openPanel({ params: { threadId } });
+  run: ({ threadId, experimental_panel }) => {
+    experimental_panel.openTab({
+      tab: { id: "issue", context: { kind: "thread" }, availability: "action" },
+      params: { threadId },
+    });
   },
 });
 ```
@@ -344,11 +352,12 @@ app.slots.experimental_tab({
 ```
 
 Open any registered tab with
-`experimental_useAppPanel().experimental_openTab({ surface: { kind: "current" },
-tab: { id, context, availability }, params?, title?, target? })`.
-Navigation-page fixed tabs can declare `experimental_target: { validate }` and
-read its session-only target with `experimental_useFixedTabTarget(registration)`.
-Existing `openFixedTab`, `openThreadPanel` and action `openPanel` calls still work.
+`experimental_useAppPanel().openTab({ tab: { id, context, availability },
+params?, title?, target? })`. Fixed tabs can declare
+`experimental_target: { validate }` and read their session-only target with
+`experimental_useFixedTabTarget(registration)`. Retired `openFixedTab`,
+`experimental_openTab`, `openThreadPanel` and action `openPanel` calls still
+work; see [Panel controller](frontend-hooks-and-ui.md#panel-controller).
 Existing saved tab identities, orders, action params and split layouts survive;
 no plugin data migration is needed when registration ids stay unchanged.
 

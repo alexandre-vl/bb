@@ -9,6 +9,7 @@ import {
 import {
   definePluginApp,
   experimental_Icon as Icon,
+  experimental_useAppPanel,
   useBbNavigate,
   useRpc,
   type PluginCommandRegistration,
@@ -390,6 +391,11 @@ type ThreadPullLookup =
   | { status: "resolved"; pull: ThreadPull | null };
 
 const GITHUB_TAB_ID = "pull";
+const GITHUB_TAB = {
+  id: GITHUB_TAB_ID,
+  context: { kind: "thread" },
+  availability: "action",
+} as const;
 
 function useThreadPull(
   threadId: string,
@@ -438,15 +444,15 @@ function useThreadPull(
 }
 
 function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
-  const navigate = useBbNavigate();
+  const panel = experimental_useAppPanel();
   return useCallback(
     (item) =>
-      navigate.openThreadPanel({
-        actionId: GITHUB_TAB_ID,
+      panel.openTab({
+        tab: GITHUB_TAB,
         ...itemTabOptions(kind, item),
         experimental_replace: true,
       }),
-    [kind, navigate],
+    [kind, panel],
   );
 }
 
@@ -573,6 +579,7 @@ function PullTabDetail({
   onBack: (() => void) | null;
 }) {
   const navigate = useBbNavigate();
+  const panel = experimental_useAppPanel();
   const viewer = useViewer();
   const { items } = useItems("pr");
   const repo = useTrackedRepo(pull.repo);
@@ -596,8 +603,8 @@ function PullTabDetail({
         onBack={onBack}
         onClose={null}
         onOpenPull={(repo, number) => {
-          const opened = navigate.openThreadPanel({
-            actionId: GITHUB_TAB_ID,
+          const opened = panel.openTab({
+            tab: GITHUB_TAB,
             ...itemTabOptions("pr", { repo, number }),
           });
           if (!opened) navigate.openUrl(itemUrl("pr", { repo, number }));
@@ -640,7 +647,7 @@ export const THREAD_PULL_COMMAND: PluginCommandRegistration = {
   title: "GitHub: Open this thread's pull request",
   isAvailable: (context) => context.threadId !== null,
   run: (context) => {
-    context.openPanel({ actionId: GITHUB_TAB_ID });
+    context.experimental_panel.openTab({ tab: GITHUB_TAB });
   },
 };
 

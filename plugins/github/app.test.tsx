@@ -10,7 +10,10 @@ import {
   within,
 } from "@testing-library/react";
 import { Toaster } from "sonner";
-import { makeThreadResponse } from "@get-bb/plugin-sdk/testing";
+import {
+  experimental_makePanelController,
+  makeThreadResponse,
+} from "@get-bb/plugin-sdk/testing";
 import {
   loadPluginApp,
   renderSlot,
@@ -25,6 +28,12 @@ import { setActivity } from "./components/pull-actions";
 import { assemblePullStatus, type RawPullStatus } from "./pull-status";
 
 const app = await loadPluginApp(() => import("./app"));
+
+const GITHUB_TAB = {
+  id: "pull",
+  context: { kind: "thread" },
+  availability: "action",
+} as const;
 
 function threadPanelAction(id: string) {
   const action = app.threadPanelActions.find((entry) => entry.id === id);
@@ -251,6 +260,7 @@ function sidebarThread(
     displayTitle: "Fix · get-bb/bb#6",
     parentThreadId: null,
     lifecycleOwnerThreadId: null,
+    parentNotifications: "auto",
     sourceThreadId: null,
     sectionId: null,
     originKind: null,
@@ -1458,7 +1468,11 @@ describe("GitHub thread panel", () => {
   it("shows the thread's pull request in its tab and keeps removed files out of workspace navigation", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+      {
+        threadId: "thr-1",
+        environment: null,
+        params: { repo: "get-bb/bb", number: 42 },
+      },
       {
         rpc: rpc({
           pullForThread: () => ({
@@ -1513,7 +1527,7 @@ describe("GitHub thread panel", () => {
     async (_name, accepted) => {
       const slot = renderSlot(
         threadPanelAction("pull"),
-        { threadId: "thr-1", params: null },
+        { threadId: "thr-1", environment: null, params: null },
         {
           rpc: rpc({
             pullForThread: () => ({
@@ -1521,16 +1535,16 @@ describe("GitHub thread panel", () => {
             }),
             getPull: () => ({ pull: pullDetail({ title: "Thread PR" }) }),
           }),
-          openThreadPanel: () => accepted,
+          experimental_panel: { openTab: () => accepted },
         },
       );
 
       await waitFor(() =>
-        expect(slot.navigateCalls).toEqual([
+        expect(slot.experimental_panelCalls).toEqual([
           {
-            method: "openThreadPanel",
+            method: "openTab",
             options: {
-              actionId: "pull",
+              tab: GITHUB_TAB,
               title: "PR #42",
               params: { repo: "get-bb/bb", number: 42 },
               experimental_replace: true,
@@ -1555,7 +1569,7 @@ describe("GitHub thread panel", () => {
     async (_name, accepted) => {
       const slot = renderSlot(
         threadPanelAction("pull"),
-        { threadId: "thr-1", params: null },
+        { threadId: "thr-1", environment: null, params: null },
         {
           rpc: rpc({
             pullForThread: () => ({ pull: null }),
@@ -1563,18 +1577,18 @@ describe("GitHub thread panel", () => {
               pull: pullDetail({ number: 3, title: "Review me" }),
             }),
           }),
-          openThreadPanel: () => accepted,
+          experimental_panel: { openTab: () => accepted },
         },
       );
 
       const pick = await slot.findByRole("button", { name: /Review me/ });
       expect(slot.queryByText("Still a draft")).toBeTruthy();
       await act(async () => fireEvent.click(pick));
-      expect(slot.navigateCalls).toEqual([
+      expect(slot.experimental_panelCalls).toEqual([
         {
-          method: "openThreadPanel",
+          method: "openTab",
           options: {
-            actionId: "pull",
+            tab: GITHUB_TAB,
             title: "PR #3",
             params: { repo: "get-bb/bb", number: 3 },
             experimental_replace: true,
@@ -1599,7 +1613,11 @@ describe("GitHub thread panel", () => {
     async (_name, accepted, after) => {
       const slot = renderSlot(
         threadPanelAction("pull"),
-        { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+        {
+          threadId: "thr-1",
+          environment: null,
+          params: { repo: "get-bb/bb", number: 42 },
+        },
         {
           rpc: rpc({
             pullForThread: () => ({ pull: null }),
@@ -1627,7 +1645,7 @@ describe("GitHub thread panel", () => {
               }),
             }),
           }),
-          openThreadPanel: () => accepted,
+          experimental_panel: { openTab: () => accepted },
         },
       );
 
@@ -1637,17 +1655,17 @@ describe("GitHub thread panel", () => {
           within(stack).getByRole("button", { name: /Base change/ }),
         ),
       );
-      expect(slot.navigateCalls).toEqual([
+      expect(slot.experimental_panelCalls).toEqual([
         {
-          method: "openThreadPanel",
+          method: "openTab",
           options: {
-            actionId: "pull",
+            tab: GITHUB_TAB,
             title: "PR #41",
             params: { repo: "get-bb/bb", number: 41 },
           },
         },
-        ...after,
       ]);
+      expect(slot.navigateCalls).toEqual(after);
     },
   );
 });
@@ -1702,7 +1720,11 @@ describe("GitHub links opened from a thread", () => {
   it("shows the linked pull request rather than the thread's own, outside its workspace and with no way back", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 3 } },
+      {
+        threadId: "thr-1",
+        environment: null,
+        params: { repo: "get-bb/bb", number: 3 },
+      },
       {
         rpc: rpc({
           pullForThread: () => ({
@@ -1741,7 +1763,11 @@ describe("GitHub links opened from a thread", () => {
   it("shows the agent linked to a pull request whatever the case of its repository", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      {
+        threadId: "thr-1",
+        environment: null,
+        params: { repo: "get-bb/bb", number: 7 },
+      },
       {
         rpc: rpc({
           status: () => ({
@@ -1778,6 +1804,7 @@ describe("GitHub links opened from a thread", () => {
       threadPanelAction("pull"),
       {
         threadId: "thr-1",
+        environment: null,
         params: { kind: "issue", repo: "get-bb/bb", number: 42 },
       },
       {
@@ -1843,6 +1870,7 @@ describe("GitHub links opened from a thread", () => {
       threadPanelAction("pull"),
       {
         threadId: "thr-1",
+        environment: null,
         params: { kind: "issue", repo: "get-bb/bb", number: 42 },
       },
       { rpc: rpc({ getIssue }) },
@@ -1856,7 +1884,7 @@ describe("GitHub links opened from a thread", () => {
 
     const picker = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: null },
+      { threadId: "thr-1", environment: null, params: null },
       { rpc: rpc({ getIssue, pullForThread: () => ({ pull: null }) }) },
     );
     const issuesTab = await picker.findByRole("tab", { name: "Issues" });
@@ -1869,11 +1897,11 @@ describe("GitHub links opened from a thread", () => {
     });
     expect(picker.queryByText("Old issue")).toBeNull();
     await act(async () => fireEvent.click(pick));
-    expect(picker.navigateCalls).toEqual([
+    expect(picker.experimental_panelCalls).toEqual([
       {
-        method: "openThreadPanel",
+        method: "openTab",
         options: {
-          actionId: "pull",
+          tab: GITHUB_TAB,
           title: "Issue #42",
           params: { kind: "issue", repo: "get-bb/bb", number: 42 },
           experimental_replace: true,
@@ -2111,15 +2139,17 @@ describe("GitHub home page, badge, and commands", () => {
     expect(THREAD_PULL_COMMAND.title).toBe(
       "GitHub: Open this thread's pull request",
     );
-    const openPanel = vi.fn(() => true);
+    const panel = experimental_makePanelController({
+      openTab: vi.fn(() => true),
+    });
     const context = (threadId: string | null): PluginCommandContext => ({
       threadId,
       projectId: "project-1",
-      openPanel,
+      experimental_panel: panel,
     });
     expect(THREAD_PULL_COMMAND.isAvailable?.(context(null))).toBe(false);
     expect(THREAD_PULL_COMMAND.isAvailable?.(context("thr-1"))).toBe(true);
     await THREAD_PULL_COMMAND.run(context("thr-1"));
-    expect(openPanel).toHaveBeenCalledWith({ actionId: "pull" });
+    expect(panel.openTab).toHaveBeenCalledWith({ tab: GITHUB_TAB });
   });
 });
