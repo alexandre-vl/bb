@@ -1640,6 +1640,7 @@ describe("automation service", () => {
       db,
       pluginDataDir,
       serverUrl: "http://127.0.0.1:38886",
+      scriptRuns: createScriptRunScope(),
     });
 
     try {
