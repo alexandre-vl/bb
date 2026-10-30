@@ -71,7 +71,7 @@ describe("UpdatePluginDialog", () => {
     const { wrapper } = createDialogTestHarness();
     render(
       <UpdatePluginDialog
-        plugin={plugin({ availableVersion: "1.7.0" })}
+        plugin={plugin({ availableVersion: "1.7.0", availableLabel: "1.7.0" })}
         open
         onOpenChange={() => {}}
       />,
@@ -96,6 +96,7 @@ describe("UpdatePluginDialog", () => {
       <UpdatePluginDialog
         plugin={plugin({
           blockedVersion: "1.9.0",
+          blockedLabel: "1.9.0",
           blockedReasons: ["needs bb >= 0.15 — you have 0.14.1"],
         })}
         open
@@ -144,8 +145,10 @@ describe("UpdatePluginDialog", () => {
       <UpdatePluginDialog
         plugin={plugin({
           availableVersion: "1.8.0",
+          availableLabel: "1.8.0",
           lastFailure: {
             version: "1.7.0",
+            label: "1.7.0",
             at: failedAt,
             detail: "factory threw during activation",
           },
@@ -176,7 +179,7 @@ describe("UpdatePluginDialog", () => {
     await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
-  it("names a git release by its tag, warns that it may break, and applies only that release", async () => {
+  it("names a git release by its label, warns that it may break, and applies only that release", async () => {
     const commit = "a985e1d5523398e9c7459d35679142cc4339771e";
     const display = `https://github.com/acme/bb-plugin-linear.git@v2.0.0 (${commit.slice(0, 12)})`;
     const fetchMock = vi.fn(
@@ -200,6 +203,7 @@ describe("UpdatePluginDialog", () => {
       <UpdatePluginDialog
         plugin={plugin({
           availableVersion: commit,
+          availableLabel: "2.0.0",
           availableDisplay: display,
           availableBreaking: true,
         })}
@@ -209,12 +213,12 @@ describe("UpdatePluginDialog", () => {
       { wrapper },
     );
 
-    expect(screen.getByText("Update Linear to v2.0.0?")).toBeTruthy();
+    expect(screen.getByText("Update Linear to 2.0.0?")).toBeTruthy();
     expect(
-      screen.getByText(/^v2\.0\.0 may include breaking changes/u),
+      screen.getByText(/^2\.0\.0 may include breaking changes/u),
     ).toBeTruthy();
     expect(screen.getByTestId("rollback-note").textContent).toContain(
-      "if v2.0.0 fails to start",
+      "if 2.0.0 fails to start",
     );
     fireEvent.click(screen.getByRole("button", { name: /details — source/i }));
     expect(screen.getByText(display)).toBeTruthy();
@@ -235,6 +239,7 @@ describe("UpdatePluginDialog", () => {
         plugin={plugin({
           lastFailure: {
             version: "1.7.0",
+            label: "1.7.0",
             at: null,
             detail: "factory threw during activation",
           },
@@ -265,7 +270,7 @@ describe("UpdatePluginDialog", () => {
     const onOpenChange = vi.fn();
     render(
       <UpdatePluginDialog
-        plugin={plugin({ availableVersion: "1.7.0" })}
+        plugin={plugin({ availableVersion: "1.7.0", availableLabel: "1.7.0" })}
         open
         onOpenChange={onOpenChange}
       />,
@@ -291,7 +296,7 @@ describe("UpdatePluginDialog", () => {
     const { wrapper } = createDialogTestHarness();
     render(
       <UpdatePluginDialog
-        plugin={plugin({ availableVersion: "1.7.0" })}
+        plugin={plugin({ availableVersion: "1.7.0", availableLabel: "1.7.0" })}
         open
         onOpenChange={() => {}}
       />,
@@ -319,7 +324,7 @@ describe("UpdatePluginDialog", () => {
     const { wrapper } = createDialogTestHarness();
     render(
       <UpdatePluginDialog
-        plugin={plugin({ availableVersion: "1.7.0" })}
+        plugin={plugin({ availableVersion: "1.7.0", availableLabel: "1.7.0" })}
         open
         onOpenChange={() => {}}
       />,

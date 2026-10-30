@@ -18,7 +18,6 @@ import type { PluginListItem } from "@/hooks/queries/plugin-settings-queries";
 import { setPluginTrackingRange } from "@/hooks/queries/plugin-tracking-range-queries";
 import { pluginAdminErrorMessage } from "@/lib/plugin-admin-error";
 import { pluginHasUpdateSurfaces } from "./PluginUpdatesCard";
-import { pluginReleaseLabel } from "./plugin-ui";
 
 export type PluginTrackingSpec =
   | { kind: "range"; range: string }
@@ -85,10 +84,6 @@ function TrackingSpecLabel({ tracking }: { tracking: PluginTrackingSpec }) {
   }
 }
 
-function releaseLabel(release: { version: string; display: string }): string {
-  return pluginReleaseLabel(release.version, release.display);
-}
-
 export function trackingRangeCheckSummary(
   check: PluginUpdateCheckEntry,
 ): string {
@@ -98,18 +93,16 @@ export function trackingRangeCheckSummary(
       : ` ${check.outsideRange.version} stays outside this range.`;
   if (check.outcome === "update-available") {
     const offer =
-      check.candidate === undefined
-        ? "a newer release"
-        : releaseLabel(check.candidate);
+      check.candidate === undefined ? "a newer release" : check.candidate.label;
     return check.candidateBreaking === true
       ? `Offers ${offer}, which may include breaking changes.${outside}`
       : `Offers ${offer}.${outside}`;
   }
   if (check.outcome === "current") {
-    return `${releaseLabel(check.installed)} is the newest compatible release in this range.${outside}`;
+    return `${check.installed.label} is the newest compatible release in this range.${outside}`;
   }
   if (check.outcome === "incompatible" && check.blocked !== undefined) {
-    return `${check.blocked.version} doesn’t run on this bb: ${check.blocked.reasons.join("; ")}`;
+    return `${check.blocked.label} doesn’t run on this bb: ${check.blocked.reasons.join("; ")}`;
   }
   return check.detail ?? "bb couldn’t check this range.";
 }

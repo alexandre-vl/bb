@@ -6,7 +6,11 @@ import { createInterface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Command, Option } from "commander";
 import { z } from "zod";
-import { derivePluginId, jsonValueSchema } from "@bb/domain";
+import {
+  derivePluginId,
+  jsonValueSchema,
+  PLUGIN_SDK_VERSION,
+} from "@bb/domain";
 import { pluginCliCall, RESERVED_BB_CLI_COMMANDS } from "@bb/domain/plugin-cli";
 import {
   pluginInstallBadge,
@@ -22,7 +26,6 @@ import type {
   PluginUpdateCheckEntry as PluginUpdateResult,
   PluginUpdateJob,
 } from "@bb/server-contract";
-import { PLUGIN_SDK_VERSION } from "@bb/domain";
 import {
   BbHttpError,
   pluginMutationResponseSchema,
@@ -349,12 +352,8 @@ async function execNpm(
   args: readonly string[],
   options: { cwd?: string; timeout?: number; killSignal?: NodeJS.Signals },
 ): Promise<{ stdout: string; stderr: string }> {
-  const { exec, execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  if (process.platform === "win32") {
-    return promisify(exec)(["npm", ...args].join(" "), options);
-  }
-  return promisify(execFile)("npm", [...args], options);
+  const { execHostFile } = await import("@bb/process-utils");
+  return execHostFile("npm", args, options);
 }
 
 async function probeSdkVersionPublished(): Promise<
@@ -466,7 +465,7 @@ const UPDATE_STATUS_LABELS: Record<PluginUpdateResult["outcome"], string> = {
 
 function blockedSummary(result: PluginUpdateResult): string {
   if (!result.blocked) return "—";
-  return `${result.blocked.version}: ${result.blocked.reasons.join("; ")}`;
+  return `${result.blocked.label}: ${result.blocked.reasons.join("; ")}`;
 }
 
 function outsideRangeSummary(result: PluginUpdateResult): string {
@@ -1856,9 +1855,13 @@ export function registerPluginCommands(
         await checkPluginSdkLayout(rootDir);
         const toolchain = await cliBuildToolchain();
         const server = await buildPluginServer(rootDir, bbVersion, toolchain);
+        for (const warning of server.migrationWarnings)
+          console.warn(`warning: ${warning}`);
         const files = [server.jsPath, server.mapPath, server.metaPath];
         if (hasApp) {
           const app = await buildPluginApp(rootDir, bbVersion, toolchain);
+          for (const warning of app.migrationWarnings)
+            console.warn(`warning: ${warning}`);
           files.push(app.jsPath, app.cssPath, app.metaPath);
         }
         if (hasHost) {
@@ -1908,12 +1911,14 @@ export function registerPluginCommands(
             };
           },
           buildApp: async () => {
-            await buildPluginApp(
+            const app = await buildPluginApp(
               rootDir,
               resolveBbCliVersion(),
               await cliBuildToolchain(),
               { minify: false },
             );
+            for (const warning of app.migrationWarnings)
+              console.warn(`warning: ${warning}`);
           },
           buildHost: async () => {
             await buildPluginHost(
