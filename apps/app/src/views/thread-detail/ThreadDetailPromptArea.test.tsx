@@ -423,7 +423,7 @@ describe("ThreadDetailPromptArea", () => {
     mocks.promptDraft.text = "Try again";
     renderPromptArea({
       thread: makeThread({
-        runtime: { displayStatus: "stopping" },
+        runtime: { displayStatus: "stopping", hostUnavailable: false },
         status: "stopping",
       }),
     });
