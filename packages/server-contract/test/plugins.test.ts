@@ -182,8 +182,8 @@ describe("plugin contracts", () => {
       displayName: "Notes",
       state: "completed",
     };
-    const from = { version: "1.1.0", display: "1.1.0" };
-    const to = { version: "1.0.0", display: "1.0.0" };
+    const from = { version: "1.1.0", label: "1.1.0", display: "1.1.0" };
+    const to = { version: "1.0.0", label: "1.0.0", display: "1.0.0" };
     expect(
       pluginUpdateJobSchema.parse({
         ...completed,

@@ -2011,7 +2011,12 @@ describe("@bb/sdk", () => {
       publisherLabel: null,
       sourceDisplay: "npm · @bb/notes · tracks compatible",
       updateState: {
-        lastFailure: { version: "1.3.0", at: 5, detail: "boom" },
+        lastFailure: {
+          version: "1.3.0",
+          label: "1.3.0",
+          at: 5,
+          detail: "boom",
+        },
       },
       enabled: true,
       description: null,
@@ -2044,6 +2049,7 @@ describe("@bb/sdk", () => {
     const listed = await sdk.plugins.list();
     expect(listed.plugins[0]?.updateState.lastFailure).toEqual({
       version: "1.3.0",
+      label: "1.3.0",
       at: 5,
       detail: "boom",
       restored: true,

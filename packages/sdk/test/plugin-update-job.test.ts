@@ -168,8 +168,8 @@ describe("background plugin updates", () => {
 describe("plugin rollback", () => {
   const reverted = {
     applied: true,
-    from: { version: "1.1.0", display: "1.1.0" },
-    to: { version: "1.0.0", display: "1.0.0" },
+    from: { version: "1.1.0", label: "1.1.0", display: "1.1.0" },
+    to: { version: "1.0.0", label: "1.0.0", display: "1.0.0" },
     outcome: "reverted",
   };
 

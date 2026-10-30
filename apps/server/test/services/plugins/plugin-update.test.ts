@@ -1249,6 +1249,7 @@ describe("plugin update service and routes", () => {
         .rollback,
     ).toEqual({
       version: oldArtifact.gitResolvedCommit,
+      label: oldArtifact.gitResolvedCommit?.slice(0, 7),
       display: expect.stringContaining(
         `@main (${oldArtifact.gitResolvedCommit?.slice(0, 12)})`,
       ),

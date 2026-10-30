@@ -372,6 +372,7 @@ describe("plugin update recovery", () => {
     const failure = listed(PLUGIN_ID)?.updateState.lastFailure;
     expect(failure).toEqual({
       version: thirdCommit,
+      label: "1.2.0",
       at: expect.any(Number),
       detail: "release 1.2.0 failed to start",
       restored: true,
@@ -936,6 +937,7 @@ describe("plugin update recovery", () => {
       expect(cursor()).toBe("written-by-1.1.0");
       expect(listed(PLUGIN_ID)?.updateState.lastFailure).toEqual({
         version: commit,
+        label: commit.slice(0, 7),
         at: expect.any(Number),
         detail: expect.stringContaining(
           `release 1.1.0 failed to start; bb could not undo the update to ${commit.slice(0, 12)}: its saved state is unusable (${reason}`,
@@ -1161,6 +1163,7 @@ describe("plugin update recovery", () => {
     expect(cursor()).toBe("v1-data");
     expect(listed(PLUGIN_ID)?.updateState.lastFailure).toEqual({
       version: previousCommit,
+      label: previousCommit.slice(0, 7),
       at: expect.any(Number),
       detail: gaveUp,
       restored: false,

@@ -294,6 +294,7 @@ describe("bb plugin update commands", () => {
               updateState: {
                 lastFailure: {
                   version: commit,
+                  label: "1.1.0",
                   at: Date.UTC(2026, 6, 22),
                   detail: "release 1.1.0 failed to start",
                   ...(restored === undefined ? {} : { restored }),
@@ -308,7 +309,7 @@ describe("bb plugin update commands", () => {
       await runCommand(["plugin", "reload", "notes"], register);
 
       expect(collectLogPayloads(vi.mocked(console.log))).toContain(
-        `  update failed: bb couldn't activate a985e1d55233 on 2026-07-22T00:00:00.000Z and ${outcome}: release 1.1.0 failed to start`,
+        `  update failed: bb couldn't activate 1.1.0 on 2026-07-22T00:00:00.000Z and ${outcome}: release 1.1.0 failed to start`,
       );
       expect(collectLogPayloads(warn)).toEqual([
         'Warning: plugin "notes": bb could not undo the update',

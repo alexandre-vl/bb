@@ -746,10 +746,6 @@ function installPlanSummary(plan: PluginCatalogInstallPlan): string {
   ].join("\n");
 }
 
-function releaseLabel(version: string): string {
-  return /^[0-9a-f]{40}$/u.test(version) ? version.slice(0, 12) : version;
-}
-
 function printPlugin(plugin: PluginEntry): void {
   const state = plugin.enabled ? plugin.status : "disabled";
   const detail = plugin.statusDetail ? `  (${plugin.statusDetail})` : "";
@@ -761,7 +757,7 @@ function printPlugin(plugin: PluginEntry): void {
       ? "restored the release before it"
       : "kept it because it could not undo the change";
     console.log(
-      `  update failed: bb couldn't activate ${releaseLabel(failure.version)} on ${formatAbsoluteDate(failure.at)} and ${outcome}: ${failure.detail}`,
+      `  update failed: bb couldn't activate ${failure.label} on ${formatAbsoluteDate(failure.at)} and ${outcome}: ${failure.detail}`,
     );
   }
   const stats = plugin.handlerStats;

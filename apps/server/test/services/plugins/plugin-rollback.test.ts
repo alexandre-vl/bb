@@ -322,6 +322,7 @@ describe("plugin update rollback", () => {
     });
     const target = {
       version: previousCommit,
+      label: "1.0.0",
       display: `${repo}@v1.0.0 (${previousCommit.slice(0, 12)})`,
     };
     expect(installed().updateState.rollback).toEqual({
@@ -332,6 +333,7 @@ describe("plugin update rollback", () => {
       outcome: "rollback-available",
       from: {
         version: nextCommit,
+        label: "1.1.0",
         display: `${repo}@v1.1.0 (${nextCommit.slice(0, 12)})`,
       },
       point: { ...target, until: snapshot?.retainedUntil },
@@ -838,6 +840,7 @@ describe("plugin update rollback", () => {
     );
     expect(installed().updateState.rollback).toEqual({
       version: firstCommit,
+      label: "1.0.0",
       display: `${repo}@v1.0.0 (${firstCommit.slice(0, 12)})`,
       until: firstUpdate?.retainedUntil,
     });

@@ -9,17 +9,22 @@ import {
 import { registerPluginCommands } from "../../commands/plugin.js";
 
 const until = Date.UTC(2026, 9, 28, 9, 30);
-const rollback = { version: "1.0.0", display: "notes@1.0.0", until };
+const rollback = {
+  version: "1.0.0",
+  label: "1.0.0",
+  display: "notes@1.0.0",
+  until,
+};
 const reverted = {
   applied: true,
-  from: { version: "1.1.0", display: "notes@1.1.0" },
-  to: { version: "1.0.0", display: "notes@1.0.0" },
+  from: { version: "1.1.0", label: "1.1.0", display: "notes@1.1.0" },
+  to: { version: "1.0.0", label: "1.0.0", display: "notes@1.0.0" },
   outcome: "reverted",
 };
 
 const available = {
   outcome: "rollback-available",
-  from: { version: "1.1.0", display: "notes@1.1.0" },
+  from: { version: "1.1.0", label: "1.1.0", display: "notes@1.1.0" },
   point: rollback,
 };
 
