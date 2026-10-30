@@ -15,13 +15,13 @@ import type {
 import type { ReactNode } from "react";
 import { vi } from "vitest";
 import type { PromptDraftAttachment } from "@bb/client-core";
-import type { TypeaheadConfig } from "@/components/promptbox/PromptBoxInternal";
+import type { TypeaheadConfig } from "@/components/promptbox/ComposerBox";
 import type { PluginComposerHost } from "@/components/plugin/plugin-composer-host";
 
 export const promptAreaMocks = {
+  unknownReasoning: false,
   cancelThreadPlanMutate: vi.fn(),
   clearThreadGoalMutate: vi.fn(),
-  createQueuedMessageMutateAsync: vi.fn(),
   createThreadMutateAsync: vi.fn(),
   defaultExecutionOptions: null as ResolvedThreadExecutionOptions | null,
   executionInputSources: {} as ExistingThreadExecutionInputSources,
@@ -218,9 +218,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
           {execution.providerRouting.environmentId}
         </div>
         <div data-testid="command-suggestions">
-          {typeahead.command?.suggestions
-            .map((command) => command.name)
-            .join(",")}
+          {`${typeahead.command.source.providerId}:${typeahead.command.source.commandScope}`}
         </div>
         <div data-testid="selected-model">{execution.model.active?.model}</div>
         <div data-testid="selected-reasoning">{execution.reasoning.value}</div>
@@ -495,14 +493,15 @@ vi.mock("@/components/promptbox/banner/ThreadGoalCard", () => ({
 }));
 
 vi.mock("@/components/promptbox/banner/ThreadPromptContextBanner", () => ({
-  ThreadPromptContextBanner: ({
-    childThreadsSection,
+  ThreadPromptContextBanner: () => null,
+  ThreadChildThreadsBanner: ({
+    childThreads,
   }: {
-    childThreadsSection: { items: readonly unknown[] } | null;
+    childThreads: { items: readonly unknown[] } | null;
   }) =>
-    childThreadsSection ? (
+    childThreads ? (
       <div data-testid="child-threads-banner">
-        {childThreadsSection.items.length} child threads
+        {childThreads.items.length} child threads
       </div>
     ) : null,
 }));
@@ -575,32 +574,9 @@ vi.mock("@/components/ui/app-toast", () => ({
   appToast: { error: promptAreaMocks.toastError },
 }));
 
-vi.mock("@/hooks/useCommandSuggestions", () => ({
-  useCommandSuggestions: ({
-    providerId,
-    commandScope,
-  }: {
-    providerId: string;
-    commandScope: string;
-  }) => ({
-    hasMore: false,
-    isError: false,
-    isLoading: false,
-    isLoadingMore: false,
-    loadMore: vi.fn(),
-    suggestions: [{ name: `${providerId}:${commandScope}` }],
-    triggers: [],
-  }),
-}));
-
-vi.mock("@/hooks/usePromptMentions", () => ({
-  usePromptMentions: () => ({
-    isError: false,
-    isLoading: false,
-    setQuery: vi.fn(),
-    suggestions: [],
-  }),
-}));
+vi.mock("@/hooks/usePromptMentions", async () =>
+  (await import("@/test/fixtures/composer-search")).fakePromptMentionsModule(),
+);
 
 vi.mock("@/hooks/useThreadCreationOptions", async () => {
   const { useState } = await import("react");
@@ -634,7 +610,9 @@ vi.mock("@/hooks/useThreadCreationOptions", async () => {
           { value: "claude-code", label: "Claude Code" },
         ],
         reasoningLevel: "medium",
-        reasoningOptions: [],
+        reasoningOptions: promptAreaMocks.unknownReasoning
+          ? []
+          : [{ value: "medium", label: "Medium" }],
         selectedModel: explicitModel ?? (isClaude ? "claude-opus-5" : "gpt-5"),
         selectedProviderComposerActions: [],
         selectedProviderDisplayName: isClaude ? "Claude Code" : "Codex",
@@ -685,10 +663,6 @@ vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
   useCreateThread: () => ({
     isPending: false,
     mutateAsync: promptAreaMocks.createThreadMutateAsync,
-  }),
-  useCreateThreadQueuedMessage: () => ({
-    isPending: false,
-    mutateAsync: promptAreaMocks.createQueuedMessageMutateAsync,
   }),
   useDeleteThreadQueuedMessage: () => ({
     isPending: false,

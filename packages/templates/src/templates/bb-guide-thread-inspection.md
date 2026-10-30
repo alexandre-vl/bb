@@ -146,3 +146,13 @@ Persisted panel tabs:
 
   bb thread tabs show <thread-id>
   bb thread tabs set <thread-id> --expected-revision <n> --tabs-json '<json>'
+
+Core Info uses plugin id `core` and tab id `info`; Diff belongs to the Git plugin, plugin id `bb--git` and tab id `diff`. Legacy `thread-info`, `git-diff` and `core` `diff` entries convert automatically without changing their order.
+
+Pinned plugin tabs use `{ "id": "plugin-fixed:<plugin-id>:<tab-id>", "kind": "plugin-fixed", "pluginId": "<plugin-id>", "tabId": "<tab-id>" }`.
+The id encodes each plugin/tab id with percent escapes. The app shows registered,
+visible tabs and retains saved identities while plugins are hidden or disabled.
+The SDK uses `threads.tabs.get({ threadId })` and
+`threads.tabs.update({ threadId, expectedRevision, tabs })` for the same state.
+Selection stays local to each client. Plugin authors can find registration and
+navigation details in the Plugin Guide's Thread side-panel tabs surface.

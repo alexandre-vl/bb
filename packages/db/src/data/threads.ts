@@ -2168,8 +2168,19 @@ function lifecycleThreadTreeIdsForThread(threadId: string): SQL {
   return lifecycleThreadTreeIds(sql`SELECT ${threadId}`);
 }
 
-export function lifecycleThreadTreeIdsForProject(projectId: string): SQL {
-  return lifecycleThreadTreeIds(
+function deletionThreadTreeIds(seed: SQL): SQL {
+  return sql`(WITH RECURSIVE descendants(id) AS (
+    ${seed} UNION SELECT t.id FROM threads t JOIN descendants
+      ON t.lifecycle_owner_thread_id = descendants.id OR t.parent_thread_id = descendants.id
+  ) SELECT id FROM descendants)`;
+}
+
+function deletionThreadTreeIdsForThread(threadId: string): SQL {
+  return deletionThreadTreeIds(sql`SELECT ${threadId}`);
+}
+
+export function deletionThreadTreeIdsForProject(projectId: string): SQL {
+  return deletionThreadTreeIds(
     sql`SELECT id FROM threads WHERE project_id = ${projectId}`,
   );
 }
@@ -2185,11 +2196,11 @@ export function listLifecycleThreadDependents(
     .all();
 }
 
-export function listLifecycleThreadTree(db: DbQueryConnection, id: string) {
+export function listThreadDeletionTree(db: DbQueryConnection, id: string) {
   return db
     .select()
     .from(threads)
-    .where(inArray(threads.id, lifecycleThreadTreeIdsForThread(id)))
+    .where(inArray(threads.id, deletionThreadTreeIdsForThread(id)))
     .all();
 }
 
@@ -2206,7 +2217,7 @@ export function markThreadDeleted(
     })
     .where(
       and(
-        inArray(threads.id, lifecycleThreadTreeIdsForThread(args.threadId)),
+        inArray(threads.id, deletionThreadTreeIdsForThread(args.threadId)),
         isNull(threads.deletedAt),
       ),
     )
@@ -2388,10 +2399,7 @@ export function applyThreadLifecycleEventInTransaction(
     status: evaluation.to,
     updatedAt: now,
   };
-  if (
-    evaluation.to === "active" ||
-    (evaluation.to === "idle" && thread.environmentId !== null)
-  ) {
+  if (evaluation.to === "idle" && thread.environmentId !== null) {
     set.startupContext = null;
   }
   if (
