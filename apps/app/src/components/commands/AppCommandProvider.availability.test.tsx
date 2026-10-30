@@ -67,7 +67,7 @@ vi.mock("@/hooks/queries/system-queries", () => ({
         defaultBinding("terminal.open", {
           none: ["modalOpen", "editableFocus", "terminalFocus"],
         }),
-        defaultBinding("thread.toggleRead", {
+        defaultBinding("thread.markRead", {
           all: ["mainSurface", "sidebarListFocus"],
           none: ["modalOpen", "editableFocus"],
         }),
@@ -211,11 +211,11 @@ describe("isCommandAvailable", () => {
       tree.append(row);
       renderProvider(
         <>
-          <Handler command="thread.toggleRead" />
-          <Availability command="thread.toggleRead" target={row} />
+          <Handler command="thread.markRead" />
+          <Availability command="thread.markRead" target={row} />
         </>,
       );
-      expect(availabilityOf("thread.toggleRead")).toBe(answer);
+      expect(availabilityOf("thread.markRead")).toBe(answer);
     },
   );
 

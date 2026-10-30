@@ -26,7 +26,7 @@ export const SIDEBAR_ROW_COMMAND_ACTION_KEYS = [
 const ROW_ACTION_BY_COMMAND = {
   "thread.archive": "bb--core/archive",
   "thread.rename": "bb--core/rename",
-  "thread.toggleRead": "bb--core/read",
+  "thread.markRead": "bb--core/read",
 } as const satisfies Partial<Record<ExperimentalSidebarListCommand, string>>;
 
 type RowCommandEntries = () => readonly PluginThreadActionEntry[];
@@ -139,7 +139,7 @@ export function useSidebarTreeKeyboard(): {
   const [rows] = useState(() => new SidebarRowCommands());
   useRowActionCommand("thread.archive", keyboard, rows);
   useRowActionCommand("thread.rename", keyboard, rows);
-  useRowActionCommand("thread.toggleRead", keyboard, rows);
+  useRowActionCommand("thread.markRead", keyboard, rows);
   useAttentionCommand("thread.previousAttention", keyboard);
   useAttentionCommand("thread.nextAttention", keyboard);
   return { keyboard, rows };

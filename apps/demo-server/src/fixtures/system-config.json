@@ -3266,7 +3266,7 @@
       }
     },
     {
-      "command": "thread.toggleRead",
+      "command": "thread.markRead",
       "desktopOnly": false,
       "shortcut": {
         "key": "u",

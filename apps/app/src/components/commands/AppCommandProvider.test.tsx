@@ -198,7 +198,7 @@ const testState = vi.hoisted(() => ({
       },
     },
     {
-      command: "thread.toggleRead" as const,
+      command: "thread.markRead" as const,
       desktopOnly: false,
       shortcut: {
         key: "u",
@@ -843,7 +843,7 @@ describe("AppCommandProvider", () => {
   it("never runs a single-letter binding from an editable target, even when its context allows it", () => {
     renderProvider(
       <>
-        <Handler command="thread.toggleRead" name="toggle" result={true} />
+        <Handler command="thread.markRead" name="toggle" result={true} />
         <button type="button">Row</button>
         <textarea aria-label="Composer" />
         <div contentEditable data-testid="editor" />

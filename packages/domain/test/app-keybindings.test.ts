@@ -25,7 +25,7 @@ function listBinding(command: string, contexts: readonly string[]) {
 describe("app keybinding schemas", () => {
   it("accept the thread-list commands under the sidebar list focus context", () => {
     const commands = [
-      "thread.toggleRead",
+      "thread.markRead",
       "thread.previousAttention",
       "thread.nextAttention",
       "sidebar.focus",
@@ -43,12 +43,12 @@ describe("app keybinding schemas", () => {
     ).toBe(true);
     expect(
       appDefaultKeybindingsSchema.safeParse([
-        listBinding("thread.toggleRead", ["sidebarFocus"]),
+        listBinding("thread.markRead", ["sidebarFocus"]),
       ]).success,
     ).toBe(false);
     expect(
       appKeybindingOverridesSchema.safeParse([
-        { command: "thread.markRead", shortcut: BARE_U },
+        { command: "thread.toggleRead", shortcut: BARE_U },
       ]).success,
     ).toBe(false);
   });

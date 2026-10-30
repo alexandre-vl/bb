@@ -170,7 +170,7 @@ describe("sidebar list commands", () => {
     ).toBe(true);
     expect(
       await slot.behavior.experimental_runSidebarListCommand(
-        "thread.toggleRead",
+        "thread.markRead",
         row("Open thread"),
       ),
     ).toBe(true);
@@ -245,7 +245,7 @@ describe("sidebar list commands", () => {
       ),
     ).toBe(true);
     await slot.behavior.experimental_runSidebarListCommand(
-      "thread.toggleRead",
+      "thread.markRead",
       row("Archived thread"),
     );
     expect(ran).toEqual([{ key: "bb--core/read", threadId: "thr_archived" }]);

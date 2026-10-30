@@ -904,7 +904,7 @@ describe("app keybindings", () => {
       for (const [command, shortcut] of [
         ["thread.archive", plainShortcut("e")],
         ["thread.rename", plainShortcut("F2")],
-        ["thread.toggleRead", plainShortcut("u")],
+        ["thread.markRead", plainShortcut("u")],
         ["thread.previousAttention", plainShortcut("ArrowUp", true)],
         ["thread.nextAttention", plainShortcut("ArrowDown", true)],
       ] as const) {
@@ -1065,7 +1065,7 @@ describe("app keybindings", () => {
       ).toEqual([
         ["thread.archive", "Backspace", SIDEBAR_LIST_WHEN],
         ["thread.rename", "F2", SIDEBAR_LIST_WHEN],
-        ["thread.toggleRead", "u", SIDEBAR_LIST_WHEN],
+        ["thread.markRead", "u", SIDEBAR_LIST_WHEN],
         ["thread.previousAttention", "ArrowUp", SIDEBAR_LIST_WHEN],
         ["thread.nextAttention", "ArrowDown", SIDEBAR_LIST_WHEN],
       ]);

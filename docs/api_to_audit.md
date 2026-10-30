@@ -3191,7 +3191,7 @@ Docs: `frontend-registration.md`.
 ## `experimental_useSidebarListCommand` (`@get-bb/plugin-sdk/app`)
 
 `experimental_useSidebarListCommand(command, handler)` handles one of
-`thread.archive`, `thread.rename`, `thread.toggleRead`,
+`thread.archive`, `thread.rename`, `thread.markRead`,
 `thread.previousAttention` and `thread.nextAttention`
 (`ExperimentalSidebarListCommand`) while keyboard focus is inside the element
 marked `data-sidebar-thread-tree`, whatever key the user bound to it. The

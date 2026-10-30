@@ -971,7 +971,7 @@ describe("thread action shortcuts", () => {
         label: "F2",
         ariaKeyshortcuts: "F2",
       });
-      boundShortcuts.set("thread.toggleRead", {
+      boundShortcuts.set("thread.markRead", {
         label: "U",
         ariaKeyshortcuts: "U",
       });

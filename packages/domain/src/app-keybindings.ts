@@ -59,7 +59,6 @@ export const APP_COMMAND_IDS = [
   "thread.pin",
   "thread.previous",
   "thread.next",
-  "thread.toggleRead",
   "thread.previousAttention",
   "thread.nextAttention",
   "history.back",

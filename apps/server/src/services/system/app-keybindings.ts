@@ -476,7 +476,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
   }),
   binding("thread.archive", "e", {}, sidebarListWithoutModalOrEditable),
   binding("thread.rename", "F2", {}, sidebarListWithoutModalOrEditable),
-  binding("thread.toggleRead", "u", {}, sidebarListWithoutModalOrEditable),
+  binding("thread.markRead", "u", {}, sidebarListWithoutModalOrEditable),
   binding(
     "thread.previousAttention",
     "ArrowUp",

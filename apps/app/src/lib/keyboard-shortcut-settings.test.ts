@@ -118,7 +118,10 @@ describe("keyboard shortcut settings", () => {
     };
     expect(canAssignAppShortcut("thread.new", plainKey)).toBe(false);
     expect(canAssignAppShortcut("question.select.1", plainKey)).toBe(true);
-    expect(canAssignAppShortcut("thread.toggleRead", plainKey)).toBe(true);
+    expect(canAssignAppShortcut("thread.previousAttention", plainKey)).toBe(
+      true,
+    );
+    expect(canAssignAppShortcut("thread.markRead", plainKey)).toBe(false);
     expect(canAssignAppShortcut("thread.archive", plainKey)).toBe(false);
     expect(canAssignAppShortcut("thread.new", { ...plainKey, key: "F2" })).toBe(
       true,

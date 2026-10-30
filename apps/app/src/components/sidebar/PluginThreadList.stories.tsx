@@ -865,7 +865,7 @@ const V2_KEYBINDINGS: AppKeybinding[] = [
   },
   listBinding("thread.archive", shortcut("e")),
   listBinding("thread.rename", shortcut("F2")),
-  listBinding("thread.toggleRead", shortcut("u")),
+  listBinding("thread.markRead", shortcut("u")),
   listBinding("thread.previousAttention", shortcut("ArrowUp", { alt: true })),
   listBinding("thread.nextAttention", shortcut("ArrowDown", { alt: true })),
 ];
