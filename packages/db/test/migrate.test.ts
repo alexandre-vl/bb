@@ -2413,6 +2413,7 @@ describe("migrate", () => {
         sendAt: null,
         payload: { kind: "inline" },
         systemNotice: null,
+        compactFirst: false,
       });
       const inheritedQueue = createQueuedThreadMessage(db, noopNotifier, {
         threadId: sideChatWithHistory.id,
@@ -2425,6 +2426,7 @@ describe("migrate", () => {
         sendAt: null,
         payload: { kind: "inline" },
         systemNotice: null,
+        compactFirst: false,
       });
       const fallbackQueue = createQueuedThreadMessage(db, noopNotifier, {
         threadId: sideChatWithoutHistory.id,
@@ -2437,6 +2439,7 @@ describe("migrate", () => {
         sendAt: null,
         payload: { kind: "inline" },
         systemNotice: null,
+        compactFirst: false,
       });
       db.$client
         .prepare(

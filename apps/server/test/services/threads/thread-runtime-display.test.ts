@@ -653,6 +653,7 @@ describe("thread runtime display", () => {
           sendAt: null,
           payload: { kind: "inline" },
           systemNotice: null,
+          compactFirst: false,
         });
       }
     }
