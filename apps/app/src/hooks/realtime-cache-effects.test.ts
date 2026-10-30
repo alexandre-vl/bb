@@ -2735,7 +2735,7 @@ describe("createRealtimeCacheEffects", () => {
           statusChange: {
             activity: NO_THREAD_ACTIVITY,
             latestAttentionAt: 100,
-            runtime: { displayStatus: "active" },
+            runtime: { displayStatus: "active", hostUnavailable: false },
             status: "active",
             updatedAt: 200 + index,
           },
