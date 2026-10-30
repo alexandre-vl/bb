@@ -1,45 +1,78 @@
 import { describe, expect, it, vi } from "vitest";
-import { openAppFixedTabFromDestinations } from "./app-fixed-tab-navigation";
+import {
+  createAppPanelController,
+  type AppFixedTabDestination,
+} from "./app-fixed-tab-navigation";
+import type { AppTabOpenIntent } from "./app-navigation-host";
 
-describe("openAppFixedTabFromDestinations", () => {
-  it("resolves an owner-scoped reference and forwards the target unchanged", () => {
-    const open = vi.fn(() => true);
-    const target = { kind: "record", recordId: "issue-42" } as const;
+const fixedTab = { ownerId: "plugin:demo:tasks", tabId: "details" };
+const actionTab = { ownerId: "plugin-thread:demo", tabId: "chat" };
 
-    expect(
-      openAppFixedTabFromDestinations(
-        [
-          {
-            tab: { ownerId: "plugin:demo", tabId: "details" },
-            open,
-          },
-        ],
-        {
-          surface: { kind: "current" },
-          tab: { ownerId: "plugin:demo", tabId: "details" },
-          target,
-        },
-      ),
-    ).toBe(true);
-    expect(open).toHaveBeenCalledWith(target);
+function createSurface() {
+  const openFixed = vi.fn(() => true);
+  const openAction = vi.fn(() => true);
+  const close = vi.fn();
+  const destinations: AppFixedTabDestination[] = [
+    { tab: fixedTab, open: openFixed, panelTabId: () => "fixed-details" },
+    {
+      tab: actionTab,
+      availability: "action",
+      open: openAction,
+      panelTabId: (params) => `chat:${JSON.stringify(params ?? null)}`,
+    },
+  ];
+  const panel = createAppPanelController(() => ({
+    activeTabId: null,
+    close,
+    destinations,
+  }));
+  return { close, openAction, openFixed, panel };
+}
+
+describe("createAppPanelController", () => {
+  it.each<[string, AppTabOpenIntent]>([
+    [
+      "params on a fixed tab",
+      { tab: fixedTab, availability: "fixed", params: 1 },
+    ],
+    [
+      "a target on an action tab",
+      { tab: actionTab, availability: "action", target: 1 },
+    ],
+    [
+      "a replacement on a fixed tab",
+      { tab: fixedTab, availability: "fixed", replaceTabId: "fixed-details" },
+    ],
+    [
+      "a non-JSON target",
+      {
+        tab: fixedTab,
+        availability: "fixed",
+        target: { at: new Date() } as never,
+      },
+    ],
+  ])("declines %s without touching the surface", (_label, intent) => {
+    const { close, openAction, openFixed, panel } = createSurface();
+    expect(panel.openTab(intent)).toBe(false);
+    expect(panel.toggleTab(intent)).toBe(false);
+    expect(openFixed).not.toHaveBeenCalled();
+    expect(openAction).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
   });
 
-  it("leaves destinations untouched when owner or tab is ineligible", () => {
-    const open = vi.fn(() => true);
+  it("hands an action tab the tab it replaces", () => {
+    const { openAction, panel } = createSurface();
     expect(
-      openAppFixedTabFromDestinations(
-        [
-          {
-            tab: { ownerId: "plugin:other", tabId: "details" },
-            open,
-          },
-        ],
-        {
-          surface: { kind: "current" },
-          tab: { ownerId: "plugin:demo", tabId: "details" },
-        },
-      ),
-    ).toBe(false);
-    expect(open).not.toHaveBeenCalled();
+      panel.openTab({
+        tab: actionTab,
+        availability: "action",
+        params: { n: 1 },
+        replaceTabId: "chat:caller",
+      }),
+    ).toBe(true);
+    expect(openAction).toHaveBeenCalledExactlyOnceWith(undefined, {
+      params: { n: 1 },
+      replaceTabId: "chat:caller",
+    });
   });
 });

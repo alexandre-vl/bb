@@ -1,16 +1,17 @@
 import { createContext, useCallback, useContext } from "react";
 import { z } from "zod";
 import { jsonValueSchema } from "@bb/domain";
-import type { PluginPanelActionOpenOptions } from "@get-bb/plugin-sdk";
 import { useLatestRef } from "@/hooks/useLatestRef";
+import {
+  getThreadFixedTabOwnerId,
+  type AppPanelController,
+} from "@/lib/app-fixed-tab-navigation";
+import type { AppTabOpenIntent } from "@/lib/app-navigation-host";
 import type { PluginTabSlot } from "@/lib/plugin-slots";
 import {
   isPlainPrimaryClick,
   type UrlAnchorClickEvent,
 } from "@/lib/url-open-routing";
-import type { PluginThreadPanelOpenHandler } from "./plugin-thread-panel-navigation";
-
-type PluginUrlClaim = Parameters<PluginThreadPanelOpenHandler>[0];
 
 export type PluginThreadActionTabSlot = Extract<
   PluginTabSlot,
@@ -29,6 +30,8 @@ const claimedOpenOptionsSchema = z.object({
   params: jsonValueSchema.optional(),
 });
 
+type ClaimedOpenOptions = z.infer<typeof claimedOpenOptionsSchema>;
+
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -43,9 +46,7 @@ function parseWebUrl(href: string): URL | null {
   return url.protocol === "http:" || url.protocol === "https:" ? url : null;
 }
 
-function readClaimedOpenOptions(
-  value: unknown,
-): PluginPanelActionOpenOptions | null {
+function readClaimedOpenOptions(value: unknown): ClaimedOpenOptions | null {
   if (value === null || value === undefined) return null;
   if (Object.getPrototypeOf(value) !== Object.prototype) {
     throw new Error("must return panel open options or null");
@@ -57,7 +58,7 @@ function claimUrlForThreadPanel(
   tabs: readonly PluginThreadActionTabSlot[],
   href: string,
   callerPluginId: string | null,
-): PluginUrlClaim | null {
+): AppTabOpenIntent | null {
   const url = parseWebUrl(href);
   if (url === null) return null;
   for (const tab of tabs) {
@@ -67,7 +68,7 @@ function claimUrlForThreadPanel(
     ) {
       continue;
     }
-    let options: PluginPanelActionOpenOptions | null;
+    let options: ClaimedOpenOptions | null;
     try {
       options = readClaimedOpenOptions(tab.experimental_claimUrl(new URL(url)));
     } catch (error) {
@@ -77,22 +78,27 @@ function claimUrlForThreadPanel(
       continue;
     }
     if (options !== null) {
-      return { ...options, pluginId: tab.pluginId, actionId: tab.id };
+      return {
+        tab: { ownerId: getThreadFixedTabOwnerId(tab.pluginId), tabId: tab.id },
+        availability: "action",
+        ...(options.title === undefined ? {} : { title: options.title }),
+        ...(options.params === undefined ? {} : { params: options.params }),
+      };
     }
   }
   return null;
 }
 
 export function useOpenClaimedUrl(
-  openThreadPanel: PluginThreadPanelOpenHandler,
+  panel: AppPanelController,
   tabs: readonly PluginThreadActionTabSlot[],
 ): OpenClaimedUrl {
-  const latestRef = useLatestRef({ openThreadPanel, tabs });
+  const latestRef = useLatestRef({ panel, tabs });
   return useCallback<OpenClaimedUrl>(
     (href, callerPluginId) => {
       const latest = latestRef.current;
-      const claim = claimUrlForThreadPanel(latest.tabs, href, callerPluginId);
-      return claim !== null && latest.openThreadPanel(claim);
+      const intent = claimUrlForThreadPanel(latest.tabs, href, callerPluginId);
+      return intent !== null && latest.panel.openTab(intent);
     },
     [latestRef],
   );

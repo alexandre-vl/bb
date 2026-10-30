@@ -1,9 +1,10 @@
 import { pluginCommandId, type PluginCommandId } from "@bb/domain";
 import type { PluginCommandContext } from "@get-bb/plugin-sdk";
+import type { AppPanelController } from "@/lib/app-fixed-tab-navigation";
 import {
-  openPluginThreadPanel,
-  type PluginThreadPanelOpenHandler,
-} from "@/components/plugin/plugin-thread-panel-navigation";
+  createPluginPanelController,
+  createRetiredOpenPanel,
+} from "@/lib/plugin-panel-controller";
 import type { PluginCommandPaletteActionSlot } from "@/lib/plugin-slots";
 import { getPluginDisplayName } from "@/lib/plugin-logos";
 import type { PaletteAction } from "./palette-action";
@@ -21,7 +22,7 @@ export interface BuildPluginPaletteActionsArgs {
   slots: readonly AppCommandSlot[];
   threadId: string | null;
   projectId: string | null;
-  openThreadPanel: PluginThreadPanelOpenHandler | null;
+  panel: AppPanelController | null;
 }
 
 function describeError(error: unknown): string {
@@ -32,24 +33,19 @@ function actionContext(
   slot: AppCommandSlot,
   args: BuildPluginPaletteActionsArgs,
 ): PluginCommandContext {
-  return {
+  const experimental_panel = createPluginPanelController(
+    slot.pluginId,
+    () => args.panel,
+  );
+  const context: PluginCommandContext & {
+    openPanel: ReturnType<typeof createRetiredOpenPanel>;
+  } = {
     threadId: args.threadId,
     projectId: args.projectId,
-    openPanel: (options) => {
-      if (args.openThreadPanel === null) {
-        console.warn(
-          `[plugin:${slot.pluginId}] commandPaletteAction "${slot.id}" openPanel declined: no thread side panel on this surface`,
-        );
-        return false;
-      }
-      return openPluginThreadPanel({
-        open: args.openThreadPanel,
-        options,
-        panelTab: null,
-        pluginId: slot.pluginId,
-      });
-    },
+    experimental_panel,
+    openPanel: createRetiredOpenPanel(experimental_panel),
   };
+  return context;
 }
 
 export function buildPluginPaletteActions(

@@ -1,8 +1,4 @@
-import type {
-  JsonValue,
-  PluginPanelActionOpenOptions,
-  PluginRpcResult,
-} from "@get-bb/plugin-sdk/app";
+import type { JsonValue, PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { githubRpcContract } from "./server.js";
 
 export type Item = PluginRpcResult<
@@ -16,6 +12,11 @@ export interface ItemRef {
 
 export interface LinkedItem extends ItemRef {
   kind: Item["kind"];
+}
+
+interface ItemTabOptions {
+  title: string;
+  params: JsonValue;
 }
 
 const REPO_NAME_PATTERN = /^[\w.-]+\/[\w.-]+$/;
@@ -73,14 +74,14 @@ function githubItemFromUrl(
 export function itemTabOptions(
   kind: Item["kind"],
   item: ItemRef,
-): PluginPanelActionOpenOptions {
+): ItemTabOptions {
   const params = { repo: item.repo.toLowerCase(), number: item.number };
   return kind === "pr"
     ? { title: `PR #${item.number}`, params }
     : { title: `Issue #${item.number}`, params: { kind, ...params } };
 }
 
-export function claimItemUrl(url: URL): PluginPanelActionOpenOptions | null {
+export function claimItemUrl(url: URL): ItemTabOptions | null {
   const item = githubItemFromUrl(url);
   return item === null ? null : itemTabOptions(item.kind, item);
 }

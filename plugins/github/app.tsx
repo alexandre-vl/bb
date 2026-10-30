@@ -4,6 +4,7 @@ import {
   experimental_Diff as Diff,
   experimental_FileLink as FileLink,
   experimental_copyToClipboard,
+  experimental_useAppPanel,
   UrlLink,
   useBbNavigate,
   useRealtime,
@@ -1899,6 +1900,11 @@ interface ThreadPull extends ItemRef {
 }
 
 const GITHUB_TAB_ID = "pull";
+const GITHUB_TAB = {
+  id: GITHUB_TAB_ID,
+  context: { kind: "thread" },
+  availability: "action",
+} as const;
 
 function useThreadPull(
   threadId: string,
@@ -1935,15 +1941,15 @@ function useThreadPull(
 }
 
 function useShowItemInThisTab(kind: Item["kind"]): (item: ItemRef) => boolean {
-  const navigate = useBbNavigate();
+  const panel = experimental_useAppPanel();
   return useCallback(
     (item) =>
-      navigate.openThreadPanel({
-        actionId: GITHUB_TAB_ID,
+      panel.openTab({
+        tab: GITHUB_TAB,
         ...itemTabOptions(kind, item),
         experimental_replace: true,
       }),
-    [kind, navigate],
+    [kind, panel],
   );
 }
 

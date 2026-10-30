@@ -7,6 +7,12 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 
 const app = await loadPluginApp(() => import("./app"));
 
+const GITHUB_TAB = {
+  id: "pull",
+  context: { kind: "thread" },
+  availability: "action",
+} as const;
+
 function threadPanelAction(id: string) {
   const action = app.threadPanelActions.find((entry) => entry.id === id);
   if (action === undefined) throw new Error(`no "${id}" thread panel action`);
@@ -131,7 +137,11 @@ describe("GitHub app navigation", () => {
   it("keeps removed pull-request files out of live workspace navigation", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 42 } },
+      {
+        threadId: "thr-1",
+        environment: null,
+        params: { repo: "get-bb/bb", number: 42 },
+      },
       {
         rpc: {
           pullForThread: () => ({
@@ -241,7 +251,11 @@ describe("GitHub links opened from a thread", () => {
   it("shows the linked pull request rather than the thread's own, outside its workspace", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      {
+        threadId: "thr-1",
+        environment: null,
+        params: { repo: "get-bb/bb", number: 7 },
+      },
       {
         rpc: {
           pullForThread: () => ({
@@ -281,7 +295,11 @@ describe("GitHub links opened from a thread", () => {
   it("shows the agent linked to a pull request whatever the case of its repository", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: { repo: "get-bb/bb", number: 7 } },
+      {
+        threadId: "thr-1",
+        environment: null,
+        params: { repo: "get-bb/bb", number: 7 },
+      },
       {
         rpc: {
           pullForThread: () => ({ pull: null }),
@@ -315,7 +333,7 @@ describe("GitHub links opened from a thread", () => {
     async (_name, accepted, inlineTitle) => {
       const slot = renderSlot(
         threadPanelAction("pull"),
-        { threadId: "thr-1", params: null },
+        { threadId: "thr-1", environment: null, params: null },
         {
           rpc: {
             pullForThread: () => ({
@@ -324,16 +342,16 @@ describe("GitHub links opened from a thread", () => {
             getPull: () => ({ pull: pullDetail({ title: "Thread PR" }) }),
             listLinks: () => ({ links: {} }),
           },
-          openThreadPanel: () => accepted,
+          experimental_panel: { openTab: () => accepted },
         },
       );
 
       await act(async () => {});
-      expect(slot.navigateCalls).toEqual([
+      expect(slot.experimental_panelCalls).toEqual([
         {
-          method: "openThreadPanel",
+          method: "openTab",
           options: {
-            actionId: "pull",
+            tab: GITHUB_TAB,
             title: "PR #42",
             params: { repo: "get-bb/bb", number: 42 },
             experimental_replace: true,
@@ -352,7 +370,7 @@ describe("GitHub links opened from a thread", () => {
   it("replaces the tab with the pull request picked in it", async () => {
     const slot = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: null },
+      { threadId: "thr-1", environment: null, params: null },
       {
         rpc: {
           pullForThread: () => ({ pull: null }),
@@ -375,17 +393,17 @@ describe("GitHub links opened from a thread", () => {
           }),
           listLinks: () => ({ links: {} }),
         },
-        openThreadPanel: () => true,
+        experimental_panel: { openTab: () => true },
       },
     );
 
     const openPull = await slot.findByText("Open PR");
     await act(async () => openPull.click());
-    expect(slot.navigateCalls).toEqual([
+    expect(slot.experimental_panelCalls).toEqual([
       {
-        method: "openThreadPanel",
+        method: "openTab",
         options: {
-          actionId: "pull",
+          tab: GITHUB_TAB,
           title: "PR #9",
           params: { repo: "get-bb/bb", number: 9 },
           experimental_replace: true,
@@ -430,6 +448,7 @@ describe("GitHub links opened from a thread", () => {
       threadPanelAction("pull"),
       {
         threadId: "thr-1",
+        environment: null,
         params: { kind: "issue", repo: "get-bb/bb", number: 7 },
       },
       { rpc },
@@ -439,7 +458,7 @@ describe("GitHub links opened from a thread", () => {
 
     const picker = renderSlot(
       threadPanelAction("pull"),
-      { threadId: "thr-1", params: null },
+      { threadId: "thr-1", environment: null, params: null },
       { rpc },
     );
     expect(await picker.findByText("Open PR")).toBeTruthy();
@@ -456,11 +475,11 @@ describe("GitHub links opened from a thread", () => {
       [{ repo: "get-bb/bb", number: 7 }],
       [{ repo: "get-bb/bb", number: 9 }],
     ]);
-    expect(picker.navigateCalls).toEqual([
+    expect(picker.experimental_panelCalls).toEqual([
       {
-        method: "openThreadPanel",
+        method: "openTab",
         options: {
-          actionId: "pull",
+          tab: GITHUB_TAB,
           title: "Issue #9",
           params: { kind: "issue", repo: "get-bb/bb", number: 9 },
           experimental_replace: true,
