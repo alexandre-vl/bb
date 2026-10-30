@@ -240,6 +240,7 @@ export function useThreadCreationOptions(
     initialPermissionMode,
     initialReasoningLevel,
     initialServiceTier,
+    initialSessionOptionSelections,
     preferReadyProviderWhenUnset = false,
     preferenceProjectId,
     projectDefaultEnvironmentValue,
@@ -494,10 +495,16 @@ export function useThreadCreationOptions(
     selections: SessionOptionSelections;
   }>({ key: "", selections: NO_SESSION_OPTION_SELECTIONS });
   const localSessionOptionsKey = `${String(resetKey ?? "")}:${effectiveProviderId}`;
+  const seededSessionOptionSelections =
+    initialSessionOptionSelections !== undefined &&
+    (initialProviderId === undefined ||
+      initialProviderId === effectiveProviderId)
+      ? initialSessionOptionSelections
+      : NO_SESSION_OPTION_SELECTIONS;
   const localSessionOptionSelections =
     localSessionOptions.key === localSessionOptionsKey
       ? localSessionOptions.selections
-      : NO_SESSION_OPTION_SELECTIONS;
+      : seededSessionOptionSelections;
   const requestedSessionOptionSelections =
     sessionOptionSelectionsOverride ??
     (usesStoredCreateSelections
@@ -713,6 +720,7 @@ export function useThreadCreationOptions(
     [
       localSessionOptionSelections,
       localSessionOptionsKey,
+      setLocalSessionOptions,
       setStoredSessionOptions,
       storedSessionOptionSelections,
       usesStoredCreateSelections,
@@ -812,6 +820,10 @@ export function useThreadCreationOptions(
       localProviderSelectionsRef.current = new Map();
       localProviderServiceTiersRef.current = new Map();
       setLocalProvidersUsingDefaults(new Set());
+      setLocalSessionOptions({
+        key: "",
+        selections: NO_SESSION_OPTION_SELECTIONS,
+      });
       setThreadSelections(nextThreadSelections);
       return;
     }

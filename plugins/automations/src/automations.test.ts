@@ -226,6 +226,14 @@ function createAutomationServiceBb() {
               },
             },
           ] as never,
+        models: async () => {
+          throw new Error("not expected");
+        },
+      },
+      environments: {
+        listProviders: async () => {
+          throw new Error("not expected");
+        },
       },
       threads: {
         get: async () => {
@@ -1287,6 +1295,14 @@ describe("automation service", () => {
         },
         providers: {
           list: async () => [],
+          models: async () => {
+            throw new Error("not expected");
+          },
+        },
+        environments: {
+          listProviders: async () => {
+            throw new Error("not expected");
+          },
         },
         threadSections: {
           list: async () => [],
@@ -2178,6 +2194,195 @@ describe("automation CLI --script-file", () => {
       await t.cleanup();
     }
   });
+});
+
+describe("automation CLI agent environment host", () => {
+  const threadHosts: Record<string, string> = {
+    thr_laptop: "host_laptop",
+    thr_sandbox: "host_sandbox",
+  };
+  const hostTypes: Record<string, "persistent" | "ephemeral"> = {
+    host_laptop: "persistent",
+    host_server: "persistent",
+    host_sandbox: "ephemeral",
+  };
+
+  async function setup() {
+    const db = createTestDb();
+    const pluginDataDir = await mkdtemp(join(tmpdir(), "bb-agent-host-"));
+    const environments = {
+      listProviders: async () => [
+        {
+          id: "git-worktree",
+          displayName: "Worktree",
+          machineProviderId: null,
+          inputs: { type: "object" },
+          acceptsEmptyInputs: true,
+          machineAvailability: { host_laptop: null, host_server: null },
+        },
+      ],
+    };
+    const serviceBb = createAutomationServiceBb();
+    const service = createAutomationService({
+      bb: {
+        ...serviceBb,
+        sdk: { ...serviceBb.sdk, environments: environments as never },
+      },
+      db,
+      pluginDataDir,
+      serverUrl: "http://127.0.0.1:1",
+      scriptRuns: createScriptRunScope(),
+    });
+    const sdk = {
+      ...serviceBb.sdk,
+      environments,
+      hosts: {
+        list: async () =>
+          Object.entries(hostTypes).map(([id, type]) => ({
+            id,
+            name: id.replace("host_", ""),
+            type,
+            status: "connected",
+          })),
+        get: async ({ hostId }: { hostId: string }) => ({
+          id: hostId,
+          type: hostTypes[hostId],
+          status: "connected",
+        }),
+      },
+      threads: {
+        ...serviceBb.sdk.threads,
+        get: async ({ threadId }: { threadId: string }) => {
+          const hostId = threadHosts[threadId];
+          return {
+            id: threadId,
+            environment: hostId === undefined ? null : { hostId },
+          };
+        },
+      },
+    };
+    let cli: PluginCliRegistration | undefined;
+    registerAutomationCli({
+      bb: {
+        sdk: sdk as never,
+        cli: {
+          register: (registration) => {
+            cli = registration;
+          },
+        },
+      },
+      service,
+    });
+    if (!cli) throw new Error("automation CLI was not registered");
+    const registered = cli;
+    return {
+      async createdEnvironment(flags: string[], threadId: string | undefined) {
+        const created = await registered.run(
+          [
+            "create",
+            "--project",
+            "proj_test",
+            "--name",
+            "host-test",
+            "--in",
+            "30m",
+            "--prompt",
+            "Check the build",
+            "--provider",
+            "codex",
+            "--model",
+            "test-model",
+            "--permission-mode",
+            "auto",
+            ...flags,
+            "--json",
+          ],
+          threadId === undefined ? {} : { threadId },
+        );
+        expect(created).toMatchObject({ exitCode: 0 });
+        return JSON.parse(created.stdout ?? "").execution.environment;
+      },
+      async cleanup() {
+        await rm(pluginDataDir, { recursive: true, force: true });
+      },
+    };
+  }
+
+  it.each([
+    {
+      flags: ["--new-environment", "worktree"],
+      threadId: undefined,
+      hostId: "host_server",
+    },
+    {
+      flags: ["--new-environment", "worktree"],
+      threadId: "thr_laptop",
+      hostId: "host_laptop",
+    },
+    {
+      flags: ["--new-environment", "worktree"],
+      threadId: "thr_sandbox",
+      hostId: "host_server",
+    },
+    {
+      flags: ["--environment", "/work/repo"],
+      threadId: undefined,
+      hostId: "host_server",
+    },
+    {
+      flags: ["--environment", "/work/repo"],
+      threadId: "thr_laptop",
+      hostId: "host_laptop",
+    },
+    {
+      flags: ["--new-environment", "worktree", "--machine", "server"],
+      threadId: "thr_laptop",
+      hostId: "host_server",
+    },
+  ])(
+    "pins $flags run from thread $threadId to $hostId",
+    async ({ flags, threadId, hostId }) => {
+      const t = await setup();
+      try {
+        expect(await t.createdEnvironment(flags, threadId)).toEqual(
+          expect.objectContaining({ type: "host", hostId }),
+        );
+      } finally {
+        await t.cleanup();
+      }
+    },
+  );
+
+  it.each([
+    { flags: [], threadId: undefined, hostId: "host_server" },
+    { flags: [], threadId: "thr_laptop", hostId: "host_laptop" },
+    { flags: [], threadId: "thr_sandbox", hostId: "host_server" },
+    {
+      flags: ["--machine", "server"],
+      threadId: "thr_laptop",
+      hostId: "host_server",
+    },
+  ])(
+    "pins --environment-provider with $flags run from thread $threadId to $hostId",
+    async ({ flags, threadId, hostId }) => {
+      const t = await setup();
+      try {
+        expect(
+          await t.createdEnvironment(
+            ["--environment-provider", "git-worktree", ...flags],
+            threadId,
+          ),
+        ).toEqual({
+          type: "provider",
+          environmentProviderId: "git-worktree",
+          machine: { type: "existing", hostId },
+          inputs: {},
+        });
+      } finally {
+        await t.cleanup();
+      }
+    },
+  );
 });
 
 describe("bb CLI injection for script runs", () => {

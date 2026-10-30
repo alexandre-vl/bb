@@ -45,6 +45,7 @@ import {
   summarizeProjectDefaultEnvironment,
   type ProjectDefaultEnvironmentSummary,
 } from "./lib/project-default-environment";
+import type { EnvironmentCatalog } from "./lib/automation-environment";
 import { Button } from "@/components/ui/button";
 import { DelayedLoading } from "@/components/ui/delayed-loading";
 import {
@@ -334,26 +335,37 @@ function useAutomationsPageTitle({ subPath }: PluginNavPanelProps) {
     : { title: subPath === "browse" ? "Browse" : "Installed" };
 }
 
-function useProjectDefaultEnvironment(
-  project: OverviewEntry["project"] | undefined,
-): ProjectDefaultEnvironmentSummary | null {
+function useEnvironmentCatalog(): EnvironmentCatalog | null {
   const environmentProviders = useEnvironmentProviders();
   const machines = experimental_useSidebarThreads().experimental_hosts;
+  return useMemo(
+    () =>
+      environmentProviders.status === "ready"
+        ? { providers: environmentProviders.providers, machines: machines ?? [] }
+        : null,
+    [environmentProviders, machines],
+  );
+}
+
+function useProjectDefaultEnvironment(
+  project: OverviewEntry["project"] | undefined,
+  catalog: EnvironmentCatalog | null,
+): ProjectDefaultEnvironmentSummary | null {
   return useMemo(() => {
     if (
       project?.defaultEnvironment === undefined ||
       project.defaultEnvironmentProblem === undefined ||
-      environmentProviders.status !== "ready"
+      catalog === null
     ) {
       return null;
     }
     return summarizeProjectDefaultEnvironment({
       defaultEnvironment: project.defaultEnvironment,
       defaultEnvironmentProblem: project.defaultEnvironmentProblem,
-      providers: environmentProviders.providers,
-      machines: machines ?? [],
+      providers: catalog.providers,
+      machines: catalog.machines,
     });
-  }, [project, environmentProviders, machines]);
+  }, [project, catalog]);
 }
 
 interface RunsState {
@@ -657,8 +669,10 @@ function DetailView({
       entry.automation.projectId === route.projectId &&
       entry.automation.id === route.automationId,
   );
+  const environmentCatalog = useEnvironmentCatalog();
   const projectDefaultEnvironment = useProjectDefaultEnvironment(
     overviewEntry?.project,
+    environmentCatalog,
   );
 
   const openThread = useCallback(
@@ -818,6 +832,7 @@ function DetailView({
       automation={readableAutomation}
       projectLabel={projectLabel}
       projectDefaultEnvironment={projectDefaultEnvironment}
+      environmentCatalog={environmentCatalog}
       runsState={runsState}
       actionPending={actionPending}
       editing={requiresPrompt || editingRequested}

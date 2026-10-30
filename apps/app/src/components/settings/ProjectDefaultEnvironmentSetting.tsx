@@ -28,6 +28,7 @@ import {
 } from "@/hooks/queries/host-queries";
 import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { useHostDaemon } from "@/hooks/useHostDaemon";
+import { projectDefaultEnvironmentLabel } from "@/views/root-compose-environment-selection";
 
 const NEEDS_THREAD_OPTIONS = "Asks for options on each thread";
 const NEEDS_GIT_REMOTE = "Needs the project's Git remote";
@@ -164,23 +165,11 @@ export function ProjectDefaultEnvironmentSetting({
   const host =
     hosts.find((candidate) => candidate.id === defaultHostId) ??
     selectPrimaryHost(hosts, primaryHostId);
-  const providerName =
-    defaultEnvironment === null
-      ? null
-      : (providers?.find(
-          (provider) => provider.id === defaultEnvironment.environmentProviderId,
-        )?.displayName ?? defaultEnvironment.environmentProviderId);
-  const defaultHostName =
-    defaultHostId === null
-      ? null
-      : (hostsQuery.data?.find((candidate) => candidate.id === defaultHostId)
-          ?.name ?? null);
-  const label =
-    providerName === null
-      ? "Automatic"
-      : defaultHostName === null
-        ? providerName
-        : `${defaultHostName} · ${providerName}`;
+  const label = projectDefaultEnvironmentLabel({
+    defaultEnvironment,
+    providers,
+    hosts: hostsQuery.data,
+  });
   const description =
     problem !== null
       ? `${sentence(problem.message)}. Threads started without a choice fail until you change or reset it.`
