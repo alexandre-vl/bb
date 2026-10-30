@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrations, type Db } from "./data.js";
 import { TARGET_THREAD_OPTIONS_MESSAGE } from "./agent-options.js";
 import type { AgentEnvironment } from "./rpc-types.js";
+import { createScriptRunScope } from "./script-runner.js";
 import { createAutomationService } from "./service.js";
 
 const dataDirs: string[] = [];
@@ -124,6 +125,7 @@ async function createHarness() {
     db: createTestDb(),
     pluginDataDir,
     serverUrl: "http://127.0.0.1:38886",
+    scriptRuns: createScriptRunScope(),
   });
   return { service, providersList, providersModels, spawn };
 }

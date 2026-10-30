@@ -2231,6 +2231,7 @@ describe("automation CLI agent environment host", () => {
       db,
       pluginDataDir,
       serverUrl: "http://127.0.0.1:1",
+      scriptRuns: createScriptRunScope(),
     });
     const sdk = {
       ...serviceBb.sdk,
