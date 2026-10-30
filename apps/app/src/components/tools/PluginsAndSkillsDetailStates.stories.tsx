@@ -477,6 +477,7 @@ const UPDATE_FAILED_PLUGIN: PluginListItem = {
       label: "1.5.0",
       at: new Date(2026, 6, 22).getTime(),
       detail: "The plugin failed to load after the update.",
+      restored: true,
     },
   },
 };

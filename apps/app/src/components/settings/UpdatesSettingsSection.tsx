@@ -2069,7 +2069,9 @@ function PluginUpdateRow({
               reason={
                 failure.detail.length > 0
                   ? failure.detail
-                  : `bb couldn’t activate ${failure.label} and restored ${plugin.version}.`
+                  : failure.restored
+                    ? `bb couldn’t activate ${failure.label} and restored ${plugin.version}.`
+                    : `bb couldn’t activate ${failure.label} or undo the change. It kept ${plugin.version}.`
               }
             />
             <RowStateControl

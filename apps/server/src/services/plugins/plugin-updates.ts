@@ -40,6 +40,7 @@ import {
 } from "./managed-plugin-artifacts.js";
 import { MARKETPLACE_FETCH_TIMEOUT_MS } from "../plugin-catalog/marketplace-http.js";
 import { removeUnusedPluginArtifacts } from "./plugin-artifact-gc.js";
+import { pluginRestoreHoldRefusal } from "./plugin-state-snapshot.js";
 import {
   SERVER_MOVE_FROZEN_RETRY_MS,
   isServerMoveFrozen,
@@ -143,6 +144,8 @@ function untrackableResolution(
 
 export interface PluginUpdates {
   checkForUpdates(id?: string): Promise<PluginUpdateCheckEntry[]>;
+  checkInBackground(rows: InstalledPluginRow[]): void;
+  stopBackgroundChecks(): Promise<void>;
   startPeriodicUpdateChecks(): void;
   stopPeriodicUpdateChecks(): Promise<void>;
   listUpdateResults(): PluginUpdateCheckEntry[];
@@ -524,6 +527,12 @@ export function createPluginUpdates(
   let cancelPeriodicCheck: (() => void) | null = null;
   let periodicChecksStopped = true;
   let inFlightSweep: Promise<PluginUpdateCheckEntry[]> | null = null;
+  const backgroundChecks = new Set<Promise<void>>();
+  let backgroundChecksStopped = false;
+
+  async function settleBackgroundChecks(): Promise<void> {
+    while (backgroundChecks.size > 0) await Promise.all(backgroundChecks);
+  }
 
   function periodicCheckDelay(): number {
     const stamps = listInstalledPlugins(deps.db)
@@ -629,6 +638,27 @@ export function createPluginUpdates(
   const updates: PluginUpdates = {
     setTrackingRange: trackingRange.setTrackingRange,
 
+    checkInBackground(rows) {
+      if (backgroundChecksStopped) return;
+      const check: Promise<void> = checkRows(rows)
+        .then(
+          () => undefined,
+          (error: unknown) => {
+            deps.logger.warn(
+              { err: error, pluginIds: rows.map(({ id }) => id) },
+              "background plugin update check failed",
+            );
+          },
+        )
+        .finally(() => backgroundChecks.delete(check));
+      backgroundChecks.add(check);
+    },
+
+    async stopBackgroundChecks() {
+      backgroundChecksStopped = true;
+      await settleBackgroundChecks();
+    },
+
     startPeriodicUpdateChecks() {
       if (!periodicChecksStopped) return;
       periodicChecksStopped = false;
@@ -643,6 +673,7 @@ export function createPluginUpdates(
       cancelPeriodicCheck?.();
       cancelPeriodicCheck = null;
       await inFlightSweep?.catch(() => undefined);
+      await settleBackgroundChecks();
     },
 
     checkForUpdates(id) {
@@ -743,6 +774,8 @@ export function createPluginUpdates(
       return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {
         const row = getInstalledPlugin(deps.db, id);
         if (!row) return { ok: false, error: `unknown plugin "${id}"` };
+        const holdRefusal = pluginRestoreHoldRefusal(deps.db, id, "update");
+        if (holdRefusal !== null) return { ok: false, error: holdRefusal };
         const safeModeRefusal = safeModeActivationRefusal({
           pluginId: id,
           provenance: row.provenance,
@@ -880,6 +913,7 @@ export function createPluginUpdates(
           db: deps.db,
           dataDir: deps.dataDir,
           pluginId: id,
+          now: now(),
           warn: (message) => deps.logger.warn(message),
         });
         await runArtifactGc();

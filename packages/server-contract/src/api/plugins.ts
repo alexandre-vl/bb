@@ -91,6 +91,15 @@ export type PluginApplyUpdateResult = z.infer<
   typeof pluginApplyUpdateResultSchema
 >;
 
+export const pluginRollbackResultSchema = z.object({
+  applied: z.boolean(),
+  from: pluginResolvedVersionSchema,
+  to: pluginResolvedVersionSchema,
+  outcome: z.enum(["reverted", "rolled-back"]),
+  detail: z.string().optional(),
+});
+export type PluginRollbackResult = z.infer<typeof pluginRollbackResultSchema>;
+
 export const pluginUpdatePhaseSchema = z.enum([
   "preparing",
   "activating",
@@ -99,29 +108,34 @@ export const pluginUpdatePhaseSchema = z.enum([
 ]);
 export type PluginUpdatePhase = z.infer<typeof pluginUpdatePhaseSchema>;
 
-const pluginUpdateJobFields = {
-  id: z.string().min(1),
-  pluginId: z.string().min(1),
-  displayName: z.string().min(1),
-};
+function pluginUpdateJobStates<
+  Kind extends z.ZodType,
+  Result extends z.ZodType,
+>(kind: Kind, result: Result) {
+  const fields = {
+    id: z.string().min(1),
+    pluginId: z.string().min(1),
+    displayName: z.string().min(1),
+    kind,
+  };
+  return z.discriminatedUnion("state", [
+    z.object({ ...fields, state: z.literal("queued") }),
+    z.object({
+      ...fields,
+      state: z.literal("running"),
+      phase: pluginUpdatePhaseSchema,
+    }),
+    z.object({ ...fields, state: z.literal("completed"), result }),
+    z.object({ ...fields, state: z.literal("failed"), error: z.string() }),
+  ]);
+}
 
-export const pluginUpdateJobSchema = z.discriminatedUnion("state", [
-  z.object({ ...pluginUpdateJobFields, state: z.literal("queued") }),
-  z.object({
-    ...pluginUpdateJobFields,
-    state: z.literal("running"),
-    phase: pluginUpdatePhaseSchema,
-  }),
-  z.object({
-    ...pluginUpdateJobFields,
-    state: z.literal("completed"),
-    result: pluginApplyUpdateResultSchema,
-  }),
-  z.object({
-    ...pluginUpdateJobFields,
-    state: z.literal("failed"),
-    error: z.string(),
-  }),
+export const pluginUpdateJobSchema = z.discriminatedUnion("kind", [
+  pluginUpdateJobStates(
+    z.literal("update").default("update"),
+    pluginApplyUpdateResultSchema,
+  ),
+  pluginUpdateJobStates(z.literal("rollback"), pluginRollbackResultSchema),
 ]);
 export type PluginUpdateJob = z.infer<typeof pluginUpdateJobSchema>;
 export const pluginUpdateJobResponseSchema = z.object({
@@ -186,6 +200,34 @@ export const pluginSourceDetailSchema = z.object({
 });
 export type PluginSourceDetail = z.infer<typeof pluginSourceDetailSchema>;
 
+export const pluginRollbackRequestSchema = z
+  .object({ expectedVersion: z.string().min(1).optional() })
+  .strict();
+export type PluginRollbackRequest = z.infer<typeof pluginRollbackRequestSchema>;
+
+export const pluginRollbackPointSchema = z.object({
+  version: z.string(),
+  label: z.string(),
+  display: z.string(),
+  until: z.number(),
+});
+export type PluginRollbackPoint = z.infer<typeof pluginRollbackPointSchema>;
+
+export const pluginRollbackPointResponseSchema = z.discriminatedUnion(
+  "outcome",
+  [
+    z.object({
+      outcome: z.literal("rollback-available"),
+      from: pluginResolvedVersionSchema,
+      point: pluginRollbackPointSchema,
+    }),
+    z.object({ outcome: z.literal("unavailable"), detail: z.string() }),
+  ],
+);
+export type PluginRollbackPointResponse = z.infer<
+  typeof pluginRollbackPointResponseSchema
+>;
+
 export const pluginUpdateStateSchema = z.object({
   outcome: pluginUpdateOutcomeSchema.optional(),
   detail: z.string().optional(),
@@ -204,8 +246,10 @@ export const pluginUpdateStateSchema = z.object({
       label: z.string(),
       at: z.number(),
       detail: z.string(),
+      restored: z.boolean(),
     })
     .optional(),
+  rollback: pluginRollbackPointSchema.optional(),
 });
 
 export const pluginHandlerStatsSchema = z.object({
@@ -418,6 +462,7 @@ export const pluginInstallJobListResponseSchema = z.object({
 export const pluginReloadResponseSchema = z.object({
   ok: z.literal(true),
   plugins: z.array(installedPluginSchema),
+  warnings: z.array(z.string()),
 });
 export type PluginReloadResponse = z.infer<typeof pluginReloadResponseSchema>;
 

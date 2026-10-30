@@ -131,7 +131,9 @@ export function pluginRowSignal(
       detail:
         state.lastFailure.detail.length > 0
           ? state.lastFailure.detail
-          : `Update to ${state.lastFailure.label} failed and was rolled back.`,
+          : state.lastFailure.restored
+            ? `Update to ${state.lastFailure.label} failed and was rolled back.`
+            : `Update to ${state.lastFailure.label} failed and couldn’t be undone.`,
     };
   }
   const runtimeStatus = pluginRuntimeStatusPresentation(plugin);

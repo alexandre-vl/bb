@@ -133,6 +133,7 @@ describe("pluginRowSignal (the one-signal rule)", () => {
             label: "1.7.0",
             at: 1,
             detail: "boom",
+            restored: true,
           },
         }),
       ),
@@ -171,21 +172,33 @@ describe("pluginRowSignal (the one-signal rule)", () => {
     },
   );
 
-  it("provides a useful rollback explanation when the server has no detail", () => {
-    expect(
-      pluginRowSignal(
-        plugin({
-          lastFailure: { version: "1.7.0", label: "1.7.0", at: 1, detail: "" },
-        }),
-      ),
-    ).toEqual({
-      kind: "status",
-      icon: "RotateCcw",
-      label: "Update failed",
-      tone: "error",
-      detail: "Update to 1.7.0 failed and was rolled back.",
-    });
-  });
+  it.each([
+    [true, "Update to 1.7.0 failed and was rolled back."],
+    [false, "Update to 1.7.0 failed and couldn’t be undone."],
+  ])(
+    "provides a useful explanation when the server has no detail (restored: %s)",
+    (restored, detail) => {
+      expect(
+        pluginRowSignal(
+          plugin({
+            lastFailure: {
+              version: "1.7.0",
+              label: "1.7.0",
+              at: 1,
+              detail: "",
+              restored,
+            },
+          }),
+        ),
+      ).toEqual({
+        kind: "status",
+        icon: "RotateCcw",
+        label: "Update failed",
+        tone: "error",
+        detail,
+      });
+    },
+  );
 });
 
 describe("pluginRuntimeStatusPresentation", () => {

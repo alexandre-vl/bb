@@ -170,6 +170,7 @@ describe("plugin list envelope", () => {
       label: "1.7.0",
       at: 1752300000000,
       detail: "boom",
+      restored: true,
     });
     expect(plugin?.updateState.blockedVersion).toBeNull();
     expect(plugin?.updateState.blockedLabel).toBeNull();
@@ -291,6 +292,18 @@ describe("plugin list envelope", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+
+  it("keeps a failure bb could not undo distinct from a restored one", async () => {
+    const kept = {
+      ...ROW,
+      updateState: {
+        ...ROW.updateState,
+        lastFailure: { ...ROW.updateState.lastFailure, restored: false },
+      },
+    };
+    const result = await listPlugins(fetchReturning({ plugins: [kept] }));
+    expect(result.plugins[0]?.updateState.lastFailure?.restored).toBe(false);
   });
 
   it("drops a row with a partial lastFailure rather than showing the quiet state", async () => {

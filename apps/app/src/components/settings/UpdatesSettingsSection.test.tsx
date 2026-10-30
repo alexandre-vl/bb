@@ -1963,11 +1963,18 @@ The canonical release summary.
       state: "queued" | "running",
     ): import("@bb/server-contract").PluginUpdateJob =>
       state === "queued"
-        ? { id: `job_${pluginId}`, pluginId, displayName: pluginId, state }
+        ? {
+            id: `job_${pluginId}`,
+            pluginId,
+            displayName: pluginId,
+            kind: "update",
+            state,
+          }
         : {
             id: `job_${pluginId}`,
             pluginId,
             displayName: pluginId,
+            kind: "update",
             state,
             phase: "preparing",
           };

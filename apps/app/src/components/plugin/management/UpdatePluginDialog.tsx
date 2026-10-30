@@ -20,6 +20,7 @@ import {
   DetailsDisclosure,
   formatAbsoluteDate,
   KeyValueGrid,
+  pluginUpdateFailureSummary,
   RollbackNote,
   SUCCESS_TEXT_STYLE,
 } from "./plugin-ui";
@@ -99,10 +100,7 @@ function UpdatePluginDialogContent({
               className="mt-0.5 size-4 shrink-0 text-destructive"
               aria-hidden
             />
-            <span>
-              bb couldn&rsquo;t activate {failure.label}. It restored{" "}
-              {plugin.version} and its data.
-            </span>
+            <span>{pluginUpdateFailureSummary(plugin)}</span>
           </div>
           {failure.detail.length > 0 ? (
             <DetailsDisclosure
@@ -117,7 +115,7 @@ function UpdatePluginDialogContent({
           ) : null}
           <p className="text-xs text-muted-foreground">
             {retryVersion === null || retryLabel === null
-              ? `The restored version can keep running. Try again when a compatible update becomes available.`
+              ? `${failure.restored ? "The restored version can keep running. " : ""}Try again when a compatible update becomes available.`
               : `A compatible update to ${retryLabel} is still available. Retry when you’re ready.`}
           </p>
         </div>

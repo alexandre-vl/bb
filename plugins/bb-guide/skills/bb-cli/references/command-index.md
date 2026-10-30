@@ -264,6 +264,7 @@ Use `--selected-model <model-id>` to discover its reasoning choices and include 
 - `bb plugin update`
 - `bb plugin update-jobs`
 - `bb plugin track`
+- `bb plugin rollback`
 - `bb plugin new`
 - `bb plugin types`
 - `bb plugin migrate`
