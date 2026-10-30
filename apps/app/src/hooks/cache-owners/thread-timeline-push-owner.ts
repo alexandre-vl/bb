@@ -9,7 +9,7 @@ import {
   type ThreadTimelineReadResponse,
   type ThreadTimelineResponse,
 } from "@bb/server-contract";
-import { markStreamTrace } from "@/lib/stream-trace";
+import { markStreamTrace } from "@/lib/perf-trace";
 import { wsManager } from "@/lib/ws";
 import {
   systemConfigQueryKey,

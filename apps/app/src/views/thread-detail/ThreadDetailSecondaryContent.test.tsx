@@ -272,6 +272,7 @@ function createProps(
       updateThreadPending: false,
       workspaceStatus: undefined,
       workspaceStatusError: null,
+      workspaceStatusPending: false,
     } as ThreadDetailSecondaryContentProps["metadata"],
     onToggleConversationCollapse: noop,
     onToggleSecondaryPanel: noop,

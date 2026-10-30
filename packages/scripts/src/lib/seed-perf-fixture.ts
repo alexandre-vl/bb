@@ -16,6 +16,8 @@ export interface SeedPerfFixtureOptions {
   projectCount: number;
   threadCount: number;
   eventCount: number;
+  maxThreadEventCount: number;
+  openLongThreadCount: number;
   randomSeed: number;
   onProgress?: (message: string) => void;
 }
@@ -741,6 +743,7 @@ function buildThreadEventTargets(
   rng: Rng,
   threadCount: number,
   eventCount: number,
+  maxThreadEventCount: number,
 ): number[] {
   const weights: number[] = [];
   let weightSum = 0;
@@ -752,8 +755,26 @@ function buildThreadEventTargets(
   return weights.map((weight) =>
     Math.max(
       20,
-      Math.min(9_000, Math.round((weight / weightSum) * eventCount)),
+      Math.min(
+        maxThreadEventCount,
+        Math.round((weight / weightSum) * eventCount),
+      ),
     ),
+  );
+}
+
+function selectLargestTargetIndexes(
+  eventTargets: readonly number[],
+  count: number,
+): Set<number> {
+  return new Set(
+    eventTargets
+      .map((target, index) => ({ index, target }))
+      .sort(
+        (left, right) => right.target - left.target || left.index - right.index,
+      )
+      .slice(0, count)
+      .map(({ index }) => index),
   );
 }
 
@@ -860,6 +881,11 @@ export function seedPerfFixture(
     rng,
     options.threadCount,
     options.eventCount,
+    options.maxThreadEventCount,
+  );
+  const openLongThreadIndexes = selectLargestTargetIndexes(
+    eventTargets,
+    options.openLongThreadCount,
   );
 
   interface SeededThread {
@@ -892,10 +918,13 @@ export function seedPerfFixture(
         now - rng.int(0, 6) * 60 * 60 * 1000,
         startAt + rng.int(1, 72) * 60 * 60 * 1000,
       );
-      const archived = rng.chance(0.85);
-      const hidden = rng.chance(0.18);
+      const eventTarget = eventTargets[threadIndex];
+      const keepOpen = openLongThreadIndexes.has(threadIndex);
+      threadIndex += 1;
+      const archived = !keepOpen && rng.chance(0.85);
+      const hidden = !keepOpen && rng.chance(0.18);
       const unread = !archived && rng.chance(0.4);
-      const usesWorktree = rng.chance(0.5);
+      const usesWorktree = !keepOpen && rng.chance(0.5);
       let environmentId = project.rootEnvironmentId;
       if (usesWorktree) {
         environmentId = `env_${rng.idSuffix()}`;
@@ -924,8 +953,6 @@ export function seedPerfFixture(
         });
       }
       const providerId = rng.chance(0.5) ? "claude-code" : "codex";
-      const eventTarget = eventTargets[threadIndex];
-      threadIndex += 1;
       const pinned = !archived && !hidden && rng.chance(0.05);
       threadRows.push({
         id: threadId,

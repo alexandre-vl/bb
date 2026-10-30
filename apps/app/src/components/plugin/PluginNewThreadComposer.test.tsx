@@ -288,6 +288,7 @@ vi.mock("@/hooks/queries/system-queries", () => ({
   useSystemProviders: () => ({ data: undefined }),
   useSystemProviderStates: () => ({ data: undefined, isPending: false }),
   useKnownProviderModelCatalogScope: () => undefined,
+  resolveThreadComposerCatalogRouting: () => ({}),
   useHostProviderCliStatus: () => ({ data: undefined }),
   useSystemConfig: () => ({
     data: {

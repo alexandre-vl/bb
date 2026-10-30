@@ -23,6 +23,7 @@ import {
   type ThreadFixedTabEntry,
 } from "@/components/plugin/PluginThreadFixedTabs";
 import { queueSplitDownload } from "@/lib/split-prefetch";
+import { THREAD_OPEN_CACHE_GC_MS } from "@/hooks/cache-owners/thread-open-cache-owner";
 import {
   useCallback,
   useEffect,
@@ -58,7 +59,10 @@ import {
 import { useForkThreadFromMessage } from "@/hooks/useForkThreadFromMessage";
 import { useUpdateEnvironment } from "../../hooks/mutations/environment-mutations";
 import { useUpdateThread } from "../../hooks/mutations/thread-state-mutations";
-import { useEnvironment } from "../../hooks/queries/environment-queries";
+import {
+  useEnvironment,
+  useEnvironmentWorkspaceWatch,
+} from "../../hooks/queries/environment-queries";
 import {
   useProjectThreadSubset,
   useThread,
@@ -67,8 +71,6 @@ import {
 import { useThreadStorageLocation } from "../../hooks/queries/thread-panel-queries";
 import { isTransientReadError } from "@/hooks/queries/query-helpers";
 import { PageShell } from "@/components/ui/page-shell.js";
-import { RouteLoadingSkeleton } from "@/components/ui/route-loading-skeleton";
-import { ThreadTimelineLoadingSkeleton } from "@/components/thread/timeline/ThreadTimelineLoadingSkeleton";
 import { HEADER_ICON_BUTTON_CLASS } from "@/components/layout/AppPageHeader";
 import type {
   JsonValue,
@@ -104,7 +106,10 @@ import {
 } from "@/lib/environment-workspace-display";
 import { useSystemEnvironmentProviders } from "@/hooks/queries/environment-provider-queries";
 import { useSystemMachineProviders } from "@/hooks/queries/machine-provider-queries";
-import { formatWorkspaceCheckoutDisplay } from "@bb/shared-ui/lib/workspace-checkout-display";
+import {
+  formatWorkspaceCheckoutDisplay,
+  resolveWorkspaceCheckout,
+} from "@bb/shared-ui/lib/workspace-checkout-display";
 import {
   getAbsoluteDirname,
   isAbsoluteFilePathWithinRoot,
@@ -128,6 +133,7 @@ import {
 } from "@/components/plugin/PluginThreadContextCard";
 import { ThreadScreen, useThreadComposerAddToChat } from "./ThreadScreen";
 import { ThreadDetailSecondaryContent } from "./ThreadDetailSecondaryContent";
+import { ThreadRouteLoadingSkeleton } from "./ThreadRouteLoadingSkeleton";
 import {
   useThreadSecondaryPanelDrawerVisibility,
   useThreadSecondaryPanelVisibility,
@@ -190,6 +196,8 @@ import type {
   SecondaryPanelRenderableTab,
 } from "@/components/secondary-panel/ThreadSecondaryPanel";
 import { useThreadDetailThread } from "./useThreadDetailThread";
+import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
+import { useWorkspaceOpenButtonTargets } from "./useWorkspaceOpenButtonTargets";
 import {
   buildTerminalSyncedSecondaryFileTabs,
   syncTerminalTabsInFixedPanelState,
@@ -391,7 +399,12 @@ function ThreadDetailViewInternal(
   const {
     hasThreadDetailBootstrapSettled,
     threadDetailBootstrapQuery,
-    threadQuery: { data: thread, isFetching, isLoadingError, error },
+    threadQuery: {
+      data: thread,
+      fetchStatus: threadFetchStatus,
+      isLoadingError,
+      error,
+    },
     unreadDividerState,
   } = useThreadDetailThread(
     threadId,
@@ -400,8 +413,10 @@ function ThreadDetailViewInternal(
       ? "turn-answer"
       : "first-unread-row",
   );
+  useEnvironmentWorkspaceWatch(thread?.environmentId);
   const environmentQuery = useEnvironment(thread?.environmentId, {
     enabled: hasThreadDetailBootstrapSettled,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     staleTime: 5_000,
   });
   const environment = environmentQuery.data;
@@ -480,7 +495,9 @@ function ThreadDetailViewInternal(
     useToggleThreadSecondaryPanelSelection(threadId, threadId);
   const threadQueryState = useConnectionAwareQueryState({
     hasResolvedData: thread !== undefined,
-    isFetching: threadDetailBootstrapQuery.isFetching || isFetching,
+    isFetching:
+      threadDetailBootstrapQuery.fetchStatus !== "idle" ||
+      threadFetchStatus !== "idle",
     isLoadingError,
     isRecoverableLoadingError: isTransientReadError(error),
   });
@@ -1146,7 +1163,22 @@ function ThreadDetailViewInternal(
     }
     return desktopInfo.onCloseWindowRequest(handleCloseWindowRequest);
   }, [handleCloseWindowRequest, isFocused]);
-  const workspaceStatus = useGitWorkspaceStatus(threadEnvironmentId).workspace;
+  const gitStatus = useGitWorkspaceStatus(threadEnvironmentId);
+  const workspaceStatus = gitStatus.workspace;
+  useThreadOpenTraceMilestones(
+    threadId,
+    timelineEnabled
+      ? {
+          route: true,
+          thread: thread !== undefined,
+          bootstrap: threadDetailBootstrapQuery.isSuccess,
+          environment: environment !== undefined,
+          "work-status": gitStatus.result !== undefined,
+          timeline: !timeline.timelineLoading,
+          "timeline-rows": timeline.timelineRows.length > 0,
+        }
+      : {},
+  );
   const { isLocalDaemonHost } = useHostDaemon();
   const threadEnvironmentIsLocal = environment
     ? isLocalDaemonHost(environment.hostId)
@@ -1406,6 +1438,19 @@ function ThreadDetailViewInternal(
         environment,
         hasWorkspaceOpenTargets: directoryOpenTargets.length > 0,
       });
+  const isEnvironmentPending =
+    thread?.environmentId != null &&
+    environment === undefined &&
+    !environmentQuery.isError;
+  const workspaceOpenButtonTargets = useWorkspaceOpenButtonTargets(
+    workspaceOpenPath !== null && preferredDirectoryTarget !== null
+      ? {
+          preferredTarget: preferredDirectoryTarget,
+          targets: directoryOpenTargets,
+        }
+      : null,
+    isEnvironmentPending,
+  );
   useAppCommandHandler("workspace.openPreferred", () => {
     if (!isFocused) return false;
     if (activeWorkspaceFilePath && handleOpenFileInEditor) {
@@ -1541,9 +1586,10 @@ function ThreadDetailViewInternal(
 
   if (threadQueryState.status === "loading") {
     return (
-      <RouteLoadingSkeleton isBoundedPane={isBoundedPane}>
-        <ThreadTimelineLoadingSkeleton />
-      </RouteLoadingSkeleton>
+      <ThreadRouteLoadingSkeleton
+        isBoundedPane={isBoundedPane}
+        threadId={threadId}
+      />
     );
   }
   if (!thread || thread.projectId !== projectId) {
@@ -1590,9 +1636,16 @@ function ThreadDetailViewInternal(
     isThreadOnReusableEnvironment && projectId && thread.environmentId !== null
       ? createThreadInEnvironment
       : undefined;
-  const threadCheckoutDisplay = workspaceStatus
-    ? formatWorkspaceCheckoutDisplay({ checkout: workspaceStatus.checkout })
-    : undefined;
+  const isWorkspaceStatusPending = gitStatus.isLoading;
+  const threadCheckout = resolveWorkspaceCheckout({
+    environment: environment ?? null,
+    workspaceStatus,
+    workspaceStatusPending: isWorkspaceStatusPending,
+  });
+  const threadCheckoutDisplay =
+    threadCheckout === null
+      ? undefined
+      : formatWorkspaceCheckoutDisplay({ checkout: threadCheckout });
   const threadTitle = getThreadDisplayTitle(thread);
   const responsiveWorkspaceActions: PluginThreadActionsInlineItem[] =
     workspaceOpenPath && preferredDirectoryTarget
@@ -1632,17 +1685,20 @@ function ThreadDetailViewInternal(
       : null,
   );
   const workspaceOpenButton =
-    workspaceOpenPath && preferredDirectoryTarget ? (
+    workspaceOpenButtonTargets !== null ? (
       <ThreadWorkspaceOpenButton
-        preferredTarget={preferredDirectoryTarget}
-        targets={directoryOpenTargets}
+        disabled={workspaceOpenPath === null}
+        preferredTarget={workspaceOpenButtonTargets.preferredTarget}
+        targets={workspaceOpenButtonTargets.targets}
         onOpenPreferredTarget={async () => {
+          if (workspaceOpenPath === null) return;
           await openPathInPreferredDirectoryTarget({
             lineNumber: null,
             path: workspaceOpenPath,
           });
         }}
         onOpenTarget={async (targetId) => {
+          if (workspaceOpenPath === null) return;
           await openPathInDirectoryTarget({
             lineNumber: null,
             path: workspaceOpenPath,
@@ -1728,6 +1784,7 @@ function ThreadDetailViewInternal(
         onCreateNewThreadInEnvironment,
         onOpenThreadInfo: openThreadInfo,
         permissionPolicy: "editable",
+        workspaceStatusPending: isEnvironmentPending || isWorkspaceStatusPending,
       }}
       environment={environment ?? null}
       presentation={THREAD_DETAIL_SCREEN_PRESENTATION}

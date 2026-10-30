@@ -60,6 +60,7 @@ import {
 } from "@/lib/composer-focus-requests";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { findActiveProvisioningEstimate } from "@/lib/thread-provisioning-estimate";
+import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
 import { useParentThreadSection } from "./useParentThreadSection";
 import { getThreadRoutePath } from "@/lib/route-paths";
 import { showMutationErrorToast } from "@/lib/mutation-errors";
@@ -118,6 +119,7 @@ export interface ThreadScreenComposerHost {
   onCreateNewThreadInEnvironment?: () => void;
   onOpenThreadInfo?: () => void;
   permissionPolicy: ThreadComposerPermissionPolicy;
+  workspaceStatusPending: boolean;
 }
 
 interface ThreadScreenProps {
@@ -429,6 +431,28 @@ function useSentMessageEditing({
   };
 }
 
+function useReplacesOtherThreadRows({
+  isThreadTimelinePending,
+  threadId,
+  timelineError,
+  timelineRows,
+}: {
+  isThreadTimelinePending: boolean;
+  threadId: string;
+  timelineError: boolean;
+  timelineRows: readonly TimelineRow[];
+}): boolean {
+  const [threadWithVisibleRows, setThreadWithVisibleRows] = useState<
+    string | null
+  >(null);
+  const showsRows =
+    !isThreadTimelinePending && !timelineError && timelineRows.length > 0;
+  if (showsRows && threadWithVisibleRows !== threadId) {
+    setThreadWithVisibleRows(threadId);
+  }
+  return threadWithVisibleRows !== null && threadWithVisibleRows !== threadId;
+}
+
 function useComposerFocusRequestKey(
   storageKey: string,
   focusRequest: number | undefined,
@@ -459,6 +483,9 @@ export function ThreadScreen({
   const contextCardInset = useThreadContextCardContentInset();
   const pendingInteractionsQuery = useThreadPendingInteractions(thread.id);
   const pendingInteractions = pendingInteractionsQuery.data ?? [];
+  useThreadOpenTraceMilestones(thread.id, {
+    interactions: pendingInteractionsQuery.data !== undefined,
+  });
   const hasPendingInteraction = pendingInteractions.length > 0;
   const sendMessage = useSendThreadMessage();
   const parentThreadSection = useParentThreadSection(thread, composer !== null);
@@ -489,6 +516,13 @@ export function ThreadScreen({
     () => findActiveProvisioningEstimate(timelineRows),
     [timelineRows],
   );
+  const timelineError = Boolean(timeline.timelineError);
+  const replacesThreadRows = useReplacesOtherThreadRows({
+    isThreadTimelinePending,
+    threadId: thread.id,
+    timelineError,
+    timelineRows,
+  });
 
   const { handleEditSentMessage, inlineMessageEditor, sentMessageEdit } =
     useSentMessageEditing({
@@ -519,7 +553,8 @@ export function ThreadScreen({
         isCatchingUpTimeline={timeline.isCatchingUpTimeline}
         isLoadingOlderTimelineRows={timeline.isLoadingOlderTimelineRows}
         isThreadTimelinePending={isThreadTimelinePending}
-        timelineError={Boolean(timeline.timelineError)}
+        replacesThreadRows={replacesThreadRows}
+        timelineError={timelineError}
         loadingContent={
           isPanelPresentation ? <ThreadTimelinePanelLoadingSkeleton /> : undefined
         }
@@ -571,6 +606,7 @@ export function ThreadScreen({
       permissionPolicy={composer.permissionPolicy}
       contextWindowUsage={timeline.contextWindowUsage}
       environmentCheckout={composer.environmentCheckout}
+      workspaceStatusPending={composer.workspaceStatusPending}
       environmentCompactLabel={chrome?.environmentCompactLabel}
       environmentHost={chrome?.environmentHost}
       environmentIcon={chrome?.environmentIcon}

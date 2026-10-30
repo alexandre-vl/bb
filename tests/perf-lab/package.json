@@ -1,0 +1,25 @@
+{
+  "name": "@bb/perf-lab",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lab": "node --conditions=source --import tsx src/cli.ts",
+    "typecheck": "tsrs --noEmit",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@bb/config": "workspace:*",
+    "@bb/domain": "workspace:*",
+    "@jridgewell/trace-mapping": "^0.3.31",
+    "puppeteer-core": "^24.43.1"
+  },
+  "devDependencies": {
+    "@bb/tsconfig": "workspace:*",
+    "@types/node": "^22.0.0",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "tsx": "^4.23.1",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^4.1.1"
+  }
+}

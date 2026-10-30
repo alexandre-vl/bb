@@ -13,6 +13,7 @@ import {
   useSustainedFlag,
 } from "@/hooks/useSustainedFlag";
 import { ThreadTimelineLoadingSkeleton } from "./ThreadTimelineLoadingSkeleton.js";
+import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
 import { ThreadTimelineRows } from "./ThreadTimelineRows.js";
 import { useAutoLoadOlderRows } from "./useAutoLoadOlderRows.js";
 import { TimelineStatusIndicator } from "./TimelineStatusIndicator.js";
@@ -43,6 +44,7 @@ export interface ThreadTimelineSurfaceProps {
   isCatchingUpTimeline?: boolean;
   isLoadingOlderTimelineRows?: boolean;
   isThreadTimelinePending: boolean;
+  replacesThreadRows?: boolean;
   timelineError: boolean;
   loadingContent?: ReactNode;
   leadingContent?: ReactNode;
@@ -143,6 +145,7 @@ export function ThreadTimelineSurface({
   isCatchingUpTimeline = false,
   isLoadingOlderTimelineRows = false,
   isThreadTimelinePending,
+  replacesThreadRows = false,
   timelineError,
   loadingContent,
   leadingContent,
@@ -220,7 +223,12 @@ export function ThreadTimelineSurface({
           />
         ) : null}
         {isThreadTimelinePending ? (
-          (loadingContent ?? <DelayedThreadLoadingIndicator />)
+          (loadingContent ?? (
+            <DelayedThreadLoadingIndicator
+              immediate={replacesThreadRows}
+              threadId={threadId}
+            />
+          ))
         ) : timelineError ? (
           <TimelineStatusIndicator
             label="Failed to load timeline"
@@ -354,8 +362,17 @@ function DelayedCatchUpIndicator() {
   );
 }
 
-function DelayedThreadLoadingIndicator() {
-  const [visible, setVisible] = useState(isRouteLoadingSkeletonMounted);
+function DelayedThreadLoadingIndicator({
+  immediate,
+  threadId,
+}: {
+  immediate: boolean;
+  threadId: string;
+}) {
+  const [visible, setVisible] = useState(
+    () => immediate || isRouteLoadingSkeletonMounted(),
+  );
+  useThreadOpenTraceMilestones(threadId, { "timeline-skeleton": visible });
   useEffect(() => {
     if (visible) {
       return;

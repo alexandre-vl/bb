@@ -323,6 +323,7 @@ function PluginThreadChatBody({
                   contextEnvironmentId: null,
                   permissionPolicy:
                     permissionPolicy === "editable" ? "editable" : "snapshot",
+                  workspaceStatusPending: false,
                 }
               : null
           }

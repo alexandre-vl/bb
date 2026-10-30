@@ -1,5 +1,10 @@
 import { useMemo } from "react";
-import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  replaceEqualDeep,
+  skipToken,
+  useQuery,
+} from "@tanstack/react-query";
 import type { Host } from "@bb/domain";
 import type {
   HostDirectoryListing,
@@ -25,9 +30,42 @@ export function useHosts(
 
   return useQuery<Host[]>({
     queryKey: hostsQueryKey(includeCreating),
-    queryFn: ({ signal }) => sdk.hosts.list({ signal, includeCreating }),
+    queryFn: async ({ client, queryKey, signal }) =>
+      keepHostsChangedOnlyByHeartbeat(
+        client.getQueryData<Host[]>(queryKey),
+        await sdk.hosts.list({ signal, includeCreating }),
+      ),
     enabled,
     staleTime: 60_000,
+  });
+}
+
+function changedOnlyByHeartbeat(previous: Host, next: Host): boolean {
+  if (previous.status !== "connected" || next.status !== "connected") {
+    return false;
+  }
+  const previousWithNextHeartbeat: Host = {
+    ...previous,
+    lastSeenAt: next.lastSeenAt,
+    updatedAt: next.updatedAt,
+  };
+  return (
+    replaceEqualDeep(previousWithNextHeartbeat, next) ===
+    previousWithNextHeartbeat
+  );
+}
+
+export function keepHostsChangedOnlyByHeartbeat(
+  previous: readonly Host[] | undefined,
+  next: Host[],
+): Host[] {
+  if (previous === undefined) return next;
+  const previousById = new Map(previous.map((host) => [host.id, host]));
+  return next.map((host) => {
+    const known = previousById.get(host.id);
+    return known !== undefined && changedOnlyByHeartbeat(known, host)
+      ? known
+      : host;
   });
 }
 

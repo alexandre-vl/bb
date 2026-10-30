@@ -6,6 +6,7 @@ import type { PendingInteraction } from "@bb/domain";
 import type { UseThreadTimelineControllerResult } from "@/components/thread/timeline";
 import { getPromptDraftAccessor } from "@/hooks/usePromptDraftStorage";
 import { makeThreadResponse } from "@/test/fixtures/thread-responses";
+import { conversationRow } from "@/test/fixtures/thread-timeline-rows";
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { ThreadScreen, type ThreadScreenPresentation } from "./ThreadScreen";
 
@@ -98,33 +99,40 @@ const SIDE_CHAT_PRESENTATION: ThreadScreenPresentation = {
   tone: "sidebar",
 };
 
+function screenElement(
+  presentation: ThreadScreenPresentation,
+  thread = THREAD,
+  timeline = TIMELINE,
+) {
+  return (
+    <ThreadScreen
+      composer={{
+        environmentCheckout: undefined,
+        environmentChrome: undefined,
+        contextEnvironmentId: null,
+        permissionPolicy: "snapshot",
+        workspaceStatusPending: false,
+      }}
+      environment={null}
+      presentation={presentation}
+      projectId={thread.projectId}
+      resolveMentionLink={() => null}
+      thread={thread}
+      timeline={timeline}
+      timelineHost={{
+        environmentHostName: null,
+        includePluginMessageActions: false,
+        unreadDividerAutoScroll: false,
+        unreadDividerPlacement: null,
+      }}
+      workspaceRootPath={undefined}
+    />
+  );
+}
+
 function renderScreen(presentation: ThreadScreenPresentation) {
   const { wrapper: Wrapper } = createQueryClientTestHarness();
-  return render(
-    <Wrapper>
-      <ThreadScreen
-        composer={{
-          environmentCheckout: undefined,
-          environmentChrome: undefined,
-          contextEnvironmentId: null,
-          permissionPolicy: "snapshot",
-        }}
-        environment={null}
-        presentation={presentation}
-        projectId={THREAD.projectId}
-        resolveMentionLink={() => null}
-        thread={THREAD}
-        timeline={TIMELINE}
-        timelineHost={{
-          environmentHostName: null,
-          includePluginMessageActions: false,
-          unreadDividerAutoScroll: false,
-          unreadDividerPlacement: null,
-        }}
-        workspaceRootPath={undefined}
-      />
-    </Wrapper>,
-  );
+  return render(<Wrapper>{screenElement(presentation)}</Wrapper>);
 }
 
 function makePluginInteraction(): PendingInteraction {
@@ -170,6 +178,37 @@ describe("ThreadScreen", () => {
     expect(promptArea.isPrimaryComposer).toBe(false);
     expect(promptArea.permissionPolicy).toBe("snapshot");
     expect(mocks.surfaceProps.at(-1)!.showOngoingIndicator).toBe(false);
+  });
+
+  it("tells a loading timeline whether it replaces another thread's rows", () => {
+    const { wrapper: Wrapper } = createQueryClientTestHarness();
+    const otherThread = makeThreadResponse({
+      id: "thr_screen_other",
+      projectId: THREAD.projectId,
+    });
+    const loading = { ...TIMELINE, timelineLoading: true };
+    const loaded = {
+      ...TIMELINE,
+      timelineRows: [conversationRow({ id: "row-a", text: "Thread A" })],
+    };
+    const replacesRows = () => mocks.surfaceProps.at(-1)!.replacesThreadRows;
+    const view = render(
+      <Wrapper>{screenElement({ kind: "page" }, THREAD, loading)}</Wrapper>,
+    );
+    expect(replacesRows()).toBe(false);
+
+    view.rerender(
+      <Wrapper>{screenElement({ kind: "page" }, THREAD, loaded)}</Wrapper>,
+    );
+    view.rerender(
+      <Wrapper>{screenElement({ kind: "page" }, otherThread, loading)}</Wrapper>,
+    );
+    expect(replacesRows()).toBe(true);
+
+    view.rerender(
+      <Wrapper>{screenElement({ kind: "page" }, otherThread, loaded)}</Wrapper>,
+    );
+    expect(replacesRows()).toBe(false);
   });
 
   it("quotes a timeline selection into the thread draft and focuses the composer", () => {

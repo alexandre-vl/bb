@@ -93,6 +93,7 @@ export function threadQueuedMessagesQueryOptions(
         signal,
       }),
     enabled: (options?.enabled ?? true) && Boolean(id),
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     refetchOnMount:
       options?.refetchOnMount ?? ((query) => query.getObserversCount() === 1),
     refetchOnWindowFocus: true,
@@ -124,6 +125,7 @@ export function useThreadPromptHistory(
         signal,
       }),
     enabled,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     refetchOnMount: options?.refetchOnMount ?? true,
     staleTime: options?.staleTime ?? PROMPT_HISTORY_STALE_TIME_MS,
   });
@@ -165,6 +167,7 @@ export function threadStorageLocationQueryOptions(
         signal,
       }),
     enabled: (options?.enabled ?? true) && Boolean(id),
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     ...REALTIME_OWNED_MOUNT_BASELINE_QUERY_POLICY,
   });
 }
@@ -350,6 +353,7 @@ export function useThreadConversationOutline(
       return sdk.threads.conversationOutline({ threadId, role, signal });
     },
     enabled,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     refetchOnMount: options?.refetchOnMount ?? true,
     ...(options?.staleTime === undefined
       ? {}

@@ -37,4 +37,22 @@ describe("PermissionModePicker", () => {
     expect(trigger.textContent).toContain("Plan Mode");
     expect(trigger.textContent).not.toContain("Full Access");
   });
+
+  it("holds its place with an inert placeholder while the provider's modes load", () => {
+    render(
+      <PermissionModePicker
+        options={[]}
+        onChange={vi.fn()}
+        supported={false}
+        loading
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Permission mode" });
+    expect(trigger).toHaveProperty("disabled", true);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+    expect(
+      trigger.querySelector("[data-permission-mode-loading-placeholder]"),
+    ).not.toBeNull();
+  });
 });

@@ -27,6 +27,7 @@ import type {
 } from "@bb/server-contract";
 import { createDeferredPromise } from "@bb/test-helpers";
 import {
+  makeThreadListEntry,
   makeThreadQueuedMessage as makeThreadQueuedMessageFixture,
   makeThreadWithRuntime as makeThreadWithRuntimeFixture,
 } from "@bb/test-helpers/domain-fixtures";
@@ -41,6 +42,11 @@ import {
   vi,
 } from "vitest";
 import { LazyQueuedMessagesList } from "@/components/promptbox/banner/LazyQueuedMessagesList";
+import { sidebarNavigationQueryKey } from "@/hooks/queries/query-keys";
+import {
+  makeProjectWithThreadsResponse,
+  makeSidebarBootstrapResponse,
+} from "@/test/fixtures/projects";
 import {
   backgroundCommandRow,
   workflowRow,
@@ -49,6 +55,7 @@ import type { PromptDraftAttachment } from "@bb/client-core";
 import { BbHttpError } from "@/lib/sdk";
 import type { ExperimentalComposerSelection } from "@get-bb/plugin-sdk";
 import { setComposerTextEffect } from "@/lib/composer-text-effects";
+import { formatWorkspaceCheckoutDisplay } from "@bb/shared-ui/lib/workspace-checkout-display";
 import {
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
@@ -148,6 +155,9 @@ interface RenderPromptAreaOptions {
   goal?: ThreadTimelineGoal | null;
   modelFallback?: ThreadTimelineModelFallback | null;
   pendingInteractions?: readonly PendingInteraction[];
+  environmentCheckout?: ComponentProps<
+    typeof ThreadDetailPromptArea
+  >["environmentCheckout"];
   permissionPolicy?: ComponentProps<
     typeof ThreadDetailPromptArea
   >["permissionPolicy"];
@@ -158,6 +168,7 @@ interface RenderPromptAreaOptions {
   sentMessageEdit?: ThreadDetailSentMessageEdit;
   sessionOptions?: readonly ThreadTimelineSessionOption[] | null;
   thread?: ThreadWithRuntime;
+  workspaceStatusPending?: boolean;
 }
 
 let testQueryClient: QueryClient;
@@ -170,12 +181,14 @@ function buildPromptAreaElement({
   goal = null,
   modelFallback = null,
   pendingInteractions = [],
+  environmentCheckout,
   permissionPolicy = "editable",
   environmentGoneStatus = null,
   queuedMessageCount = 0,
   sentMessageEdit,
   sessionOptions = null,
   thread = makeThread(),
+  workspaceStatusPending = false,
 }: RenderPromptAreaOptions = {}) {
   return (
     <QueryClientProvider client={testQueryClient}>
@@ -189,6 +202,7 @@ function buildPromptAreaElement({
         isPrimaryComposer
         permissionPolicy={permissionPolicy}
         canRestoreEnvironment={false}
+        environmentCheckout={environmentCheckout}
         environmentGoneStatus={environmentGoneStatus}
         goal={goal}
         providerCommands={null}
@@ -209,6 +223,7 @@ function buildPromptAreaElement({
         sentMessageEdit={sentMessageEdit}
         steerActiveThreadOnEnter={false}
         thread={thread}
+        workspaceStatusPending={workspaceStatusPending}
       />
     </QueryClientProvider>
   );
@@ -225,7 +240,11 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false } },
   });
   mocks.defaultExecutionOptions = null;
+  mocks.defaultExecutionOptionsIsPlaceholder = false;
   mocks.executionInputSources = {};
+  mocks.modelCatalogIsSettled = true;
+  mocks.modelOptions = [];
+  mocks.permissionModeSupportIsKnown = true;
   mocks.unknownReasoning = false;
   mocks.pluginComposerHost = null;
   mocks.composerSubmit = null;
@@ -284,6 +303,30 @@ describe("environment follow-up summary", () => {
     renderPromptArea({ thread: makeThread({ environmentId: "env_1" }) });
 
     expect(screen.getByTestId("thread-environment-summary")).toBeTruthy();
+  });
+
+  it("holds the branch chip's place only until a checkout is known", () => {
+    const thread = makeThread({ environmentId: "env_1" });
+    const view = renderPromptArea({ thread, workspaceStatusPending: true });
+    const summary = () => screen.getByTestId("thread-environment-summary");
+
+    expect(summary().dataset["checkoutLoading"]).toBe("true");
+
+    const environmentCheckout = formatWorkspaceCheckoutDisplay({
+      checkout: { kind: "branch", branchName: "main", headSha: null },
+    });
+    view.rerender(
+      buildPromptAreaElement({
+        environmentCheckout,
+        thread,
+        workspaceStatusPending: true,
+      }),
+    );
+    expect(summary().dataset["checkout"]).toBe("main");
+    expect(summary().dataset["checkoutLoading"]).toBe("false");
+
+    view.rerender(buildPromptAreaElement({ thread }));
+    expect(summary().dataset["checkoutLoading"]).toBe("false");
   });
 
   it("shows no environment row for an errored thread with no environment", () => {
@@ -553,15 +596,91 @@ describe("ThreadDetailPromptArea", () => {
     );
   });
 
-  it("shows queued work while its message details are loading", () => {
+  it("holds queued work's place without a count until its messages load", () => {
     mocks.queuedMessages = undefined;
 
-    renderPromptArea({ queuedMessageCount: 1 });
+    const view = renderPromptArea({ queuedMessageCount: 3 });
 
     screen.getByRole("status", { name: "Loading queued messages" });
-    expect(screen.getByLabelText("Queued messages").textContent).toContain(
-      "Queue1",
+    expect(screen.getByLabelText("Queued messages").textContent).toBe("Queue");
+
+    mocks.queuedMessages = [makeQueuedMessage({ id: "q_loaded" })];
+    view.rerender(buildPromptAreaElement({ queuedMessageCount: 3 }));
+
+    expect(screen.getByTestId("queued-message-count").textContent).toBe("1");
+  });
+
+  it("holds the model and permission controls until the thread provider's catalog settles", () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.modelCatalogIsSettled = false;
+    mocks.permissionModeSupportIsKnown = false;
+
+    const view = renderPromptArea();
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("");
+    expect(screen.getByTestId("model-loading").textContent).toBe("true");
+    expect(screen.getByTestId("permission-loading").textContent).toBe("true");
+
+    mocks.modelCatalogIsSettled = true;
+    mocks.permissionModeSupportIsKnown = true;
+    view.rerender(buildPromptAreaElement());
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("gpt-5");
+    expect(screen.getByTestId("model-loading").textContent).toBe("false");
+    expect(screen.getByTestId("permission-loading").textContent).toBe("false");
+    expect(screen.getByTestId("selected-permission").textContent).toBe("auto");
+  });
+
+  it("routes the composer by the sidebar's host before the thread's environment loads", () => {
+    testQueryClient.setQueryData(
+      sidebarNavigationQueryKey(),
+      makeSidebarBootstrapResponse({
+        projects: [
+          makeProjectWithThreadsResponse({
+            threads: [
+              makeThreadListEntry({
+                id: "thr_1",
+                environmentId: "env_side",
+                environmentHostId: "host_side",
+              }),
+            ],
+          }),
+        ],
+      }),
     );
+
+    renderPromptArea({ thread: makeThread({ environmentId: "env_side" }) });
+
+    expect(mocks.useThreadCreationOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environmentId: "env_side",
+        environmentHostId: "host_side",
+      }),
+    );
+  });
+
+  it("shows a model its cached catalog already lists while that catalog is verified", () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.modelCatalogIsSettled = false;
+    mocks.modelOptions = [{ value: "gpt-5", label: "GPT-5" }];
+
+    renderPromptArea();
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("gpt-5");
+    expect(screen.getByTestId("model-loading").textContent).toBe("false");
+    expect(screen.getByTestId("permission-loading").textContent).toBe("false");
   });
 
   it("keeps sent-message edit submission out of the normal send path", () => {
@@ -1946,6 +2065,49 @@ describe("ThreadDetailPromptArea", () => {
       expect(screen.getByTestId("submit-title").textContent).toBe("Submit");
     },
   );
+
+  it("shows the model as loading until the thread's execution defaults arrive", () => {
+    mocks.defaultExecutionOptions = undefined;
+    const view = renderPromptArea();
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("");
+    expect(screen.getByTestId("model-loading").textContent).toBe("true");
+
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5-mini",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    view.rerender(buildPromptAreaElement());
+
+    expect(screen.getByTestId("selected-model").textContent).toBe("gpt-5");
+    expect(screen.getByTestId("model-loading").textContent).toBe("false");
+  });
+
+  it("keeps the last-known permission visible but read-only until the defaults verify", () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.defaultExecutionOptionsIsPlaceholder = true;
+    const view = renderPromptArea();
+
+    expect(screen.getByTestId("selected-permission").textContent).toBe("full");
+    expect(screen.getByTestId("permission-read-only").textContent).toBe("true");
+
+    mocks.defaultExecutionOptionsIsPlaceholder = false;
+    view.rerender(buildPromptAreaElement());
+
+    expect(screen.getByTestId("selected-permission").textContent).toBe("full");
+    expect(screen.getByTestId("permission-read-only").textContent).toBe(
+      "false",
+    );
+  });
 
   it("shows destination permissions instead of the source active Plan mode", async () => {
     mocks.defaultExecutionOptions = {

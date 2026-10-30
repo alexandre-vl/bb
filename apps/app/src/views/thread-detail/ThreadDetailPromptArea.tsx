@@ -12,6 +12,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useImmediateRouteNavigate } from "@/components/ui/app-route-anchor";
 import type { IconName } from "@bb/shared-ui/icon";
 import type { PromptMentionLinkResolver } from "@bb/client-core";
@@ -95,7 +96,9 @@ import type { MachineProviderPresentation } from "@/components/plugin/MachinePro
 import type { WorkspaceCheckoutDisplay } from "@bb/shared-ui/lib/workspace-checkout-display";
 import { useComposerTextEffects } from "@/lib/composer-text-effects";
 import { useLatestRef } from "@/hooks/useLatestRef";
+import { useThreadOpenTraceMilestones } from "@/lib/thread-open-trace";
 import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
+import { resolveThreadComposerEnvironmentHostId } from "@/hooks/queries/system-queries";
 import { useProjectDisplayName } from "@/hooks/queries/sidebar-navigation-query";
 import {
   useActiveComposerDraft,
@@ -192,6 +195,7 @@ interface ThreadDetailPromptAreaProps {
   permissionPolicy: ThreadComposerPermissionPolicy;
   contextWindowUsage?: ThreadTimelineResponse["contextWindowUsage"];
   environmentCheckout?: WorkspaceCheckoutDisplay;
+  workspaceStatusPending: boolean;
   environmentCompactLabel?: string;
   environmentGoneStatus: "destroyed" | MachineRemovalStatus | null;
   environmentHostId?: string;
@@ -400,6 +404,7 @@ export function ThreadDetailPromptArea({
   permissionPolicy,
   contextWindowUsage,
   environmentCheckout,
+  workspaceStatusPending,
   environmentCompactLabel,
   environmentGoneStatus,
   environmentHostId,
@@ -456,12 +461,20 @@ export function ThreadDetailPromptArea({
   });
   const isDefaultExecutionOptionsLoading =
     defaultExecutionOptionsState === "loading";
+  const isAwaitingExecutionDefaults =
+    isDefaultExecutionOptionsLoading && defaultExecutionOptions === undefined;
+  const hasKnownDefaultExecutionOptions =
+    defaultExecutionOptions !== undefined && defaultExecutionOptions !== null;
   const queuedMessagesQuery = useThreadQueuedMessages(thread.id, {
     enabled: true,
   });
   const queuedMessages = queuedMessagesQuery.data ?? EMPTY_QUEUED_MESSAGES;
   const queuedMessagesPending =
     queuedMessagesQuery.data === undefined && queuedMessageCount > 0;
+  useThreadOpenTraceMilestones(thread.id, {
+    "execution-defaults": hasResolvedDefaultExecutionOptions,
+    "queued-messages": queuedMessagesQuery.data !== undefined,
+  });
   const queuedMessagesRef =
     useLatestRef<readonly ThreadQueuedMessage[]>(queuedMessages);
   const [bottomPluginFocusNonce, setBottomPluginFocusNonce] = useState(0);
@@ -678,6 +691,15 @@ export function ThreadDetailPromptArea({
       ),
     [placedSessionOptions.picker, sessionOptionChoices.choices],
   );
+  const queryClient = useQueryClient();
+  const composerEnvironmentHostId =
+    environmentHostId ??
+    (thread.environmentId === null
+      ? undefined
+      : resolveThreadComposerEnvironmentHostId(queryClient, {
+          environmentId: thread.environmentId,
+          threadId: thread.id,
+        }));
   const {
     executionOptionsRouting,
     selectedProviderId,
@@ -705,6 +727,7 @@ export function ThreadDetailPromptArea({
     reasoningOptions,
     permissionModeOptions,
     supportsPermissionModeSelection,
+    permissionModeSupportIsKnown,
     supportsServiceTier,
     serviceTierSupportByProvider,
     serviceTierOptions,
@@ -712,7 +735,7 @@ export function ThreadDetailPromptArea({
   } = useThreadCreationOptions({
     enabled: thread.archivedAt === null,
     environmentId: thread.environmentId ?? undefined,
-    environmentHostId,
+    environmentHostId: composerEnvironmentHostId,
     scope: "component-local",
     resetKey: thread.id,
     sessionOptionSelections: liveSessionOptionSelections,
@@ -745,6 +768,17 @@ export function ThreadDetailPromptArea({
   const effectiveSelectedModel = isFallbackModelActive
     ? modelFallback.fallbackModel
     : (activeModel?.model ?? selectedModel);
+  const intendedModel = isFallbackModelActive
+    ? modelFallback.fallbackModel
+    : selectedModel;
+  const isAwaitingModelCatalog =
+    !modelCatalogIsSettled &&
+    !modelOptions.some((option) => option.value === intendedModel);
+  const isModelSelectionPending =
+    isAwaitingExecutionDefaults || isAwaitingModelCatalog;
+  const isPermissionModePending =
+    !permissionModeSupportIsKnown ||
+    (supportsPermissionModeSelection && isAwaitingExecutionDefaults);
   const handleModelChange = useCallback(
     (model: string) => {
       if (fallbackIdentity !== null) {
@@ -1558,13 +1592,14 @@ export function ThreadDetailPromptArea({
         hasMultiple: hasMultipleProviders,
       },
       model: {
-        active: effectiveSelectedModel
-          ? { model: effectiveSelectedModel }
-          : null,
-        selected: selectedModel,
+        active:
+          effectiveSelectedModel && !isModelSelectionPending
+            ? { model: effectiveSelectedModel }
+            : null,
+        selected: isModelSelectionPending ? "" : selectedModel,
         options: modelOptions,
         moreOptions: moreModelOptions,
-        isLoading: isLoadingModels,
+        isLoading: isLoadingModels || isModelSelectionPending,
         loadFailed: modelLoadFailed,
         loadError: modelLoadError,
         onChange: handleModelChange,
@@ -1609,6 +1644,7 @@ export function ThreadDetailPromptArea({
       exitHandoff,
       handleModelChange,
       handleProviderChange,
+      isModelSelectionPending,
       isLoadingModels,
       modelLoadFailed,
       modelLoadError,
@@ -1662,14 +1698,16 @@ export function ThreadDetailPromptArea({
 
   const bottomPermissionConfig = useMemo(
     () => ({
-      value: hasConcreteDefaultExecutionOptions ? permissionMode : undefined,
-      options: hasConcreteDefaultExecutionOptions ? permissionModeOptions : [],
+      value: hasKnownDefaultExecutionOptions ? permissionMode : undefined,
+      options: hasKnownDefaultExecutionOptions ? permissionModeOptions : [],
       onChange: setPermissionMode,
       supported:
-        hasConcreteDefaultExecutionOptions && supportsPermissionModeSelection,
+        hasKnownDefaultExecutionOptions && supportsPermissionModeSelection,
+      loading: isPermissionModePending,
     }),
     [
-      hasConcreteDefaultExecutionOptions,
+      hasKnownDefaultExecutionOptions,
+      isPermissionModePending,
       permissionMode,
       permissionModeOptions,
       setPermissionMode,
@@ -1687,6 +1725,8 @@ export function ThreadDetailPromptArea({
     [bottomPermissionConfig, inlineEditingQueuedMessage],
   );
 
+  const environmentCheckoutLoading =
+    environmentCheckout === undefined && workspaceStatusPending;
   const environmentSummary = useMemo(
     () =>
       thread.environmentId !== null ? (
@@ -1699,11 +1739,13 @@ export function ThreadDetailPromptArea({
           environmentProviderName={environmentProviderName}
           environmentMachineProvider={environmentMachineProvider}
           environmentCheckout={environmentCheckout}
+          environmentCheckoutLoading={environmentCheckoutLoading}
           onCreateNewThreadInEnvironment={onCreateNewThreadInEnvironment}
         />
       ) : null,
     [
       environmentCheckout,
+      environmentCheckoutLoading,
       environmentCompactLabel,
       environmentHost,
       environmentIcon,
@@ -1726,6 +1768,16 @@ export function ThreadDetailPromptArea({
         />
       );
     }
+    if (environmentCheckoutLoading) {
+      return (
+        <ThreadDetailsButton
+          icon="GitBranch"
+          label="Loading branch"
+          loading
+          onOpenDetails={onOpenThreadInfo}
+        />
+      );
+    }
     if (environmentLabel) {
       return (
         <ThreadDetailsButton
@@ -1738,6 +1790,7 @@ export function ThreadDetailPromptArea({
     return null;
   }, [
     environmentCheckout,
+    environmentCheckoutLoading,
     environmentCompactLabel,
     environmentIcon,
     environmentLabel,
@@ -2166,7 +2219,7 @@ export function ThreadDetailPromptArea({
           />
         ) : null}
         {shouldHideComposer ? null : queuedMessagesPending ? (
-          <QueuedMessagesPendingCard queuedMessageCount={queuedMessageCount} />
+          <QueuedMessagesPendingCard />
         ) : (
           <LazyQueuedMessagesList
             attachedToComposer={true}
@@ -2234,7 +2287,6 @@ export function ThreadDetailPromptArea({
       childThreadsSection,
       pendingTodos,
       displayedProcessingQueuedMessage,
-      queuedMessageCount,
       queuedMessages,
       queuedMessagesPending,
       resolveMentionLink,
@@ -2327,7 +2379,9 @@ export function ThreadDetailPromptArea({
       }
       execution={bottomExecutionConfig}
       permission={bottomPermissionConfig}
-      permissionReadOnly={isPermissionSnapshot}
+      permissionReadOnly={
+        isPermissionSnapshot || !hasConcreteDefaultExecutionOptions
+      }
       sessionOptionsControl={sessionOptionsControl}
       typeahead={typeaheadConfig}
       promptActions={promptActions}

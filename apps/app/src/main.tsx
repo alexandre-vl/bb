@@ -15,6 +15,10 @@ import { appQueryClient } from "./lib/app-query-client";
 import { applyAppFrameGeometry, getBbDesktopInfo } from "./lib/bb-desktop";
 import { applyCachedAppThemeCss } from "./lib/themes";
 import { installStaleChunkRecovery } from "./lib/stale-chunk-recovery";
+import { installQueryPerfTrace } from "./lib/perf-trace";
+import { installThreadLinkIntent } from "./lib/thread-link-intent";
+import { prefetchThreadOpenOnIntent } from "./lib/thread-open-prefetch";
+import { traceThreadOpenIntent } from "./lib/thread-open-trace";
 import { moveStylesheetPropertiesToRegistry } from "./lib/stylesheet-property-registry";
 import "./app.css";
 
@@ -25,6 +29,11 @@ Error.stackTraceLimit = 50;
 
 installAppQueryClientBrowserEvents(appQueryClient);
 registerProviderCliInstallQueryClient(appQueryClient);
+installQueryPerfTrace(appQueryClient);
+installThreadLinkIntent((intent) => {
+  traceThreadOpenIntent(intent);
+  prefetchThreadOpenOnIntent(appQueryClient, intent);
+});
 
 initializePreferredTheme();
 applyCachedAppThemeCss();

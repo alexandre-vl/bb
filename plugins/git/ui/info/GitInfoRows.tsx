@@ -11,6 +11,7 @@ import {
   SquashMergeInfo,
 } from "@bb/shared-ui/git-status-display";
 import { Icon } from "@bb/shared-ui/icon";
+import { Skeleton } from "@bb/shared-ui/skeleton";
 import {
   getMergeBaseBranchCandidateGroups,
 } from "../merge-base-branch-candidates";
@@ -62,8 +63,23 @@ function CopyableValue({
 }
 
 export function BranchInfoRow({ environment }: ExperimentalThreadInfoProps) {
-  const { workspace } = useGitStatus(environment?.id ?? null);
-  return workspace === undefined ? null : <BranchRowView workspace={workspace} />;
+  const { workspace, isLoading } = useGitStatus(environment?.id ?? null);
+  if (workspace !== undefined) return <BranchRowView workspace={workspace} />;
+  return isLoading ? <PendingRowView icon="GitBranch" label="Branch" /> : null;
+}
+
+function PendingRowView({
+  icon,
+  label,
+}: {
+  icon: "FileDiff" | "GitBranch";
+  label: string;
+}) {
+  return (
+    <DetailRow icon={icon} label={label}>
+      <Skeleton className="h-3 w-24 max-w-full rounded-sm" />
+    </DetailRow>
+  );
 }
 
 export function BranchRowView({ workspace }: { workspace: WorkspaceStatus }) {
@@ -177,9 +193,12 @@ export function formatBranchComparison({
 }
 
 export function GitStatusInfoRow(props: ExperimentalThreadInfoProps) {
-  const { workspace, failure, errorMessage } = useGitStatus(
+  const { workspace, failure, errorMessage, isLoading } = useGitStatus(
     props.environment?.id ?? null,
   );
+  if (workspace === undefined && isLoading) {
+    return <PendingRowView icon="FileDiff" label="Git status" />;
+  }
   return (
     <GitStatusRowView
       workspace={workspace}

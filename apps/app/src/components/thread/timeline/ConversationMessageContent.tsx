@@ -85,7 +85,7 @@ import {
   TimelineTouchedFilesContext,
   useMessageTouchedFiles,
 } from "./timeline-touched-files.js";
-import { markStreamTrace } from "@/lib/stream-trace";
+import { markStreamTrace } from "@/lib/perf-trace";
 
 interface ConversationMessageContentBaseProps {
   actionMetadata?: ReactNode;

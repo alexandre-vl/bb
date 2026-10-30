@@ -15,6 +15,7 @@ import { CHROME_SUBTLE_ICON_BUTTON_FOREGROUND_CLASS } from "@bb/shared-ui/chrome
 import { cn } from "@bb/shared-ui/lib/utils";
 
 interface ThreadWorkspaceOpenButtonProps {
+  disabled: boolean;
   onOpenPreferredTarget: () => Promise<void>;
   onOpenTarget: (targetId: WorkspaceOpenTargetId) => Promise<void>;
   preferredTarget: WorkspaceOpenTarget | null;
@@ -22,6 +23,7 @@ interface ThreadWorkspaceOpenButtonProps {
 }
 
 export function ThreadWorkspaceOpenButton({
+  disabled,
   onOpenPreferredTarget,
   onOpenTarget,
   preferredTarget,
@@ -85,7 +87,7 @@ export function ThreadWorkspaceOpenButton({
     <span className="inline-flex items-center gap-1.5">
       <AppCommandShortcutHint shortcut={shortcut} />
       <SplitButton
-        disabled={isPending}
+        disabled={disabled || isPending}
         className={cn(
           "border-border/70 bg-transparent px-1 shadow-none",
           CHROME_SUBTLE_ICON_BUTTON_FOREGROUND_CLASS,

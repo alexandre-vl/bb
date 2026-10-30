@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Host } from "@bb/domain";
 import { makeHost } from "@bb/test-helpers/domain-fixtures";
-import { selectHosts, selectPrimaryHost } from "./host-queries";
+import {
+  keepHostsChangedOnlyByHeartbeat,
+  selectHosts,
+  selectPrimaryHost,
+} from "./host-queries";
 
 function host(overrides: Partial<Host> & Pick<Host, "id">): Host {
   return makeHost({
@@ -70,5 +74,64 @@ describe("selectHosts", () => {
       "host_local",
       "host_modal",
     ]);
+  });
+});
+
+describe("keepHostsChangedOnlyByHeartbeat", () => {
+  const laptop = host({ id: "host_laptop", lastSeenAt: 1 });
+  const sandbox = host({ id: "host_sandbox", lastSeenAt: 1 });
+
+  function heartbeat(previous: Host, at: number): Host {
+    return { ...previous, lastSeenAt: at, updatedAt: at };
+  }
+
+  it("keeps a connected host whose only change is a newer heartbeat", () => {
+    const next = keepHostsChangedOnlyByHeartbeat(
+      [laptop, sandbox],
+      [heartbeat(laptop, 9), heartbeat(sandbox, 9)],
+    );
+    expect(next[0]).toBe(laptop);
+    expect(next[1]).toBe(sandbox);
+  });
+
+  it("takes the new host when anything besides the heartbeat changed", () => {
+    const changes: Host[] = [
+      { ...heartbeat(laptop, 9), status: "disconnected" },
+      { ...heartbeat(laptop, 9), name: "Renamed" },
+      {
+        ...heartbeat(laptop, 9),
+        lifecycle: { ...laptop.lifecycle, phase: "suspending" },
+      },
+    ];
+    for (const changed of changes) {
+      expect(keepHostsChangedOnlyByHeartbeat([laptop], [changed])[0]).toBe(
+        changed,
+      );
+    }
+  });
+
+  it("takes a disconnected host's new last-seen time", () => {
+    const offline = host({
+      id: "host_laptop",
+      lastSeenAt: 1,
+      status: "disconnected",
+    });
+    const seenAgain = heartbeat(offline, 9);
+    expect(keepHostsChangedOnlyByHeartbeat([offline], [seenAgain])[0]).toBe(
+      seenAgain,
+    );
+  });
+
+  it("follows the new list's membership and order", () => {
+    const added = host({ id: "host_added" });
+    const next = keepHostsChangedOnlyByHeartbeat(
+      [laptop, sandbox],
+      [added, heartbeat(laptop, 9)],
+    );
+    expect(next.map((candidate) => candidate.id)).toEqual([
+      "host_added",
+      "host_laptop",
+    ]);
+    expect(next[1]).toBe(laptop);
   });
 });

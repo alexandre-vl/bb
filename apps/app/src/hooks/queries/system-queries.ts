@@ -1,12 +1,16 @@
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type {
+  Environment,
   PermissionMode,
   ProviderInfo,
   ProviderModelCatalogScope,
 } from "@bb/domain";
 import { SYSTEM_EXECUTION_OPTIONS_QUERY_KEY } from "@/hooks/queries/query-keys";
-import { permissionModeValues } from "@bb/domain";
+import {
+  permissionModeValues,
+  providerModelCatalogDependsOnWorkspace,
+} from "@bb/domain";
 import type {
   SystemCliCommandStatus,
   SystemCliSkillsStatusResponse,
@@ -16,6 +20,7 @@ import type {
   SystemVersionResponse,
 } from "@bb/server-contract";
 import type { ProviderCliStatusResponse } from "@bb/host-daemon-contract";
+import { getThreadEntity } from "@/hooks/cache-owners/thread-entity-store";
 import { BbHttpError, sdk } from "@/lib/sdk";
 import { isAbortLikeError } from "@/lib/mutation-errors";
 import {
@@ -35,6 +40,7 @@ import {
 import {
   allSystemExecutionOptionsQueryKeyPrefix,
   allSystemProvidersQueryKeyPrefix,
+  environmentQueryKey,
   hostProviderCliStatusQueryKey,
   systemCliCommandQueryKey,
   systemCliSkillsQueryKey,
@@ -70,6 +76,12 @@ interface SystemExecutionOptionsQueryArgs {
   providerId: string | null;
   projectId: string | null;
   writeLastKnown: boolean;
+}
+
+interface ThreadComposerCatalogRoutingArgs {
+  environmentId: string | undefined;
+  environmentHostId: string | undefined;
+  providerId: string;
 }
 
 interface UseSystemProviderStatesOptions extends QueryOptions {
@@ -195,6 +207,13 @@ export function useKnownProviderModelCatalogScope(
   providerId: string,
 ): ProviderModelCatalogScope | undefined {
   const queryClient = useQueryClient();
+  return findKnownProviderModelCatalogScope(queryClient, providerId);
+}
+
+function findKnownProviderModelCatalogScope(
+  queryClient: QueryClient,
+  providerId: string,
+): ProviderModelCatalogScope | undefined {
   if (providerId.length === 0) {
     return undefined;
   }
@@ -220,6 +239,53 @@ export function useKnownProviderModelCatalogScope(
     }
   }
   return undefined;
+}
+
+export function resolveThreadComposerEnvironmentHostId(
+  queryClient: QueryClient,
+  { environmentId, threadId }: { environmentId: string; threadId: string },
+): string | undefined {
+  return (
+    queryClient.getQueryData<Environment>(environmentQueryKey(environmentId))
+      ?.hostId ??
+    getThreadEntity(queryClient, threadId)?.list?.environmentHostId ??
+    undefined
+  );
+}
+
+export function resolveThreadComposerCatalogRouting(
+  queryClient: QueryClient,
+  {
+    environmentId,
+    environmentHostId,
+    providerId,
+  }: ThreadComposerCatalogRoutingArgs,
+): SystemProvidersQuery {
+  if (environmentId === undefined) {
+    return {};
+  }
+  const environmentCatalog = queryClient.getQueryState(
+    systemExecutionOptionsQueryKey({
+      environmentId,
+      hostId: null,
+      providerId: providerId.length > 0 ? providerId : null,
+    }),
+  );
+  if (
+    environmentCatalog?.data !== undefined ||
+    environmentCatalog?.fetchStatus === "fetching"
+  ) {
+    return { environmentId };
+  }
+  if (
+    environmentHostId !== undefined &&
+    !providerModelCatalogDependsOnWorkspace(
+      findKnownProviderModelCatalogScope(queryClient, providerId),
+    )
+  ) {
+    return { hostId: environmentHostId };
+  }
+  return { environmentId };
 }
 
 export function systemProvidersQueryOptions(args: UseSystemProvidersArgs = {}) {
