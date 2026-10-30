@@ -108,6 +108,7 @@ import {
   getThreadProvisionContext,
   readDispatchedThreadStartFork,
 } from "./thread-startup-store.js";
+import { recordCompletedThreadProvisioningRunInTransaction } from "./thread-provisioning-runs.js";
 import { cancelAbandonedProviderCreations } from "./thread-environment-providers.js";
 import { scheduleThreadProvisioningAdvance } from "./thread-provisioning.js";
 import { isPreStartThreadStatus } from "./thread-status.js";
@@ -1249,6 +1250,11 @@ function dispatchThreadStartFromRequest(
             entries: [],
           },
         );
+        recordCompletedThreadProvisioningRunInTransaction(tx, {
+          completedSequence: completedProvisionSequence,
+          context: activeProvisionContext,
+          threadId: args.threadId,
+        });
       }
 
       return {

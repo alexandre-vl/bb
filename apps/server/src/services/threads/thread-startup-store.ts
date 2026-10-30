@@ -57,10 +57,20 @@ type ThreadProvisionOperationPayload = z.infer<
   typeof threadProvisionCommonPayloadSchema
 >;
 
+const threadProvisionRequestedProviderSchema = z.object({
+  environmentProviderId: z.string().min(1),
+  machineKind: z.enum(["existing", "new"]),
+});
+
+export type ThreadProvisionRequestedProvider = z.infer<
+  typeof threadProvisionRequestedProviderSchema
+>;
+
 interface ThreadProvisioningState {
   environmentId: string | null;
   provisionEventSequence: number | null;
   provisioningId: string;
+  requestedProvider: ThreadProvisionRequestedProvider | null;
   workspaceReadyEventSequence: number | null;
 }
 
@@ -75,6 +85,9 @@ export const persistedThreadProvisionContextSchema = z.object({
     environmentId: z.string().nullable(),
     provisionEventSequence: z.number().nullable(),
     provisioningId: z.string(),
+    requestedProvider: threadProvisionRequestedProviderSchema
+      .nullable()
+      .default(null),
     workspaceReadyEventSequence: z.number().nullable(),
   }),
 });
@@ -230,12 +243,21 @@ export function readDispatchedThreadStartFork(
 export function createThreadStartup(
   request: ThreadProvisionContext["request"],
 ): ThreadProvisionContext {
+  const parsed = threadProvisionCommonPayloadSchema.parse(request);
+  const intent = parsed.environmentIntent;
   return {
-    request: threadProvisionCommonPayloadSchema.parse(request),
+    request: parsed,
     state: {
       environmentId: null,
       provisioningId: createThreadProvisioningId(),
       provisionEventSequence: null,
+      requestedProvider:
+        intent.type === "provider"
+          ? {
+              environmentProviderId: intent.environmentProviderId,
+              machineKind: intent.machine.type,
+            }
+          : null,
       workspaceReadyEventSequence: null,
     },
   };

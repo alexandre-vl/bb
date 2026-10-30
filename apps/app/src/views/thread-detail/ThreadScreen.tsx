@@ -59,6 +59,7 @@ import {
   subscribeComposerFocusRequests,
 } from "@/lib/composer-focus-requests";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
+import { findActiveProvisioningEstimate } from "@/lib/thread-provisioning-estimate";
 import { useParentThreadSection } from "./useParentThreadSection";
 import { getThreadRoutePath } from "@/lib/route-paths";
 import { showMutationErrorToast } from "@/lib/mutation-errors";
@@ -484,6 +485,10 @@ export function ThreadScreen({
     useState<string | null>(null);
   const { timelineLoading, timelineRows } = timeline;
   const isThreadTimelinePending = timelineLoading && timelineRows.length === 0;
+  const provisioningEstimate = useMemo(
+    () => findActiveProvisioningEstimate(timelineRows),
+    [timelineRows],
+  );
 
   const { handleEditSentMessage, inlineMessageEditor, sentMessageEdit } =
     useSentMessageEditing({
@@ -587,6 +592,7 @@ export function ThreadScreen({
         defaultAppSettings.steerActiveThreadOnEnter
       }
       pendingInteractions={pendingInteractions}
+      provisioningEstimate={provisioningEstimate}
       queuedMessageCount={thread.queuedMessageCount}
       pendingTodos={timeline.pendingTodos}
       activePromptMode={timeline.activePromptMode}

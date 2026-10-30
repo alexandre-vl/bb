@@ -13,7 +13,8 @@ export function timelineRowItemId(row: TimelineRow): string | null {
   if (
     row.kind === "system" &&
     row.systemKind === "operation" &&
-    row.operationKind !== "parent-change"
+    row.operationKind !== "parent-change" &&
+    row.operationKind !== "thread-provisioning"
   ) {
     return row.reasoningId ?? null;
   }
@@ -83,6 +84,7 @@ function deferRowContent(row: TimelineRow): TimelineRow {
     row.kind === "system" &&
     row.systemKind === "operation" &&
     row.operationKind !== "parent-change" &&
+    row.operationKind !== "thread-provisioning" &&
     isSettled(row) &&
     row.reasoningId !== undefined &&
     row.detail !== null &&

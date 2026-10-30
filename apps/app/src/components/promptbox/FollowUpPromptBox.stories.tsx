@@ -612,10 +612,10 @@ function Row({
   } | null>(null);
   const resolvedPlaceholder =
     promptPlaceholder ??
-    getFollowUpPromptPlaceholder(threadRuntimeDisplayStatus);
+    getFollowUpPromptPlaceholder(threadRuntimeDisplayStatus, null);
   const resolvedCompactPlaceholder =
     promptPlaceholder ??
-    getCompactFollowUpPromptPlaceholder(threadRuntimeDisplayStatus);
+    getCompactFollowUpPromptPlaceholder(threadRuntimeDisplayStatus, null);
   const handleChangeMessage = (
     nextMessage: string,
     nextMentions: PromptTextMention[],

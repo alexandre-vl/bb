@@ -646,7 +646,10 @@ export function parseOperationMessage(
     if (provisioningId.startsWith("thread-start:")) {
       return null;
     }
-    const transcript = readProvisioningTranscript(decoded.entries);
+    const transcript = readProvisioningTranscript(
+      decoded.entries,
+      meta.createdAt,
+    );
     const operationStatus = provisioningOperationStatus(status);
     return op(decoded, meta, "thread-provisioning", {
       opType: "thread-provisioning",

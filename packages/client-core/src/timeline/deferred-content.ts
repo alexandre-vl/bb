@@ -11,6 +11,7 @@ export function deferredTimelineContentItemId(
     row.kind === "system" &&
     row.systemKind === "operation" &&
     row.operationKind !== "parent-change" &&
+    row.operationKind !== "thread-provisioning" &&
     row.contentDeferred === true
   ) {
     return row.reasoningId ?? null;
@@ -70,6 +71,7 @@ export function resolveDeferredTimelineContent(
     row.kind === "system" &&
     row.systemKind === "operation" &&
     row.operationKind !== "parent-change" &&
+    row.operationKind !== "thread-provisioning" &&
     match.kind === "system"
   ) {
     const { contentDeferred: _contentDeferred, ...rest } = row;

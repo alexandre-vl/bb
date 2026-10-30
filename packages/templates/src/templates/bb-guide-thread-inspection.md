@@ -69,6 +69,12 @@ Inspecting:
     --diff-merge-base <branch>             Override merge-base branch for diff
 
   Shows pull request status for the attached environment branch when available.
+  While the thread provisions, it also shows the elapsed time, the running step,
+  and the usual time: the p50 of the last 20 successful provisionings with the
+  same project, environment and new-or-existing machine (below 3, the same
+  environment and machine kind across all projects; below 3 there too, only the
+  elapsed time). From 10 runs it adds the p90 and says "slower than usual" past
+  it. Provisionings that spanned a server restart are not counted.
 
   `thread context` reads the latest stored context measurement without starting
   a provider request; `--json` prints `{ usage: ... }` (`null` when unavailable).
@@ -94,6 +100,11 @@ Inspecting:
     --all                                  Print the whole thread, paging through every entry
     --message <seq>                        Print one message
     --context <count>                      With --message, also print this many messages around it (max 20)
+
+  The thread-provisioning row lists each step with its time; a running step
+  shows its latest output line, and a failed step keeps its last 20 output lines
+  followed by its error.
+  A running row's title carries the usual time, e.g. "(usually ~31s)".
 
   Human formats end with a notice when older history was omitted; --json warns
   on stderr when more events exist beyond the printed page. Human-format --all

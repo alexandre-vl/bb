@@ -22,6 +22,7 @@ import { Icon } from "@bb/shared-ui/icon";
 import { DiffStatsTally } from "@bb/shared-ui/diff-stats-tally";
 import { RouteAnchor } from "@/components/ui/app-route-anchor.js";
 import { LiveDurationText } from "./LiveDurationText.js";
+import { ProvisioningEstimateText } from "./ProvisioningEstimateText.js";
 import {
   ThreadTitleMentions,
   useResolveThreadTitle,
@@ -231,6 +232,16 @@ function renderDecoration(
         </span>
       );
     }
+    case "provisioning-estimate":
+      return (
+        <ProvisioningEstimateText
+          key={index}
+          className="shrink-0 whitespace-pre"
+          p50Ms={decoration.p50Ms}
+          p90Ms={decoration.p90Ms}
+          startedAt={decoration.startedAt}
+        />
+      );
     case "status":
     case "summary-status": {
       if (decoration.kind === "status") {

@@ -29,6 +29,7 @@ import { z } from "zod";
 import {
   type ThreadTimelineResponse,
   type TimelineConversationRow,
+  type TimelineThreadProvisioningSystemRow,
   THREAD_EVENT_LIST_PAGE_SIZE,
   THREAD_MESSAGE_CONTEXT_LIMIT,
 } from "@bb/server-contract";
@@ -45,6 +46,10 @@ import {
   printEnvironmentInfo,
 } from "../environment-helpers.js";
 import { fetchThreadPendingTodos, printPendingTodos } from "./pending-todos.js";
+import {
+  fetchActiveProvisioning,
+  formatActiveProvisioningLines,
+} from "./provisioning.js";
 
 interface ThreadShowCommandOptions {
   self?: boolean;
@@ -86,6 +91,7 @@ type ThreadShowEnvironmentJsonPayload = Environment & {
 interface ThreadShowJsonPayload extends ThreadStatusPayload {
   environment: ThreadShowEnvironmentJsonPayload | null;
   pendingTodos: ThreadTimelinePendingTodos | null;
+  provisioning: TimelineThreadProvisioningSystemRow | null;
   workStatus?: WorkspaceStatus | null;
   gitDiff?: ThreadGitDiffResponse | null;
 }
@@ -343,6 +349,10 @@ export function registerShowCommand(
           sdk,
           threadId,
         });
+        const provisioning =
+          thread.status === "starting"
+            ? await fetchActiveProvisioning({ sdk, threadId })
+            : null;
 
         if (opts.json) {
           const environment = await getEnvironment();
@@ -353,6 +363,7 @@ export function registerShowCommand(
               fetchedPullRequest,
             ),
             pendingTodos,
+            provisioning,
           };
           if (fetchedWorkStatus !== undefined) {
             jsonPayload.workStatus = fetchedWorkStatus.available
@@ -369,6 +380,12 @@ export function registerShowCommand(
         }
 
         printThreadStatus(statusPayload, environmentInfo, fetchedPullRequest);
+        for (const line of formatActiveProvisioningLines(
+          provisioning,
+          Date.now(),
+        )) {
+          console.log(line);
+        }
 
         printPendingTodos(pendingTodos);
 

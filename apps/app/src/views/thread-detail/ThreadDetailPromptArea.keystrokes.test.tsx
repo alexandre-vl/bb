@@ -142,6 +142,7 @@ function buildPromptArea({
         modelFallback={null}
         parentThreadSection={null}
         pendingInteractions={pendingInteractions}
+        provisioningEstimate={null}
         queuedMessageCount={0}
         pendingTodos={null}
         projectId={PROJECT_ID}

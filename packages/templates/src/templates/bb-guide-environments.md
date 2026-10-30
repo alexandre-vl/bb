@@ -54,7 +54,8 @@ Making your repo work with bb:
   Keep optional setup steps non-fatal inside the
   script if the environment should still open. Provisioning progress reports
   "Running .bb-env-setup.sh" and then ".bb-env-setup.sh finished",
-  ".bb-env-setup.sh failed", or ".bb-env-setup.sh cancelled".
+  ".bb-env-setup.sh failed", or ".bb-env-setup.sh cancelled". Each provisioning
+  step shows the time it took, measured when the server received its progress.
 
   Commit a .bb-env-teardown.sh script at the repo root when setup creates
   resources outside the managed worktree. BB runs the hook as

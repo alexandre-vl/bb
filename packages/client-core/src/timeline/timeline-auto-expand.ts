@@ -77,6 +77,9 @@ export function isRowExpandable(row: ThreadTimelineViewRow): boolean {
     case "system":
       return (
         deferredTimelineContentItemId(row) !== null ||
+        (row.systemKind === "operation" &&
+          row.operationKind === "thread-provisioning" &&
+          row.steps.length > 0) ||
         (row.detail !== null && row.detail.trim().length > 0)
       );
     case "bundle-summary":

@@ -113,6 +113,10 @@ import { roundDurationMs } from "@bb/process-utils";
 import { runEventLoopWorkSync } from "../system/event-loop-work.js";
 import { parseStoredEvent } from "./thread-data.js";
 import { withCompactionOffer } from "./compaction-offer.js";
+import {
+  resolveActiveThreadProvisioning,
+  withProvisioningEstimate,
+} from "./thread-provisioning-runs.js";
 import { decodeStoredEventRowCached } from "./stored-event-decode-cache.js";
 import {
   selectTimelineWindowStart,
@@ -1444,6 +1448,7 @@ function buildThreadTimelineInternal(
     acceptedClientRequestEvents: [],
     rejectedClientRequestEvents: [],
   };
+  const activeProvisioning = resolveActiveThreadProvisioning(db, thread);
   const timeline = measureThreadTimelineStage(
     profile,
     "thread-view-projection",
@@ -1455,6 +1460,7 @@ function buildThreadTimelineInternal(
         events: decodedEvents,
         options: {
           ...commonProjectionOptions,
+          activeProvisioningId: activeProvisioning?.provisioningId,
           includeNestedRows,
           providerId: thread.providerId,
         },
@@ -1484,7 +1490,10 @@ function buildThreadTimelineInternal(
   const pageableTimelineRows = mapTimelineRowTree(
     projectedTimelineRows,
     (row) => {
-      const previewed = withRetainedOutputPreview(row, retainedOutputPreviews);
+      const previewed = withRetainedOutputPreview(
+        withProvisioningEstimate(row, activeProvisioning),
+        retainedOutputPreviews,
+      );
       return deferContent ? deferSettledTimelineRow(previewed) : previewed;
     },
   );
