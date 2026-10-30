@@ -937,6 +937,8 @@ export function ControlStates() {
       >
         <ResourceCreateButton
           label="New automation"
+          shortLabel="New"
+          icon="Repeat"
           templates={AUTOMATION_CREATE_TEMPLATES}
           onCreate={noop}
         />
