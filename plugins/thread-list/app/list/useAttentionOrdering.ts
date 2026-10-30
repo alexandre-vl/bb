@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import type { ThreadComparator } from "../model/project-thread-groups.js";
+import type { ThreadListRung } from "../model/thread-activity.js";
 import {
   buildSubtreeAttentionRungs,
   compareOrderVersions,
@@ -41,6 +42,30 @@ function useHeldOpenRung(
   return next;
 }
 
+function haveSameRungs(
+  left: ReadonlyMap<string, ThreadListRung> | null,
+  right: ReadonlyMap<string, ThreadListRung> | null,
+): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || left.size !== right.size) {
+    return false;
+  }
+  for (const [threadId, rung] of left) {
+    if (right.get(threadId) !== rung) return false;
+  }
+  return true;
+}
+
+function useStableRungs(
+  rungs: ReadonlyMap<string, ThreadListRung> | null,
+): ReadonlyMap<string, ThreadListRung> | null {
+  const rungsRef = useRef(rungs);
+  if (!haveSameRungs(rungsRef.current, rungs)) {
+    rungsRef.current = rungs;
+  }
+  return rungsRef.current;
+}
+
 export function useAttentionOrdering({
   threads,
   selectedThreadId,
@@ -61,15 +86,17 @@ export function useAttentionOrdering({
   const [expandedThreadIdList, setExpandedThreadIdList] = useAtom(
     expandedThreadIdsAtom,
   );
-  const subtreeRungs = useMemo(
-    () =>
-      attentionFirst
-        ? buildSubtreeAttentionRungs(
-            threads,
-            heldAttentionRung(heldOpenRung, versionOf),
-          )
-        : null,
-    [attentionFirst, heldOpenRung, threads, versionOf],
+  const subtreeRungs = useStableRungs(
+    useMemo(
+      () =>
+        attentionFirst
+          ? buildSubtreeAttentionRungs(
+              threads,
+              heldAttentionRung(heldOpenRung, versionOf),
+            )
+          : null,
+      [attentionFirst, heldOpenRung, threads, versionOf],
+    ),
   );
   const versionedComparator = useMemo(
     () => compareOrderVersions(comparator, versionOf),
