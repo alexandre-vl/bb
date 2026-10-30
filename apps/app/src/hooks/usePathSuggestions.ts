@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { WorkspacePathEntry } from "@bb/server-contract";
 import { useEnvironmentPathSuggestions } from "./queries/environment-queries";
 import { useProjectPathSuggestions } from "./queries/project-queries";
-import { useThreadStoragePaths } from "./queries/thread-queries";
+import { useThreadStoragePaths } from "./queries/thread-panel-queries";
 import { isProjectlessProjectId } from "@/lib/route-paths";
 import type { PathListOptions } from "@/lib/path-list-options";
 import { useDebouncedValue } from "./useDebouncedValue";
