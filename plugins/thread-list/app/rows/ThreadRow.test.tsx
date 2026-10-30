@@ -484,7 +484,7 @@ describe("ThreadRow", () => {
     "selects the row on %s-shift-click and still splits without shift with multi-select on",
     (_label, modifier) => {
       const slot = renderThreadRow({ experiments: ["sidebarMultiSelect"] });
-      const link = screen.getByRole("link", { name: "Open Thread" });
+      const link = screen.getByRole("treeitem", { name: "Thread" });
       const row = link.closest("[data-sidebar-rename-row]");
       expect(row?.hasAttribute("data-sidebar-thread-selected")).toBe(false);
       expect(fireEvent.click(link, { ...modifier, shiftKey: true })).toBe(
@@ -516,12 +516,12 @@ describe("ThreadRow", () => {
       },
     });
     for (const title of ["First", "Second"]) {
-      fireEvent.click(screen.getByRole("link", { name: `Open ${title}` }), {
+      fireEvent.click(screen.getByRole("treeitem", { name: title }), {
         metaKey: true,
         shiftKey: true,
       });
     }
-    fireEvent.contextMenu(screen.getByRole("link", { name: "Open Second" }));
+    fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Second" }));
     await screen.findByRole("menu", { name: "Actions for 2 threads" });
     expect(bulkTargets.at(-1)).toEqual(["thr_first", "thr_second"]);
     expect(
@@ -529,15 +529,15 @@ describe("ThreadRow", () => {
     ).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-    fireEvent.click(screen.getByRole("link", { name: "Open First" }), {
+    fireEvent.click(screen.getByRole("treeitem", { name: "First" }), {
       metaKey: true,
       shiftKey: true,
     });
-    fireEvent.click(screen.getByRole("link", { name: "Open Second" }), {
+    fireEvent.click(screen.getByRole("treeitem", { name: "Second" }), {
       metaKey: true,
       shiftKey: true,
     });
-    fireEvent.contextMenu(screen.getByRole("link", { name: "Open Third" }));
+    fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Third" }));
     expect(
       await screen.findByRole("menu", { name: "Thread actions" }),
     ).toBeTruthy();
@@ -550,7 +550,7 @@ describe("ThreadRow", () => {
         experiments: ["sidebarMultiSelect"],
       });
       container.setAttribute("data-sidebar", "sidebar");
-      const link = screen.getByRole("link", { name: "Open Thread" });
+      const link = screen.getByRole("treeitem", { name: "Thread" });
       const row = link.closest("[data-sidebar-rename-row]")!;
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
@@ -560,7 +560,7 @@ describe("ThreadRow", () => {
         for (const keepingTarget of [
           row,
           link,
-          screen.getByRole("button", { name: "Thread actions" }),
+          screen.getByRole("button", { hidden: true, name: "Thread actions" }),
           menu,
         ]) {
           fireEvent.pointerDown(keepingTarget);
@@ -1309,7 +1309,7 @@ describe("ThreadRow", () => {
     const slot = renderThreadRow({
       experiments: ["sidebarMultiSelect", "threadRowMetadata"],
     });
-    const link = screen.getByRole("link", { name: "Open Thread" });
+    const link = screen.getByRole("treeitem", { name: "Thread" });
     const row = link.closest("[data-sidebar-rename-row]");
     const items = row?.querySelector("[data-thread-row-metadata]");
     expect(items).not.toBeNull();
@@ -1491,9 +1491,10 @@ describe("ThreadRow", () => {
     expect(renderedIndicators()).toEqual(["background-agent"]);
   });
 
-  it("shows the unread dot over background work but not over a workflow", () => {
+  it("shows the unread dot over background work and workflows", () => {
     const background = renderThreadRow({
       thread: createThread({
+        latestAttentionAt: 2,
         activity: activity({ backgroundAgents: 1, backgroundCommands: 1 }),
       }),
     });
@@ -1502,10 +1503,11 @@ describe("ThreadRow", () => {
 
     renderThreadRow({
       thread: createThread({
+        latestAttentionAt: 2,
         activity: activity({ workflows: 1, backgroundCommands: 1 }),
       }),
     });
-    expect(renderedIndicators()).toEqual(["workflow"]);
+    expect(renderedIndicators()).toEqual(["unread-success"]);
   });
 
   it.each([
