@@ -5,6 +5,7 @@ import type {
   EnvironmentPullRequest,
   PullRequest,
 } from "bb-plugin-bb--github-pr-status/contract";
+import type { TimelineThreadProvisioningSystemRow } from "@bb/server-contract";
 import {
   setupCommandOutputTestEnvironment,
   collectLogLines,
@@ -491,7 +492,7 @@ describe("bb thread show command output", () => {
         createdAt: 1,
         updatedAt: 2,
       });
-      const provisioning: serverContract.TimelineThreadProvisioningSystemRow =
+      const provisioning: TimelineThreadProvisioningSystemRow =
         {
           id: "thread-provisioning:op:thread-provisioning:tpv_1",
           threadId: "thread-provisioning",
