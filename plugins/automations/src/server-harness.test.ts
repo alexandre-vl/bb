@@ -505,6 +505,21 @@ describe("automations server plugin harness", () => {
       "Cannot combine agent execution flags with script flags",
     );
 
+    const agentHostResult = await harness.runCli([
+      "update",
+      created.id,
+      "--project",
+      PROJECT_ID,
+      "--model",
+      "gpt-5",
+      "--host",
+      "host_fake",
+    ]);
+    expect(agentHostResult.exitCode).toBe(1);
+    expect(agentHostResult.stderr).toContain(
+      "--host names the host that holds --script-file; choose where an agent automation runs with --machine.",
+    );
+
     const errorResult = await harness.runCli([
       "create",
       "--project",
