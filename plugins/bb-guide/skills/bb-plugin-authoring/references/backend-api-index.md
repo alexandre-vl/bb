@@ -76,9 +76,6 @@ Read the installed declarations for exact current signatures.
 - `ExperimentalProviderModelPickerProps`
 - `ExperimentalProviderModelPickerRouting`
 - `ExperimentalProviderModelPickerValue`
-- `ExperimentalThreadAttention`
-- `ExperimentalThreadIndicatorRung`
-- `ExperimentalThreadListIndicatorState`
 - `ExperimentalVoiceInputTextareaProps`
 - `JsonValue`
 - `ReadonlyJsonValue`
