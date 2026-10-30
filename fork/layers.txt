@@ -13,7 +13,6 @@ github-plugin-inbox
 plugin-track-range
 plugin-updates-outside-range
 plugin-update-rollback
-fix/plugin-update-rollback-hub
 bb/project-default-environment
 bb/automation-environment-composer
 bb/child-threads-follow-parent-execution
