@@ -2,13 +2,18 @@ import { compareCodepoint } from "./compare-codepoint.js";
 import { buildSectionKey } from "./section-keys.js";
 import type { SidebarThread } from "./sidebar-thread.js";
 import {
-  getCollapsedChildActivity,
-  type CollapsedChildActivity,
+  FAILED_RUNG,
+  NEEDS_YOU_RUNG,
+  rollUpThreads,
+  threadIndicatorKind,
+  threadListIndicatorRung,
+  type ThreadListIndicatorKind,
+  type ThreadRollup,
 } from "./thread-activity.js";
 
 interface ProjectThreadNodeStats {
   childCount: number;
-  childActivity: CollapsedChildActivity;
+  rollup: ThreadRollup;
 }
 
 export interface ProjectThreadNode {
@@ -42,7 +47,7 @@ export interface SidebarSectionGroup {
   name: string;
   items: ProjectThreadItem[];
   threadCount: number;
-  activity: CollapsedChildActivity;
+  rollup: ThreadRollup;
 }
 
 export type ProjectThreadItem =
@@ -170,7 +175,7 @@ function buildStatsForHiddenThreads(
 ): ProjectThreadNodeStats {
   return {
     childCount: threads.length,
-    childActivity: getCollapsedChildActivity(threads),
+    rollup: rollUpThreads(threads),
   };
 }
 
@@ -592,7 +597,7 @@ function buildSectionGroup(
     name: section.name,
     items,
     threadCount: descendantThreads.length,
-    activity: getCollapsedChildActivity(descendantThreads),
+    rollup: rollUpThreads(descendantThreads),
   };
 }
 
@@ -656,10 +661,16 @@ function bucketIntoSections(
   return [...sectionItems, ...orderedLooseItems];
 }
 
+export interface ProjectThreadNodeChildren {
+  items: readonly ProjectThreadItem[];
+  foldRow: boolean;
+}
+
 export interface ProjectThreadItemRowCountContext {
   collapsedThreadIds: ReadonlySet<string>;
   collapsedEnvironmentIds: ReadonlySet<string>;
   collapsedSectionKeys: ReadonlySet<string>;
+  childrenOf: (node: ProjectThreadNode) => ProjectThreadNodeChildren;
 }
 
 function countThreadNodeRows(
@@ -672,9 +683,10 @@ function countThreadNodeRows(
   ) {
     return 1;
   }
-  return node.children.reduce(
+  const { items, foldRow } = context.childrenOf(node);
+  return items.reduce(
     (total, child) => total + countProjectThreadItemRows(child, context),
-    1,
+    foldRow ? 2 : 1,
   );
 }
 
@@ -761,7 +773,7 @@ function collectThreadNodeNavigationEntries(
   ) {
     return;
   }
-  for (const child of node.children) {
+  for (const child of context.childrenOf(node).items) {
     collectProjectThreadItemNavigationEntriesInto(child, context, entries);
   }
 }
@@ -801,4 +813,76 @@ export function collectProjectThreadItemNavigationEntries(
   const entries: ProjectThreadItemNavigationEntry[] = [];
   collectProjectThreadItemNavigationEntriesInto(item, context, entries);
   return entries;
+}
+
+export interface ProjectThreadItemAttention {
+  needsYou: number;
+  failed: number;
+}
+
+function countAttentionRow(
+  attention: ProjectThreadItemAttention,
+  ...kinds: ThreadListIndicatorKind[]
+): void {
+  const rung = Math.max(...kinds.map(threadListIndicatorRung));
+  if (rung === NEEDS_YOU_RUNG) attention.needsYou += 1;
+  else if (rung === FAILED_RUNG) attention.failed += 1;
+}
+
+function collectThreadNodeAttention(
+  node: ProjectThreadNode,
+  context: ProjectThreadItemRowCountContext,
+  attention: ProjectThreadItemAttention,
+): void {
+  const ownKind = threadIndicatorKind(node.thread);
+  if (
+    node.children.length > 0 &&
+    context.collapsedThreadIds.has(node.thread.id)
+  ) {
+    countAttentionRow(attention, ownKind, node.stats.rollup.kind);
+    return;
+  }
+  countAttentionRow(attention, ownKind);
+  for (const child of context.childrenOf(node).items) {
+    collectProjectThreadItemAttentionInto(child, context, attention);
+  }
+}
+
+function collectProjectThreadItemAttentionInto(
+  item: ProjectThreadItem,
+  context: ProjectThreadItemRowCountContext,
+  attention: ProjectThreadItemAttention,
+): void {
+  switch (item.kind) {
+    case "thread":
+      collectThreadNodeAttention(item.node, context, attention);
+      return;
+    case "environment":
+      if (context.collapsedEnvironmentIds.has(item.group.environmentId)) {
+        countAttentionRow(attention, item.group.stats.rollup.kind);
+        return;
+      }
+      for (const node of item.group.nodes) {
+        collectThreadNodeAttention(node, context, attention);
+      }
+      return;
+    case "section":
+      if (context.collapsedSectionKeys.has(item.group.key)) {
+        countAttentionRow(attention, item.group.rollup.kind);
+        return;
+      }
+      for (const child of item.group.items) {
+        collectProjectThreadItemAttentionInto(child, context, attention);
+      }
+      return;
+  }
+}
+
+export function collectProjectThreadItemAttention(
+  item: ProjectThreadItem,
+  context: ProjectThreadItemRowCountContext,
+): ProjectThreadItemAttention {
+  const attention = { needsYou: 0, failed: 0 };
+  collectProjectThreadItemAttentionInto(item, context, attention);
+  return attention;
 }

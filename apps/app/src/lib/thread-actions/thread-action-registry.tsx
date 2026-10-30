@@ -9,9 +9,11 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import type { KeyboardCommandId } from "@bb/domain";
 import type {
   BbNavigate,
   ExperimentalPanelController,
+  ExperimentalThreadActionShortcut,
   PluginBoundThreadAction,
   PluginBrowserBbSdk,
   PluginThreadAction,
@@ -22,6 +24,7 @@ import type {
   PluginThreadActionTarget,
   PluginThreadActionsOptions,
 } from "@get-bb/plugin-sdk";
+import { useAppCommandShortcuts } from "@/components/commands/AppCommandProvider";
 import { PluginContext } from "@/components/plugin/plugin-context";
 import { getFocusedAppPanelController } from "@/lib/app-fixed-tab-navigation";
 import {
@@ -33,6 +36,31 @@ import { compareGroupedPlacement } from "@/lib/grouped-placement";
 import { usePluginSlots } from "@/lib/plugin-slots";
 
 export const CORE_THREAD_ACTION_OWNER = "bb--core";
+
+const THREAD_ACTION_COMMANDS: ReadonlyMap<string, KeyboardCommandId> = new Map([
+  [`${CORE_THREAD_ACTION_OWNER}/archive`, "thread.archive"],
+  [`${CORE_THREAD_ACTION_OWNER}/rename`, "thread.rename"],
+  [`${CORE_THREAD_ACTION_OWNER}/read`, "thread.markRead"],
+]);
+const THREAD_ACTION_COMMAND_IDS = [...THREAD_ACTION_COMMANDS.values()];
+
+type ThreadActionShortcuts = ReadonlyMap<
+  KeyboardCommandId,
+  ExperimentalThreadActionShortcut
+>;
+
+const NO_THREAD_ACTION_SHORTCUTS: ThreadActionShortcuts = new Map();
+
+function threadActionShortcut(
+  key: string,
+  thread: PluginThreadActionTarget,
+  shortcuts: ThreadActionShortcuts,
+): ExperimentalThreadActionShortcut | null {
+  const command = THREAD_ACTION_COMMANDS.get(key);
+  if (command === undefined) return null;
+  if (command === "thread.archive" && thread.archivedAt !== null) return null;
+  return shortcuts.get(command) ?? null;
+}
 
 export interface ThreadActionRegistrationRecord {
   key: string;
@@ -411,6 +439,7 @@ function evaluateRecord(
   target: ThreadActionEvaluationTarget,
   registry: ThreadActionRegistrySnapshot,
   requestRename: (threadId: string) => void,
+  shortcuts: ThreadActionShortcuts,
 ): PluginThreadActionEntry | null {
   const input = registry.collected.get(record.key);
   if (input === undefined) return null;
@@ -438,6 +467,10 @@ function evaluateRecord(
       pluginId: record.pluginId,
       group: record.registration.group,
       action: bindThreadAction(record.key, action, requestRename),
+      experimental_shortcut:
+        target.kind === "thread"
+          ? threadActionShortcut(record.key, target.thread, shortcuts)
+          : null,
     };
   } catch (error) {
     reportFailure(
@@ -465,6 +498,7 @@ function evaluateThreadActions(
   target: ThreadActionEvaluationTarget,
   options: PluginThreadActionsOptions | undefined,
   placement: PluginThreadActionPlacement,
+  shortcuts: ThreadActionShortcuts,
 ): PluginThreadActionEntry[] {
   const requestRename = options?.requestRename ?? registry.requestRename;
   const placed = registry.records.filter((record) =>
@@ -478,7 +512,13 @@ function evaluateThreadActions(
           return record === undefined ? [] : [record];
         });
   return records.flatMap((record) => {
-    const entry = evaluateRecord(record, target, registry, requestRename);
+    const entry = evaluateRecord(
+      record,
+      target,
+      registry,
+      requestRename,
+      shortcuts,
+    );
     return entry === null ? [] : [entry];
   });
 }
@@ -525,6 +565,7 @@ function useThreadEntries(
   placement: PluginThreadActionPlacement,
 ): readonly PluginThreadActionEntry[] {
   const [owner] = useState(() => ({}));
+  const shortcuts = useAppCommandShortcuts(THREAD_ACTION_COMMAND_IDS);
   const entries = useSyncExternalStore(subscribe, () =>
     retainThreadActionEntries(
       owner,
@@ -533,6 +574,7 @@ function useThreadEntries(
         { kind: "thread", thread },
         options,
         placement,
+        shortcuts,
       ).filter(
         (entry) => placement === "menu" || entry.action.choices === undefined,
       ),
@@ -579,6 +621,7 @@ export function useThreadBulkActionEntries(
     { kind: "bulk", threads },
     undefined,
     "menu",
+    NO_THREAD_ACTION_SHORTCUTS,
   );
 }
 

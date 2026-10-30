@@ -2767,6 +2767,53 @@ describe("public thread data routes", () => {
     });
   });
 
+  it("reads a thread's unread descendants with it, through their bound or the thread's", async () => {
+    await withTestHarness(async (harness) => {
+      const { environment, project, thread } = seedThreadFixture(harness);
+      const seedChild = (parentThreadId: string) =>
+        seedThread(harness.deps, {
+          projectId: project.id,
+          environmentId: environment.id,
+          parentThreadId,
+        });
+      const child = seedChild(thread.id);
+      const grandchild = seedChild(child.id);
+      const attentionAt = thread.latestAttentionAt - 20;
+      const markUnread = (id: string, latestAttentionAt: number) =>
+        harness.db
+          .update(threadRows)
+          .set({ lastReadAt: null, latestAttentionAt })
+          .where(eq(threadRows.id, id))
+          .run();
+      markUnread(thread.id, attentionAt);
+      markUnread(child.id, attentionAt);
+      markUnread(grandchild.id, attentionAt + 10);
+      const read = (query: string) =>
+        harness.app.request(`/api/v1/threads/${thread.id}/read?${query}`, {
+          method: "POST",
+        });
+      const lastReadAt = (id: string) => getThread(harness.db, id)?.lastReadAt;
+
+      expect((await read(`throughAttentionAt=${attentionAt}`)).status).toBe(
+        200,
+      );
+      expect(lastReadAt(child.id)).toBeGreaterThanOrEqual(attentionAt);
+      expect(lastReadAt(grandchild.id)).toBeNull();
+
+      const throughGrandchild = await read(
+        `throughAttentionAt=${attentionAt}&descendantsThroughAttentionAt=${attentionAt + 10}`,
+      );
+      expect(throughGrandchild.status).toBe(200);
+      expect(lastReadAt(grandchild.id)).toBeGreaterThanOrEqual(
+        attentionAt + 10,
+      );
+
+      expect((await read("descendantsThroughAttentionAt=soon")).status).toBe(
+        400,
+      );
+    });
+  });
+
   it("creates and deletes thread queued messages", async () => {
     await withTestHarness(async (harness) => {
       const capture = vi.fn<TelemetryService["capture"]>();

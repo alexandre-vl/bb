@@ -5,6 +5,8 @@ export const collapsedProjectIdsAtom =
   createSyncedPreferenceAtom("collapsedProjects");
 export const collapsedThreadIdsAtom =
   createSyncedPreferenceAtom("collapsedThreads");
+export const expandedThreadIdsAtom =
+  createSyncedPreferenceAtom("expandedThreads");
 export const collapsedEnvironmentIdsAtom = createSyncedPreferenceAtom(
   "collapsedEnvironments",
 );
@@ -25,10 +27,13 @@ export const sidebarOrganizationModeAtom =
 export const sidebarEnvironmentGroupingAtom = createSyncedPreferenceAtom(
   "environmentGrouping",
 );
-export const sidebarGroupByReadStatusAtom =
-  createSyncedPreferenceAtom("groupByReadStatus");
+export const sidebarAttentionFirstAtom =
+  createSyncedPreferenceAtom("attentionFirst");
+export const sidebarFoldSettledAtom = createSyncedPreferenceAtom("foldSettled");
+export const sidebarParentsStartCollapsedAtom = createSyncedPreferenceAtom(
+  "parentsStartCollapsed",
+);
 export const sidebarGroupThreadsByEnvironmentAtom = atom((get) => {
-  if (get(sidebarGroupByReadStatusAtom)) return false;
   const grouping = get(sidebarEnvironmentGroupingAtom);
   if (grouping !== "auto") return grouping;
   return get(sidebarOrganizationModeAtom) !== "chronological";

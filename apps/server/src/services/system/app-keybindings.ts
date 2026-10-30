@@ -170,6 +170,11 @@ const splitWithoutModal = {
   none: ["modalOpen"],
 } as const;
 
+const sidebarListWithoutModalOrEditable = {
+  all: ["mainSurface", "sidebarListFocus"],
+  none: ["modalOpen", "editableFocus"],
+} as const;
+
 export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
   binding("history.back", "[", { mod: true }, mainWithoutModalOrBrowser),
   binding("history.forward", "]", { mod: true }, mainWithoutModalOrBrowser),
@@ -192,6 +197,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
   binding("app.back", "Escape", {}, mainWithoutModal),
   binding("settings.open", ",", { mod: true }, mainWithoutModal),
   binding("sidebar.toggle", "\\", { mod: true }, mainWithoutModal),
+  binding("sidebar.focus", "l", { mod: true, shift: true }, mainWithoutModal),
   unassignedBinding("notifications.open", mainWithoutModal),
   unassignedBinding("plugins.enterSafeMode", mainWithoutModal),
   unassignedBinding("plugins.exitSafeMode", mainWithoutModal),
@@ -468,4 +474,19 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
     desktopOnly: true,
     none: ["modalOpen"],
   }),
+  binding("thread.archive", "e", {}, sidebarListWithoutModalOrEditable),
+  binding("thread.rename", "F2", {}, sidebarListWithoutModalOrEditable),
+  binding("thread.markRead", "u", {}, sidebarListWithoutModalOrEditable),
+  binding(
+    "thread.previousAttention",
+    "ArrowUp",
+    { alt: true },
+    sidebarListWithoutModalOrEditable,
+  ),
+  binding(
+    "thread.nextAttention",
+    "ArrowDown",
+    { alt: true },
+    sidebarListWithoutModalOrEditable,
+  ),
 ];

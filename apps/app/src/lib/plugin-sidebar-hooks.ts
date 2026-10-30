@@ -150,11 +150,20 @@ export function useSidebarThreads(
   const { data: hosts } = useHosts();
   const hostNamesById = hostNamesFor(hosts);
   const titleResources = useThreadTitleMentionResources();
+  const refetchNavigation = query.refetch;
+  const refetchArchived = archived.refetch;
+  const refetch = useCallback(async () => {
+    await Promise.all([
+      refetchNavigation(),
+      ...(includeArchived ? [refetchArchived()] : []),
+    ]);
+  }, [includeArchived, refetchArchived, refetchNavigation]);
 
   return useMemo<PluginSidebarThreadsState>(() => {
     if (data === undefined) {
       return {
         experimental_archived: archiveState,
+        experimental_refetch: refetch,
         status: query.isError ? "error" : "loading",
         threads: EMPTY_THREADS,
         experimental_hosts: hosts ?? [],
@@ -178,6 +187,7 @@ export function useSidebarThreads(
     }
     return {
       experimental_archived: archiveState,
+      experimental_refetch: refetch,
       status: !active && archiveState !== null ? archiveState.status : "ready",
       threads: [...selected.values()].map((thread) =>
         toPluginSidebarThreadCached(thread, hostNamesById, titleResources),
@@ -197,6 +207,7 @@ export function useSidebarThreads(
     hostNamesById,
     hosts,
     query.isError,
+    refetch,
     titleResources,
     active,
     includeArchived,

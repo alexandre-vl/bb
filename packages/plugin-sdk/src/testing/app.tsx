@@ -1,5 +1,10 @@
 import { experimental_PluginRpcCallError } from "../rpc-contract.js";
 import { invalidateTags, pluginTagScope } from "@bb/query-tags";
+import {
+  resolveThreadListIndicator,
+  rollUpThreadListIndicators,
+  threadListIndicatorRung,
+} from "@bb/client-core/thread-list-indicator";
 import { QueryClient } from "@tanstack/react-query";
 import {
   createRpcQueryHooks,
@@ -38,6 +43,8 @@ import {
   type ComposerView,
   type ExperimentalTabRegistration,
   type ExperimentalAppOverlayRegistration,
+  type ExperimentalSidebarListCommand,
+  type ExperimentalSidebarListCommandInvocation,
   type ExperimentalSidebarNavigationActions,
   type ExperimentalSidebarNavigationTarget,
   type ExperimentalSidebarNavigationIconProps,
@@ -343,6 +350,15 @@ interface TestComposerStore {
   subscribe(listener: () => void): () => void;
 }
 
+interface TestSidebarListCommandHandler {
+  handle(invocation: ExperimentalSidebarListCommandInvocation): boolean;
+}
+
+type TestSidebarListCommands = Map<
+  ExperimentalSidebarListCommand,
+  Set<TestSidebarListCommandHandler>
+>;
+
 interface SlotEnv {
   rpcQueryHost: RpcQueryHost;
   rpcClient: PluginRpcClient;
@@ -366,6 +382,7 @@ interface SlotEnv {
   sidebarNavigation: ExperimentalSidebarNavigationState;
   sidebarNavigationCalls: SidebarNavigationCall[];
   environmentArchiveCalls: string[];
+  sidebarListCommands: TestSidebarListCommands;
   threadActions: TestThreadActionsResolver;
   threadBulkActions: TestThreadBulkActionsResolver;
   threadActionRegistrations: readonly PluginThreadActionRegistrationInfo[];
@@ -1918,6 +1935,29 @@ const testPluginSdkApp = {
     return useSlotEnv("experimental_useThreadActionRegistrations")
       .threadActionRegistrations;
   },
+  experimental_useSidebarListCommand(
+    command: ExperimentalSidebarListCommand,
+    handler: (invocation: ExperimentalSidebarListCommandInvocation) => boolean,
+  ): void {
+    const commands = useSlotEnv(
+      "experimental_useSidebarListCommand",
+    ).sidebarListCommands;
+    const handlerRef = useRef(handler);
+    useLayoutEffect(() => {
+      handlerRef.current = handler;
+    });
+    useEffect(() => {
+      const handlers = commands.get(command) ?? new Set();
+      const entry: TestSidebarListCommandHandler = {
+        handle: (invocation) => handlerRef.current(invocation),
+      };
+      handlers.add(entry);
+      commands.set(command, handlers);
+      return () => {
+        handlers.delete(entry);
+      };
+    }, [command, commands]);
+  },
   experimental_ThreadActionsMenu: TestThreadActionsMenu,
   experimental_ThreadActionsContextMenu: TestThreadActionsContextMenu,
   experimental_PluginRpcCallError,
@@ -1999,6 +2039,9 @@ const testPluginSdkApp = {
   },
   ThreadTitle: TestThreadTitle,
   experimental_ThreadStatusGlyph: TestThreadStatusGlyph,
+  experimental_resolveThreadListIndicator: resolveThreadListIndicator,
+  experimental_rollUpThreadIndicators: rollUpThreadListIndicators,
+  experimental_threadIndicatorRung: threadListIndicatorRung,
   experimental_ThreadRowMetadata: TestThreadRowMetadata,
   useEnvironmentProviders(): PluginEnvironmentProvidersState {
     return useSlotEnv("useEnvironmentProviders").environmentProviders;
@@ -2498,6 +2541,17 @@ export interface RenderedSlotBehaviorDrivers {
     tags: readonly string[] | null,
     pluginId?: string,
   ): Promise<void>;
+  /**
+   * Run a bb list command the way its key does while focus is on `target`
+   * inside the element marked `data-sidebar-thread-tree`: the newest
+   * `experimental_useSidebarListCommand` handler first, until one returns
+   * true. Resolves false when the target is outside a thread list or no
+   * handler took it. Wrapped in act.
+   */
+  experimental_runSidebarListCommand(
+    command: ExperimentalSidebarListCommand,
+    target: Element,
+  ): Promise<boolean>;
   emitRealtime(channel: string, payload: unknown): Promise<void>;
   /** Drive the lifecycle of the same connection used by realtime events. */
   setRealtimeConnectionState(
@@ -2940,6 +2994,7 @@ export function renderSlot<
     },
   };
   const environmentArchiveCalls: string[] = [];
+  const sidebarListCommands: TestSidebarListCommands = new Map();
   const sidebarDraftThreadIds: ReadonlySet<string> = new Set(
     options.sidebarDraftThreadIds ?? [],
   );
@@ -2952,6 +3007,8 @@ export function renderSlot<
   const sidebarThreads: PluginSidebarThreadsState = {
     experimental_archived:
       options.sidebarThreads?.experimental_archived ?? null,
+    experimental_refetch:
+      options.sidebarThreads?.experimental_refetch ?? (() => Promise.resolve()),
     status: options.sidebarThreads?.status ?? "ready",
     threads: options.sidebarThreads?.threads ?? [],
     experimental_hosts: options.sidebarThreads?.experimental_hosts ?? [],
@@ -3377,6 +3434,7 @@ export function renderSlot<
     sidebarNavigation,
     sidebarNavigationCalls,
     environmentArchiveCalls,
+    sidebarListCommands,
     threadActions: options.threadActions ?? NO_THREAD_ACTIONS,
     threadBulkActions: options.threadBulkActions ?? NO_THREAD_BULK_ACTIONS,
     threadActionRegistrations:
@@ -3484,6 +3542,18 @@ export function renderSlot<
       notifyComposerListeners();
     });
   };
+  const experimental_runSidebarListCommand = async (
+    command: ExperimentalSidebarListCommand,
+    target: Element,
+  ): Promise<boolean> => {
+    if (target.closest("[data-sidebar-thread-tree]") === null) return false;
+    let handled = false;
+    await act(async () => {
+      const handlers = [...(sidebarListCommands.get(command) ?? [])].reverse();
+      handled = handlers.some((entry) => entry.handle({ target }));
+    });
+    return handled;
+  };
   const experimental_invalidateRpc = async (
     tags: readonly string[] | null,
     pluginId = options.pluginId ?? "test-plugin",
@@ -3507,6 +3577,7 @@ export function renderSlot<
     unmount: unmountSlot,
     rpcCalls,
     experimental_invalidateRpc,
+    experimental_runSidebarListCommand,
     emitRealtime,
     setRealtimeConnectionState,
     setComposerText,
@@ -3522,6 +3593,7 @@ export function renderSlot<
     composer: composerLog,
     behavior: {
       experimental_invalidateRpc,
+      experimental_runSidebarListCommand,
       emitRealtime,
       setRealtimeConnectionState,
       setComposerText,

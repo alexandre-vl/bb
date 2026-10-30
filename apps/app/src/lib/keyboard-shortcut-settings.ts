@@ -16,9 +16,11 @@ import {
 } from "@bb/domain";
 
 const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "OS", "Shift"]);
-const QUESTION_COMMANDS = new Set<KeyboardCommandId>([
+const BARE_KEY_COMMANDS = new Set<KeyboardCommandId>([
   ...QUESTION_SELECT_APP_COMMAND_IDS,
   ...QUESTION_ACTION_APP_COMMAND_IDS,
+  "thread.previousAttention",
+  "thread.nextAttention",
 ]);
 
 export function appShortcutFromInput(
@@ -73,7 +75,7 @@ export function canAssignAppShortcut(
     shortcut.control ||
     shortcut.alt ||
     /^F(?:[1-9]|1[0-9]|2[0-4])$/u.test(shortcut.key) ||
-    QUESTION_COMMANDS.has(command)
+    BARE_KEY_COMMANDS.has(command)
   );
 }
 

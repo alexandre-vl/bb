@@ -345,6 +345,14 @@ export interface ThreadReadArgs extends ThreadActionArgs {
    * mark the thread read unconditionally.
    */
   experimental_throughAttentionAt?: number;
+  /**
+   * The newest `latestAttentionAt` the reader saw across the thread and its
+   * descendants. The read marks a descendant read only when its attention is
+   * at most this value, so a delayed or retried request never covers a
+   * descendant's later output. Defaults to `experimental_throughAttentionAt`;
+   * without either, every unread descendant is marked read.
+   */
+  experimental_descendantsThroughAttentionAt?: number;
 }
 
 export interface ThreadStatusArgs extends ThreadActionArgs {
@@ -699,12 +707,14 @@ export interface ThreadsArea {
   list(args?: ThreadListArgs): Promise<ThreadListResult>;
   listRunning(args?: { signal?: AbortSignal }): Promise<ThreadRunningResult>;
   /**
-   * Marks the thread read. In the bb app, one thread's read and unread
-   * commands run one at a time and the newest wins: a command that a newer one
-   * replaces is not sent, or not retried after a failed attempt, and rejects
-   * with an `AbortError`. The server keeps whichever command reaches it last,
-   * so a replaced attempt that ended without an answer can still land after
-   * the newer command.
+   * Marks the thread read, along with its unread descendant threads that are
+   * not deleted, as `experimental_descendantsThroughAttentionAt` bounds them.
+   * Marking a thread unread changes only that thread. In the bb app, one
+   * thread's read and unread commands run one at a time and the newest wins:
+   * a command that a newer one replaces is not sent, or not retried after a
+   * failed attempt, and rejects with an `AbortError`. The server keeps
+   * whichever command reaches it last, so a replaced attempt that ended
+   * without an answer can still land after the newer command.
    */
   markRead(args: ThreadReadArgs): Promise<ThreadReadStateResult>;
   /**
@@ -1455,13 +1465,25 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
     },
     async markRead(input) {
       const throughAttentionAt = input.experimental_throughAttentionAt;
+      const descendantsThroughAttentionAt =
+        input.experimental_descendantsThroughAttentionAt;
+      const query = {
+        ...(throughAttentionAt === undefined
+          ? {}
+          : { throughAttentionAt: String(throughAttentionAt) }),
+        ...(descendantsThroughAttentionAt === undefined
+          ? {}
+          : {
+              descendantsThroughAttentionAt: String(
+                descendantsThroughAttentionAt,
+              ),
+            }),
+      };
       return transport.readJson(
         transport.api.v1.threads[":id"].read.$post(
           {
             param: { id: input.threadId },
-            ...(throughAttentionAt === undefined
-              ? {}
-              : { query: { throughAttentionAt: String(throughAttentionAt) } }),
+            ...(Object.keys(query).length === 0 ? {} : { query }),
           },
           ...signalRequestArgs(input.signal),
         ),

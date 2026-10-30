@@ -81,8 +81,8 @@ Ownership:
   fails, and the error says why. bb never regenerates on its own.
   SDK: `threads.experimental_regenerateTitle({ threadId })`.
 
-  bb thread read [id]                      Mark read
-  bb thread unread [id]                    Mark unread
+  bb thread read [id]                      Mark read, with its unread descendants
+  bb thread unread [id]                    Mark unread (only this thread)
   bb thread reorder-pinned <id> [--after <id>] [--before <id>]
 
 Interactions:

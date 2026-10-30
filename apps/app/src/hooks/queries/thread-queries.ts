@@ -504,6 +504,58 @@ export function useChildThreads({
   });
 }
 
+type ThreadDescendantReadState = Pick<
+  ThreadListEntry,
+  "id" | "lastReadAt" | "latestAttentionAt"
+>;
+
+const NO_DESCENDANT_READ_STATES: readonly ThreadDescendantReadState[] = [];
+
+export function selectThreadDescendantReadStates(
+  threads: readonly ThreadListEntry[],
+  threadId: string,
+): readonly ThreadDescendantReadState[] {
+  const childrenByParentId = new Map<string, ThreadListEntry[]>();
+  for (const thread of threads) {
+    if (thread.parentThreadId === null) continue;
+    const siblings = childrenByParentId.get(thread.parentThreadId);
+    if (siblings === undefined)
+      childrenByParentId.set(thread.parentThreadId, [thread]);
+    else siblings.push(thread);
+  }
+  const visited = new Set([threadId]);
+  const descendants: ThreadDescendantReadState[] = [];
+  for (let index = -1; index < descendants.length; index += 1) {
+    const parentId = index < 0 ? threadId : descendants[index]!.id;
+    for (const child of childrenByParentId.get(parentId) ?? []) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      descendants.push({
+        id: child.id,
+        lastReadAt: child.lastReadAt,
+        latestAttentionAt: child.latestAttentionAt,
+      });
+    }
+  }
+  return descendants.length === 0 ? NO_DESCENDANT_READ_STATES : descendants;
+}
+
+export function useThreadDescendantReadStates(
+  threadId: string | undefined,
+): readonly ThreadDescendantReadState[] {
+  const selectDescendants = useCallback(
+    (threads: ThreadListEntry[]) =>
+      threadId === undefined
+        ? NO_DESCENDANT_READ_STATES
+        : selectThreadDescendantReadStates(threads, threadId),
+    [threadId],
+  );
+  return (
+    useSidebarNavigationThreadSelection(selectDescendants).data ??
+    NO_DESCENDANT_READ_STATES
+  );
+}
+
 export function useProjectThreadSubset({
   enabled: enabledOption,
   filters,

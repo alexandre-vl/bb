@@ -279,6 +279,9 @@ export const experimental_useThreadActions = runtimeFunction(
 export const experimental_useArchiveEnvironmentThreads = runtimeFunction(
   "experimental_useArchiveEnvironmentThreads",
 );
+export const experimental_useSidebarListCommand = runtimeFunction(
+  "experimental_useSidebarListCommand",
+);
 export const experimental_useThreadActionRegistrations = runtimeFunction(
   "experimental_useThreadActionRegistrations",
 );
@@ -332,6 +335,17 @@ export const useSidebarThreadShortcut = runtimeFunction(
 export const ThreadTitle = runtimeComponent("ThreadTitle");
 export const experimental_ThreadStatusGlyph = runtimeComponent(
   "experimental_ThreadStatusGlyph",
+);
+// bb's thread status ladder, the resolver and rollup bb's own lists use
+// (experimental — see docs/api_to_audit.md).
+export const experimental_resolveThreadListIndicator = runtimeFunction(
+  "experimental_resolveThreadListIndicator",
+);
+export const experimental_rollUpThreadIndicators = runtimeFunction(
+  "experimental_rollUpThreadIndicators",
+);
+export const experimental_threadIndicatorRung = runtimeFunction(
+  "experimental_threadIndicatorRung",
 );
 export const experimental_ThreadRowMetadata = runtimeComponent(
   "experimental_ThreadRowMetadata",

@@ -80,6 +80,8 @@ the same change.
 - Read references/git-reads.md to read an environment's git status, changed
   files or diffs, or to migrate off the retired `environments.status` and
   `diff*` SDK methods.
+- Read references/frontend-sidebar-list.md for bb's status glyph, ladder and
+  attention, and the list keys a custom thread list takes.
 - Read references/frontend-api-index.md to check every public frontend
   runtime value and type export.
 - Read references/frontend-core-slots.md for trusted content scripts, homepage,

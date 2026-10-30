@@ -93,7 +93,7 @@ describe("thread state cache owner", () => {
       const { queryClient } = createQueryClientTestHarness();
       const original = makeThreadListEntry({
         status: "idle",
-        runtime: { displayStatus: "idle" },
+        runtime: { displayStatus: "idle", hostUnavailable: false },
         lastReadAt: 10,
       });
       const listKey = threadListQueryKey({
@@ -113,7 +113,11 @@ describe("thread state cache owner", () => {
         intent:
           lastReadAt === null
             ? { kind: "unread" }
-            : { kind: "read", throughAttentionAt: undefined },
+            : {
+                kind: "read",
+                throughAttentionAt: undefined,
+                descendantsThroughAttentionAt: undefined,
+              },
         queryClient,
         threadId: original.id,
       });
@@ -418,7 +422,11 @@ describe("thread state cache owner", () => {
       ];
 
       const transaction = beginThreadReadStateTransaction({
-        intent: { kind: "read", throughAttentionAt },
+        intent: {
+          kind: "read",
+          throughAttentionAt,
+          descendantsThroughAttentionAt: undefined,
+        },
         queryClient,
         threadId,
       });
@@ -456,7 +464,11 @@ describe("thread state cache owner", () => {
     ]);
 
     beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: undefined },
+      intent: {
+        kind: "read",
+        throughAttentionAt: undefined,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId: "thread-1",
     });
@@ -479,7 +491,11 @@ describe("thread state cache owner", () => {
       makeThreadWithRuntime({ lastReadAt: 10, latestAttentionAt: 50 }),
     );
     const read = beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: 50 },
+      intent: {
+        kind: "read",
+        throughAttentionAt: 50,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId,
     });
@@ -530,7 +546,11 @@ describe("thread state cache owner", () => {
         });
       if (earlier === "latest") settleUnread();
       const read = beginThreadReadStateTransaction({
-        intent: { kind: "read", throughAttentionAt: 50 },
+        intent: {
+          kind: "read",
+          throughAttentionAt: 50,
+          descendantsThroughAttentionAt: undefined,
+        },
         queryClient,
         threadId: "thread-1",
       });
@@ -563,7 +583,11 @@ describe("thread state cache owner", () => {
       staleTime: 0,
     });
     const read = beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: 50 },
+      intent: {
+        kind: "read",
+        throughAttentionAt: 50,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId: "thread-1",
     });
@@ -616,7 +640,11 @@ describe("thread state cache owner", () => {
       staleTime: 0,
     });
     const read = beginThreadReadStateTransaction({
-      intent: { kind: "read", throughAttentionAt: 50 },
+      intent: {
+        kind: "read",
+        throughAttentionAt: 50,
+        descendantsThroughAttentionAt: undefined,
+      },
       queryClient,
       threadId: "thread-1",
     });
@@ -642,7 +670,7 @@ function seedConcurrentThreadCaches() {
   });
   const original = makeThreadListEntry({
     status: "idle",
-    runtime: { displayStatus: "idle" },
+    runtime: { displayStatus: "idle", hostUnavailable: false },
     title: "Original",
     sectionId: "old",
     updatedAt: 10,
@@ -676,7 +704,7 @@ it.each(["rename", "reorder", "batch"])(
     const current = makeThreadListEntry({
       ...original,
       status: "active",
-      runtime: { displayStatus: "active" },
+      runtime: { displayStatus: "active", hostUnavailable: false },
       updatedAt: 30,
       sectionId: "new",
       lastReadAt: 25,
@@ -759,7 +787,7 @@ it.each(["single", "batch"])(
         title: "Pending",
         sectionId: "later-edit",
         status: "active",
-        runtime: { displayStatus: "active" },
+        runtime: { displayStatus: "active", hostUnavailable: false },
         updatedAt: 30,
       }),
       [sibling],
@@ -790,13 +818,13 @@ it("preserves concurrent state when an older status event reaches detail and sid
     makeThreadListEntry({
       ...original,
       status: "active",
-      runtime: { displayStatus: "active" },
+      runtime: { displayStatus: "active", hostUnavailable: false },
       updatedAt: 30,
     }),
   );
   const stale = {
     status: "idle" as const,
-    runtime: { displayStatus: "idle" as const },
+    runtime: { displayStatus: "idle" as const, hostUnavailable: false },
     latestAttentionAt: 20,
     activity: original.activity,
     updatedAt: 20,

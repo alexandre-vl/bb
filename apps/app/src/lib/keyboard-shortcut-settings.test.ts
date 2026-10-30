@@ -107,7 +107,7 @@ describe("keyboard shortcut settings", () => {
     ).toMatchObject({ key: "k", mod: true, control: true, shift: true });
   });
 
-  it("rejects unmodified typing keys except for question choices", () => {
+  it("rejects unmodified typing keys except for question choices and thread-list-only commands", () => {
     const plainKey = {
       key: "x",
       mod: false,
@@ -118,6 +118,11 @@ describe("keyboard shortcut settings", () => {
     };
     expect(canAssignAppShortcut("thread.new", plainKey)).toBe(false);
     expect(canAssignAppShortcut("question.select.1", plainKey)).toBe(true);
+    expect(canAssignAppShortcut("thread.previousAttention", plainKey)).toBe(
+      true,
+    );
+    expect(canAssignAppShortcut("thread.markRead", plainKey)).toBe(false);
+    expect(canAssignAppShortcut("thread.archive", plainKey)).toBe(false);
     expect(canAssignAppShortcut("thread.new", { ...plainKey, key: "F2" })).toBe(
       true,
     );

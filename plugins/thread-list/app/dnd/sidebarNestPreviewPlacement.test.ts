@@ -6,6 +6,9 @@ import {
   type SidebarThreadOverrides,
 } from "../model/fixtures.js";
 import { resolveSidebarNestPreviewBeforeKey } from "./sidebarNestPreviewPlacement.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 function makeThread(overrides: SidebarThreadOverrides): SidebarThread {
   return makeSidebarThread({

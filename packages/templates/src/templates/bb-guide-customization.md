@@ -266,6 +266,16 @@ on desktop and `Control+Shift+[` / `Control+Shift+]` on the web.
 unbound and act on the focused pane's open thread; Mark read and Pin toggle
 like the matching thread menu item.
 
+In the sidebar thread list, `E` (`thread.archive`), `F2` (`thread.rename`) and
+`U` (`thread.markRead`) act on the focused row, and `Alt+ArrowUp` /
+`Alt+ArrowDown` (`thread.previousAttention` / `thread.nextAttention`) move to
+the previous or next thread that needs you, failed, or has a new result. They
+apply only while focus is in the list, never from a text field or with a dialog
+open. `Mod+Shift+L` (`sidebar.focus`) focuses the list at the open thread. One
+override sets a command's list key and its global slot, so a shortcut set for
+`thread.archive` works everywhere and replaces `E` in the list. A key that
+types a character never runs a command from a text field.
+
 An open question card binds `question.select.1`–`9` (`1`–`9`),
 `question.submit` (`Mod+Enter`: Next, or Submit on the last question),
 `question.previous` / `question.next` (`ArrowLeft` / `ArrowRight` with focus

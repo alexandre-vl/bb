@@ -5,7 +5,10 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
-import { ActionMenuItem, ActionMenuSeparator } from "@/components/ui/action-menu-items";
+import {
+  ActionMenuItem,
+  ActionMenuSeparator,
+} from "@/components/ui/action-menu-items";
 import { CompactLongPressMenu } from "@/components/ui/compact-long-press-menu";
 import type { SidebarProject } from "../model/use-sidebar-data.js";
 
@@ -16,6 +19,7 @@ interface ProjectActionsMenuBaseProps {
   onRename: () => void;
   onRemove: () => void;
   onCloseAutoFocus?: (event: Event) => void;
+  leadingActions?: (surface: ProjectActionsMenuSurface) => ReactNode;
   extraActions?: (surface: ProjectActionsMenuSurface) => ReactNode;
 }
 
@@ -38,11 +42,17 @@ export function ProjectActionsMenuItems({
   surface,
   onRename,
   onRemove,
+  leadingActions,
   extraActions,
 }: ProjectActionsMenuItemsProps) {
   return (
     <>
-      <ActionMenuItem surface={surface} icon="Settings" href={project.settingsHref}>
+      {leadingActions?.(surface)}
+      <ActionMenuItem
+        surface={surface}
+        icon="Settings"
+        href={project.settingsHref}
+      >
         Project settings
       </ActionMenuItem>
       <ActionMenuItem surface={surface} icon="Edit" onSelect={onRename}>
@@ -79,6 +89,7 @@ function ProjectActionsCompactLongPressMenu({
   onOpenChange,
   onRename,
   onRemove,
+  leadingActions,
   extraActions,
 }: ProjectActionsContextMenuProps) {
   return (
@@ -92,6 +103,7 @@ function ProjectActionsCompactLongPressMenu({
           surface="dropdown"
           onRename={onRename}
           onRemove={onRemove}
+          leadingActions={leadingActions}
           extraActions={extraActions}
         />
       }
@@ -109,6 +121,7 @@ function ProjectActionsDesktopContextMenu({
   onRename,
   onRemove,
   onCloseAutoFocus,
+  leadingActions,
   extraActions,
 }: ProjectActionsContextMenuProps) {
   return (
@@ -126,6 +139,7 @@ function ProjectActionsDesktopContextMenu({
           surface="context"
           onRename={onRename}
           onRemove={onRemove}
+          leadingActions={leadingActions}
           extraActions={extraActions}
         />
       </ContextMenuContent>

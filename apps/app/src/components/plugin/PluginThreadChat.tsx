@@ -23,7 +23,10 @@ import { PluginComposerHostScopeProvider } from "@/components/plugin/plugin-comp
 import { ThreadProviderContext } from "@/components/thread/thread-provider-context";
 import { useEnvironment } from "@/hooks/queries/environment-queries";
 import { useSystemProviderInfo } from "@/hooks/queries/system-queries";
-import { useThread } from "@/hooks/queries/thread-queries";
+import {
+  useThread,
+  useThreadDescendantReadStates,
+} from "@/hooks/queries/thread-queries";
 import { useMarkThreadRead } from "@/hooks/mutations/thread-state-mutations";
 import { useForkThreadFromMessage } from "@/hooks/useForkThreadFromMessage";
 import { useHostDaemon } from "@/hooks/useHostDaemon";
@@ -108,9 +111,14 @@ function PluginThreadChatBody({
     threadId,
   });
   const markThreadRead = useMarkThreadRead();
+  const readTrackedThread = hasComposer ? thread : undefined;
+  const readTrackedDescendants = useThreadDescendantReadStates(
+    readTrackedThread?.id,
+  );
   useThreadReadTracking({
     markThreadRead,
-    thread: hasComposer ? thread : undefined,
+    thread: readTrackedThread,
+    descendants: readTrackedDescendants,
   });
   const threadProviderInfo = useSystemProviderInfo(
     thread?.environmentId
