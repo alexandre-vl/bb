@@ -73,17 +73,17 @@ export default definePluginApp((app) => {
     id: "issue",
     title: "Open issue",
     component: IssuePanel,
-    run: async ({ threadId, openPanel }) => {
-      openPanel({ title: `Issue for ${threadId}` });
+    run: async ({ threadId, experimental_panel }) => {
+      experimental_panel.openTab({
+        tab: { id: "issue", context: { kind: "thread" }, availability: "action" },
+        title: `Issue for ${threadId}`,
+      });
     },
   });
   app.slots.experimental_newThreadPanelAction({
     id: "template",
     title: "Apply template",
     component: TemplatePanel,
-    run: ({ projectId, openPanel }) => {
-      openPanel({ title: `Template for ${projectId ?? "projectless"}` });
-    },
   });
   app.composer.customize({
     id: "prompt-tools",
@@ -146,30 +146,26 @@ export default definePluginApp((app) => {
 });
 ```
 
-### A control in the thread header
+### A button in the thread header
 
-`app.slots.experimental_threadHeaderAction` renders a component in the thread
-header's action row. Use it for live plugin state.
+A thread action with `placement: "header"` is a button in the open thread's
+header instead of a menu entry. It shows after the workspace's Open button
+with its `label` (several share one split button). On phones and in narrow
+split panes it folds into the header's thread menu, as a row at the top. It
+never appears in other menus, the quick-action picker, or
+`experimental_useThreadActions`. Its `useData` receives only the threads
+whose header is on screen. Return null from `item` whenever the button does
+not apply. Header buttons do not show `choices`. bb's Git plugin registers
+Commit this way.
 
 ```tsx
-app.slots.experimental_threadHeaderAction({
-  id: "subagents",
-  title: "Subagents",
-  component: ({ threadId, projectId, isCompactViewport }) => { ... },
-});
+app.slots.experimental_threadAction({ id: "deploy", title: "Deploy", icon: "Rocket", group: "deploy", placement: "header",
+  useData: ({ threadIds }) => useDeployable(threadIds),
+  item: ({ thread, data }) => data.has(thread.id) ? { label: "Deploy", icon: "Rocket", run: () => openDeploy(thread.id) } : null });
 ```
 
-The row is a 48px chrome row with 28px controls. Render one inline control.
-Put taller content in a portalled popover. The host limits the layout box, but
-it does not clip painted overflow. `title`
-names the host's wrapper region — your icon-only button still needs its own
-accessible name. A split layout renders one header
-per pane, so your component mounts once per visible thread — keep per-thread
-state in the component, never in a module-level singleton.
-
-A common pairing with a replaced sidebar: hide child threads from the list and
-surface them here instead, filtering `experimental_useSidebarThreads()` by
-`parentThreadId === threadId`.
+`app.slots.experimental_threadHeaderAction` is retired: existing callers keep
+rendering and `bb plugin build` warns. Use a header thread action instead.
 
 ### Rows and sections in the thread Info tab
 
@@ -192,14 +188,33 @@ function Automations({ threadId }: ExperimentalThreadInfoProps) {
 }
 ```
 
-Components receive `{ threadId, projectId }` and mount once per visible
-thread; return null to show nothing. A row renders `experimental_DetailRow`.
+Components receive `{ threadId, projectId, environment }` and mount once per
+visible thread; `environment` is `{ id }` taken from the thread, null only when
+the thread has no environment; read its state yourself. Return
+null to show nothing. A row renders `experimental_DetailRow`.
 Entries sort by `group`, then `order` within it (unset last), then registration
 order, bb's first on a tie, as thread actions do. Join one of bb's groups from
 `experimental_THREAD_INFO_ROW_GROUPS` or `experimental_THREAD_INFO_SECTION_GROUPS`
 (bb's entries use orders 10, 20, 30 within a group), or name your own group to
 sort it where its string falls. Inside a section slot `experimental_InfoSection` collapses and bb
 remembers it per registration. A crash removes only that row or section.
+
+### Context beside a thread's composer
+
+`app.slots.experimental_threadContextSegment({ id, title, group, order?, summary, action?, details?, useVisible? })`
+adds a segment to the context row above an open thread's composer; bb's parent
+thread and the Git plugin's changed files use it too. `group`/`order` sort as for Info rows; bb's
+groups are `experimental_THREAD_CONTEXT_SEGMENT_GROUPS`, and any other string
+sorts in place (GitHub PR Status uses `"2_pullRequest"`). Each component mounts
+in its own crash boundary: `summary` in the row, `action` at its end, `details`
+below it. Props carry `threadId`, `projectId`, `environment` (null without a
+usable environment), the visible `segments`
+as `{ key, pluginId }` in row order (`key` is `<pluginId>/<id>`; bb's own use
+`bb--core`), and `isExpanded`/`onToggle` (one segment is expanded at a time).
+`useVisible(input)` false leaves it out. A segment whose content is also a
+thread context card row or section hides itself while
+`experimental_useThreadContextKind()` is `card`; see
+frontend-thread-context-card.md.
 
 ### An action in every thread menu
 
@@ -371,21 +386,21 @@ await sdk.threadSections.create({ name: "Later" });
 await sdk.threads.update({ id: thread.id, sectionId });
 
 // threads: PluginSidebarThread[] — id, projectId, href (put it on the row's
-// anchor; the host routes clicks in place), title, titleFallback,
-// displayTitle, parentThreadId, lifecycleOwnerThreadId, sourceThreadId, sectionId,
-// originKind, originPluginId, providerId, status (execution status; busy
-// threads sort first in bb's list), runtimeStatus (status refined by host
-// readiness), experimental_hostUnavailable (the machine is offline, so activity
-// counts may be stale; older hosts omit it), queuedWork ("none" | "waiting" |
-// "failed"), hasPendingInteraction, activity,
-// isUnread/isPinned/pinnedAt/isArchived/archivedAt, pinSortKey (manual pin
-// order), isHidden (bb's list filters these out; the array keeps them),
-// environment { id, name, branchName, path, isWorktree, providerId,
-// workspaceDisplayKind }, where workspaceDisplayKind is deprecated
-// compatibility data; host { id, name }, createdAt, updatedAt, lastReadAt,
-// latestAttentionAt, and `indicator` (bb's resolved status kind) +
-// `indicatorLabel` (its a11y string). Draw your own glyph for `indicator`;
-// the SDK ships no status component. Treat an unknown indicator, status, or
+// anchor; the host routes clicks in place), title, titleFallback, displayTitle,
+// parentThreadId, parentNotifications ("auto" | "stuck" | "off"),
+// lifecycleOwnerThreadId, sourceThreadId, sectionId, originKind,
+// originPluginId, providerId, status (execution status; busy threads sort first
+// in bb's list), runtimeStatus (status refined by host readiness),
+// experimental_hostUnavailable (the machine is offline, so activity counts may
+// be stale; older hosts omit it), queuedWork ("none" | "waiting" | "failed"),
+// hasPendingInteraction, activity, isUnread/isPinned/pinnedAt/isArchived/
+// archivedAt, pinSortKey (manual pin order), isHidden (bb's list filters these
+// out; the array keeps them), environment { id, name, branchName, path,
+// isWorktree, providerId, workspaceDisplayKind }, where workspaceDisplayKind is
+// deprecated compatibility data; host { id, name }, createdAt, updatedAt,
+// lastReadAt, latestAttentionAt, and `indicator` (bb's resolved status kind) +
+// `indicatorLabel` (its a11y string). Draw your own glyph for `indicator`; the
+// SDK ships no status component. Treat an unknown indicator, status, or
 // runtimeStatus value as its documented fallback — bb adds kinds over time.
 
 // Three more per-row facts are client-local, so they are hooks rather than
@@ -460,6 +475,7 @@ the sidebar.
 `experimental_ThreadActionsContextMenu` around your row for bb's own thread
 menu (archive and delete confirmation included) plus every plugin's thread
 actions; see "An action in every thread menu".
+For multi-row selections (`experimental_bulkItem`), see frontend-sidebar-navigation.md.
 `experimental_useArchiveEnvironmentThreads()` archives a whole environment
 group with bb's pane cleanup and Undo toast.
 
