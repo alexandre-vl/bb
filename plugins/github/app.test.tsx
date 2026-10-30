@@ -10,7 +10,10 @@ import {
   within,
 } from "@testing-library/react";
 import { Toaster } from "sonner";
-import { makeThreadResponse } from "@get-bb/plugin-sdk/testing";
+import {
+  experimental_makePanelController,
+  makeThreadResponse,
+} from "@get-bb/plugin-sdk/testing";
 import {
   loadPluginApp,
   renderSlot,
@@ -245,6 +248,7 @@ function sidebarThread(
     displayTitle: "Fix · get-bb/bb#6",
     parentThreadId: null,
     lifecycleOwnerThreadId: null,
+    parentNotifications: "auto",
     sourceThreadId: null,
     sectionId: null,
     originKind: null,
@@ -1452,7 +1456,7 @@ describe("GitHub thread panel", () => {
   it("shows the linked pull request and keeps removed files out of workspace navigation", async () => {
     const slot = renderSlot(
       app.threadPanelActions[0]!,
-      { threadId: "thr-1", params: null },
+      { threadId: "thr-1", environment: null, params: null },
       {
         rpc: rpc({
           pullForThread: () => ({
@@ -1501,7 +1505,7 @@ describe("GitHub thread panel", () => {
   it("lets the user pick a pull request when the thread has none", async () => {
     const slot = renderSlot(
       app.threadPanelActions[0]!,
-      { threadId: "thr-1", params: null },
+      { threadId: "thr-1", environment: null, params: null },
       {
         rpc: rpc({
           pullForThread: () => ({ pull: null }),
@@ -1737,15 +1741,19 @@ describe("GitHub home page, badge, and commands", () => {
     expect(THREAD_PULL_COMMAND.title).toBe(
       "GitHub: Open this thread's pull request",
     );
-    const openPanel = vi.fn(() => true);
+    const panel = experimental_makePanelController({
+      openTab: vi.fn(() => true),
+    });
     const context = (threadId: string | null): PluginCommandContext => ({
       threadId,
       projectId: "project-1",
-      openPanel,
+      experimental_panel: panel,
     });
     expect(THREAD_PULL_COMMAND.isAvailable?.(context(null))).toBe(false);
     expect(THREAD_PULL_COMMAND.isAvailable?.(context("thr-1"))).toBe(true);
     await THREAD_PULL_COMMAND.run(context("thr-1"));
-    expect(openPanel).toHaveBeenCalledWith({ actionId: "pull" });
+    expect(panel.openTab).toHaveBeenCalledWith({
+      tab: { id: "pull", context: { kind: "thread" }, availability: "action" },
+    });
   });
 });

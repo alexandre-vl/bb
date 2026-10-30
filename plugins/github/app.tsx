@@ -6,7 +6,7 @@ import {
   useRpc,
   type PluginCommandRegistration,
   type PluginNavPanelProps,
-  type PluginThreadPanelProps,
+  type ExperimentalThreadActionTabProps,
 } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { DelayedLoading } from "@/components/ui/delayed-loading";
@@ -261,7 +261,7 @@ interface PanelPull {
   environmentId: string | null;
 }
 
-function PullPanelTab({ threadId }: PluginThreadPanelProps) {
+function PullPanelTab({ threadId }: ExperimentalThreadActionTabProps) {
   return <PullPanelBody key={threadId} threadId={threadId} />;
 }
 
@@ -387,7 +387,9 @@ export const THREAD_PULL_COMMAND: PluginCommandRegistration = {
   title: "GitHub: Open this thread's pull request",
   isAvailable: (context) => context.threadId !== null,
   run: (context) => {
-    context.openPanel({ actionId: "pull" });
+    context.experimental_panel.openTab({
+      tab: { id: "pull", context: { kind: "thread" }, availability: "action" },
+    });
   },
 };
 
@@ -401,7 +403,9 @@ export default definePluginApp((app) => {
     headerContent: PanelHeader,
     experimental_useBadge: useInboxBadge,
   });
-  app.slots.threadPanelAction({
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
     id: "pull",
     title: "GitHub",
     icon: "Github",
