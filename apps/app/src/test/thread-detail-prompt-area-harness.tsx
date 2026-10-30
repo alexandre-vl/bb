@@ -19,9 +19,9 @@ import type { TypeaheadConfig } from "@/components/promptbox/ComposerBox";
 import type { PluginComposerHost } from "@/components/plugin/plugin-composer-host";
 
 export const promptAreaMocks = {
+  unknownReasoning: false,
   cancelThreadPlanMutate: vi.fn(),
   clearThreadGoalMutate: vi.fn(),
-  createQueuedMessageMutateAsync: vi.fn(),
   createThreadMutateAsync: vi.fn(),
   defaultExecutionOptions: null as ResolvedThreadExecutionOptions | null,
   executionInputSources: {} as ExistingThreadExecutionInputSources,
@@ -628,7 +628,9 @@ vi.mock("@/hooks/useThreadCreationOptions", async () => {
           { value: "claude-code", label: "Claude Code" },
         ],
         reasoningLevel: "medium",
-        reasoningOptions: [],
+        reasoningOptions: promptAreaMocks.unknownReasoning
+          ? []
+          : [{ value: "medium", label: "Medium" }],
         selectedModel: explicitModel ?? (isClaude ? "claude-opus-5" : "gpt-5"),
         selectedProviderComposerActions: [],
         selectedProviderDisplayName: isClaude ? "Claude Code" : "Codex",
@@ -679,10 +681,6 @@ vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
   useCreateThread: () => ({
     isPending: false,
     mutateAsync: promptAreaMocks.createThreadMutateAsync,
-  }),
-  useCreateThreadQueuedMessage: () => ({
-    isPending: false,
-    mutateAsync: promptAreaMocks.createQueuedMessageMutateAsync,
   }),
   useDeleteThreadQueuedMessage: () => ({
     isPending: false,
