@@ -716,6 +716,16 @@ export function countProjectThreadItemRows(
   }
 }
 
+export function selectedThreadIdWithin(
+  item: ProjectThreadItem,
+  selectedThreadId: string | undefined,
+): string | undefined {
+  return selectedThreadId !== undefined &&
+    projectThreadItemContainsThread(item, selectedThreadId)
+    ? selectedThreadId
+    : undefined;
+}
+
 export function projectThreadItemContainsThread(
   item: ProjectThreadItem,
   threadId: string,

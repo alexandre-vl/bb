@@ -119,6 +119,7 @@ import {
   getSidebarDndItemId,
   isSidebarProjectThread,
   projectThreadItemContainsThread,
+  selectedThreadIdWithin,
   type EnvironmentThreadGroup,
   type ProjectThreadItem,
   type ProjectThreadItemAttention,
@@ -542,15 +543,14 @@ function SectionDndSortableList({
   sectionDnd?: SectionThreadDndState | null;
   parentKey: string;
 }) {
+  const itemIds = sectionDnd?.itemIdsByParentKey.get(parentKey);
+  const items = useMemo(() => [...(itemIds ?? [])], [itemIds]);
   if (!sectionDnd) {
     return <>{children}</>;
   }
 
   return (
-    <SortableContext
-      items={[...(sectionDnd.itemIdsByParentKey.get(parentKey) ?? [])]}
-      strategy={verticalListSortingStrategy}
-    >
+    <SortableContext items={items} strategy={verticalListSortingStrategy}>
       {children}
     </SortableContext>
   );
@@ -599,7 +599,9 @@ const DraggableSectionThreadItemRow = memo(
       disabled: false,
       displace: false,
     });
-    const isActive = sectionDnd.activeItemId === itemId;
+    const isActive =
+      sectionDnd.activeItemId === itemId ||
+      (sectionDnd.draggedThreadIds?.has(itemId) ?? false);
 
     return (
       <ThreadTreeItemRow
@@ -1075,7 +1077,10 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
                     item={nodeItems[index]}
                     sectionDnd={sectionDnd}
                     depthOffset={depthOffset + 1}
-                    selectedThreadId={selectedThreadId}
+                    selectedThreadId={selectedThreadIdWithin(
+                      nodeItems[index],
+                      selectedThreadId,
+                    )}
                     collapsedThreadIds={collapsedThreadIds}
                     collapsedEnvironmentIds={collapsedEnvironmentIds}
                     onProjectSelect={onProjectSelect}
@@ -1381,7 +1386,10 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
                     projectId={getItemProjectId(item)}
                     item={item}
                     depthOffset={depthOffset === 0 ? 0 : depthOffset + 1}
-                    selectedThreadId={selectedThreadId}
+                    selectedThreadId={selectedThreadIdWithin(
+                      item,
+                      selectedThreadId,
+                    )}
                     collapsedThreadIds={collapsedThreadIds}
                     collapsedEnvironmentIds={collapsedEnvironmentIds}
                     onProjectSelect={onProjectSelect}
@@ -1662,7 +1670,10 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
                       projectId={rowProjectId}
                       item={item}
                       depthOffset={depthOffset}
-                      selectedThreadId={selectedThreadId}
+                      selectedThreadId={selectedThreadIdWithin(
+                        item,
+                        selectedThreadId,
+                      )}
                       collapsedThreadIds={collapsedThreadIds}
                       collapsedEnvironmentIds={collapsedEnvironmentIds}
                       onProjectSelect={onProjectSelect}
@@ -1897,7 +1908,7 @@ function SectionThreadTreeItems({
               projectId={projectId ?? getItemProjectId(item)}
               item={item}
               depthOffset={depthOffset}
-              selectedThreadId={selectedThreadId}
+              selectedThreadId={selectedThreadIdWithin(item, selectedThreadId)}
               collapsedThreadIds={collapsedThreadIds}
               collapsedEnvironmentIds={collapsedEnvironmentIds}
               onProjectSelect={onProjectSelect}
@@ -2082,7 +2093,14 @@ export const ChronologicalSectionThreadSections = memo(
       threads,
     });
     const sectionItems = rootItems.filter((item) => item.kind === "section");
-    const looseItems = rootItems.filter((item) => item.kind !== "section");
+    const looseItems = useMemo(
+      () => rootItems.filter((item) => item.kind !== "section"),
+      [rootItems],
+    );
+    const looseItemIds = useMemo(
+      () => looseItems.map(getSidebarDndItemId),
+      [looseItems],
+    );
     const looseThreads = getProjectThreadItemDescendants(looseItems);
 
     const renderItems = (items: readonly ProjectThreadItem[]) => (
@@ -2116,7 +2134,7 @@ export const ChronologicalSectionThreadSections = memo(
         <SidebarTreeSkeleton />
       ) : looseItems.length > 0 ? (
         <SortableContext
-          items={looseItems.map(getSidebarDndItemId)}
+          items={looseItemIds}
           strategy={verticalListSortingStrategy}
         >
           {renderItems(looseItems)}

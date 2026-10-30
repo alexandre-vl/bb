@@ -121,6 +121,7 @@ describe("thread-list preferences rpc", () => {
       harness.behavior.callRpc("setPreference", {
         key: "organizationMode",
         value: "machine",
+        origin: "window-a",
       }),
     ).resolves.toEqual({ key: "organizationMode", value: "machine" });
     await expect(
@@ -136,11 +137,15 @@ describe("thread-list preferences rpc", () => {
     expect(harness.realtimeSignals).toEqual([
       {
         channel: "preferences",
-        payload: { key: "showProviderIcons", value: false },
+        payload: { key: "showProviderIcons", value: false, origin: null },
       },
       {
         channel: "preferences",
-        payload: { key: "organizationMode", value: "machine" },
+        payload: {
+          key: "organizationMode",
+          value: "machine",
+          origin: "window-a",
+        },
       },
     ]);
   });
@@ -436,7 +441,7 @@ it("validates lifecycle selection through CLI and RPC and broadcasts it", async 
   ).resolves.toEqual(["archived"]);
   expect(harness.realtimeSignals).toContainEqual({
     channel: "preferences",
-    payload: { key: "threadLifecycles", value: ["archived"] },
+    payload: { key: "threadLifecycles", value: ["archived"], origin: null },
   });
 });
 
@@ -465,15 +470,15 @@ describe("migration to sidebar V2", () => {
     expect(harness.inspection.realtimeSignals).toEqual([
       {
         channel: "preferences",
-        payload: { key: "attentionFirst", value: true },
+        payload: { key: "attentionFirst", value: true, origin: null },
       },
       {
         channel: "preferences",
-        payload: { key: "parentsStartCollapsed", value: true },
+        payload: { key: "parentsStartCollapsed", value: true, origin: null },
       },
       {
         channel: "preferences",
-        payload: { key: "expandedThreads", value: [] },
+        payload: { key: "expandedThreads", value: [], origin: null },
       },
     ]);
   });
@@ -908,7 +913,7 @@ describe("setCollapsed", () => {
         value,
       );
       expect(harness.inspection.realtimeSignals).toEqual([
-        { channel: "preferences", payload: { key, value } },
+        { channel: "preferences", payload: { key, value, origin: null } },
       ]);
       const listsEveryParent =
         ref === "all" && collapsed !== parentsStartCollapsed;

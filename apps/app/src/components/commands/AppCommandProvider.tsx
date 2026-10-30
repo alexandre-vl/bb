@@ -91,6 +91,7 @@ const EMPTY_CONTEXT: AppCommandContext = {
   sidebarListFocus: false,
   modelPickerOpen: false,
   questionOpen: false,
+  questionFocus: false,
   promptAvailable: false,
   splitActive: false,
   webSurface: false,
@@ -282,6 +283,9 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
         target instanceof HTMLElement &&
         target.closest("[data-app-browser]") !== null;
       next.sidebarListFocus = sidebarListTarget !== null;
+      next.questionFocus =
+        target instanceof HTMLElement &&
+        target.closest("[data-question-form]") !== null;
       next.webSurface = !isDesktop;
       next.macPlatform = keyboardPlatform(browserPlatform()) === "mac";
       next.windowsPlatform = keyboardPlatform(browserPlatform()) === "windows";

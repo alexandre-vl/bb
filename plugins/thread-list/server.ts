@@ -60,7 +60,13 @@ export const threadListRpcContract = defineRpcContract({
     output: z.object({ preferences: preferenceValuesSchema }).strict(),
   },
   setPreference: {
-    input: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
+    input: z
+      .object({
+        key: preferenceKeySchema,
+        value: z.unknown(),
+        origin: z.string().min(1).optional(),
+      })
+      .strict(),
     output: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
   },
   resetPreference: {
@@ -123,6 +129,7 @@ export function createPreferenceStore(bb: BbPluginApi) {
   async function persist<Key extends PreferenceKey>(
     key: Key,
     value: unknown,
+    origin: string | null,
   ): Promise<PreferenceValue<Key>> {
     const parsed = parsePreferenceValue(key, value);
     if (!parsed.success) {
@@ -132,6 +139,7 @@ export function createPreferenceStore(bb: BbPluginApi) {
     bb.realtime.publish(PREFERENCES_CHANGED_CHANNEL, {
       key,
       value: parsed.value,
+      origin,
     });
     return parsed.value;
   }
@@ -139,15 +147,16 @@ export function createPreferenceStore(bb: BbPluginApi) {
   function write<Key extends PreferenceKey>(
     key: Key,
     value: unknown,
+    origin: string | null,
   ): Promise<PreferenceValue<Key>> {
-    return exclusive(() => persist(key, value));
+    return exclusive(() => persist(key, value, origin));
   }
 
   function update<Key extends PreferenceKey>(
     key: Key,
     next: (current: PreferenceValue<Key>) => unknown,
   ): Promise<PreferenceValue<Key>> {
-    return exclusive(async () => persist(key, next(await read(key))));
+    return exclusive(async () => persist(key, next(await read(key)), null));
   }
 
   function reset<Key extends PreferenceKey>(
@@ -156,7 +165,11 @@ export function createPreferenceStore(bb: BbPluginApi) {
     return exclusive(async () => {
       await bb.storage.kv.delete(kvKey(key));
       const value = getPreferenceDefault(key);
-      bb.realtime.publish(PREFERENCES_CHANGED_CHANNEL, { key, value });
+      bb.realtime.publish(PREFERENCES_CHANGED_CHANNEL, {
+        key,
+        value,
+        origin: null,
+      });
       return value;
     });
   }
@@ -248,7 +261,7 @@ export async function migrateToSidebarV2(
     groupByReadStatus.success ? groupByReadStatus.data : null,
   )) {
     if ((await bb.storage.kv.get<unknown>(kvKey(key))) !== undefined) continue;
-    await store.write(key, value);
+    await store.write(key, value, null);
     migrated.push(key);
   }
   await bb.storage.kv.delete(GROUP_BY_READ_STATUS_KV_KEY);
@@ -443,8 +456,8 @@ export default async function threadListPlugin(bb: BbPluginApi) {
     async listPreferences() {
       return { preferences: await store.readAll() };
     },
-    async setPreference({ key, value }) {
-      return { key, value: await store.write(key, value) };
+    async setPreference({ key, value, origin }) {
+      return { key, value: await store.write(key, value, origin ?? null) };
     },
     async resetPreference({ key }) {
       return { key, value: await store.reset(key) };
@@ -568,6 +581,7 @@ export default async function threadListPlugin(bb: BbPluginApi) {
               const value = await store.write(
                 key,
                 parseCliValue(input.positionals.value),
+                null,
               );
               return {
                 exitCode: 0,

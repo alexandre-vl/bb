@@ -1,5 +1,6 @@
 import { shortcutsConflict } from "./plugin-command-keybindings";
 import {
+  QUESTION_ACTION_APP_COMMAND_IDS,
   QUESTION_SELECT_APP_COMMAND_IDS,
   isAppKeybindingAvailableForClient,
   keyboardPlatform,
@@ -17,7 +18,7 @@ import {
 const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "OS", "Shift"]);
 const BARE_KEY_COMMANDS = new Set<KeyboardCommandId>([
   ...QUESTION_SELECT_APP_COMMAND_IDS,
-  "thread.toggleRead",
+  ...QUESTION_ACTION_APP_COMMAND_IDS,
   "thread.previousAttention",
   "thread.nextAttention",
 ]);

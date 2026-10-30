@@ -45,9 +45,10 @@ function startReveal(
   };
   const reveal = (next: Partial<RevealInputs> = {}) => {
     Object.assign(current, next);
+    const { threads, ...inputs } = current;
     const step = stepSidebarThreadReveal(state, {
-      ...current,
-      threadById: new Map(current.threads.map((item) => [item.id, item])),
+      ...inputs,
+      threadById: new Map(threads.map((item) => [item.id, item])),
     });
     state = step.state;
     return step.revealId === undefined ? [] : [step.revealId];
@@ -56,6 +57,33 @@ function startReveal(
 }
 
 describe("useSidebarThreadReveal", () => {
+  it("does not reveal a background thread when it arrives or becomes unread", () => {
+    const { reveal } = startReveal({ threads: [thread("first")] });
+
+    expect(
+      reveal({
+        threads: [
+          thread("first"),
+          thread("background", { latestAttentionAt: 2 }),
+        ],
+      }),
+    ).toEqual([]);
+
+    expect(
+      reveal({ threads: [thread("first"), thread("background")] }),
+    ).toEqual([]);
+    expect(
+      reveal({
+        threads: [
+          thread("first"),
+          thread("background", { latestAttentionAt: 3 }),
+        ],
+      }),
+    ).toEqual([]);
+
+    expect(reveal({ selectedThreadId: "background" })).toEqual(["background"]);
+  });
+
   it("requires leaving and returning before revealing the open thread again", () => {
     const { initial, reveal } = startReveal({
       threads: [thread("first"), thread("second")],

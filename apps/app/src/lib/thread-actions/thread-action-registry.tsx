@@ -12,11 +12,13 @@ import {
 import type { KeyboardCommandId } from "@bb/domain";
 import type {
   BbNavigate,
+  ExperimentalPanelController,
   ExperimentalThreadActionShortcut,
   PluginBoundThreadAction,
   PluginBrowserBbSdk,
   PluginThreadAction,
   PluginThreadActionEntry,
+  PluginThreadActionPlacement,
   PluginThreadActionRegistration,
   PluginThreadActionRegistrationInfo,
   PluginThreadActionTarget,
@@ -24,7 +26,11 @@ import type {
 } from "@get-bb/plugin-sdk";
 import { useAppCommandShortcuts } from "@/components/commands/AppCommandProvider";
 import { PluginContext } from "@/components/plugin/plugin-context";
-import { getActiveThreadPanelOpener } from "@/components/plugin/plugin-thread-panel-navigation";
+import { getFocusedAppPanelController } from "@/lib/app-fixed-tab-navigation";
+import {
+  createPluginPanelController,
+  createRetiredOpenPanel,
+} from "@/lib/plugin-panel-controller";
 import { useBbNavigate, useSdk } from "@/lib/plugin-navigation-hooks";
 import { compareGroupedPlacement } from "@/lib/grouped-placement";
 import { usePluginSlots } from "@/lib/plugin-slots";
@@ -34,7 +40,7 @@ export const CORE_THREAD_ACTION_OWNER = "bb--core";
 const THREAD_ACTION_COMMANDS: ReadonlyMap<string, KeyboardCommandId> = new Map([
   [`${CORE_THREAD_ACTION_OWNER}/archive`, "thread.archive"],
   [`${CORE_THREAD_ACTION_OWNER}/rename`, "thread.rename"],
-  [`${CORE_THREAD_ACTION_OWNER}/read`, "thread.toggleRead"],
+  [`${CORE_THREAD_ACTION_OWNER}/read`, "thread.markRead"],
 ]);
 const THREAD_ACTION_COMMAND_IDS = [...THREAD_ACTION_COMMANDS.values()];
 
@@ -42,6 +48,8 @@ type ThreadActionShortcuts = ReadonlyMap<
   KeyboardCommandId,
   ExperimentalThreadActionShortcut
 >;
+
+const NO_THREAD_ACTION_SHORTCUTS: ThreadActionShortcuts = new Map();
 
 function threadActionShortcut(
   key: string,
@@ -58,6 +66,7 @@ export interface ThreadActionRegistrationRecord {
   key: string;
   instanceKey: string;
   pluginId: string;
+  placement: PluginThreadActionPlacement;
   registration: PluginThreadActionRegistration<unknown>;
 }
 
@@ -65,6 +74,7 @@ interface CollectedThreadAction {
   data: unknown;
   sdk: PluginBrowserBbSdk;
   navigate: BbNavigate;
+  panel: ExperimentalPanelController;
 }
 
 interface ThreadActionRegistrySnapshot {
@@ -106,7 +116,8 @@ function publishCollected(key: string, value: CollectedThreadAction): void {
     current !== undefined &&
     Object.is(current.data, value.data) &&
     current.sdk === value.sdk &&
-    current.navigate === value.navigate
+    current.navigate === value.navigate &&
+    current.panel === value.panel
   ) {
     return;
   }
@@ -137,8 +148,16 @@ function publishRecords(
   setSnapshot({ ...snapshot, records });
 }
 
-const subscribedThreadCounts = new Map<string, number>();
-let subscribedThreadIds: readonly string[] = [];
+type SubscribedThreadIds = Readonly<
+  Record<PluginThreadActionPlacement, readonly string[]>
+>;
+
+const subscribedThreadCounts: Record<
+  PluginThreadActionPlacement,
+  Map<string, number>
+> = { menu: new Map(), header: new Map() };
+const NO_SUBSCRIBED_THREAD_IDS: SubscribedThreadIds = { menu: [], header: [] };
+let subscribedThreadIds = NO_SUBSCRIBED_THREAD_IDS;
 const threadIdListeners = new Set<() => void>();
 
 function subscribeThreadIds(listener: () => void): () => void {
@@ -148,7 +167,7 @@ function subscribeThreadIds(listener: () => void): () => void {
   };
 }
 
-function getSubscribedThreadIds(): readonly string[] {
+function getSubscribedThreadIds(): SubscribedThreadIds {
   return subscribedThreadIds;
 }
 
@@ -165,10 +184,18 @@ function cancelThreadIdsFlush(): void {
 
 function flushSubscribedThreadIds(): void {
   cancelThreadIdsFlush();
-  const next = [...subscribedThreadCounts.keys()].sort();
+  const settle = (placement: PluginThreadActionPlacement) => {
+    const current = subscribedThreadIds[placement];
+    const next = [...subscribedThreadCounts[placement].keys()].sort();
+    return next.length === current.length &&
+      next.every((id, index) => id === current[index])
+      ? current
+      : next;
+  };
+  const next = { menu: settle("menu"), header: settle("header") };
   if (
-    next.length === subscribedThreadIds.length &&
-    next.every((id, index) => id === subscribedThreadIds[index])
+    next.menu === subscribedThreadIds.menu &&
+    next.header === subscribedThreadIds.header
   ) {
     return;
   }
@@ -187,16 +214,17 @@ function scheduleSubscribedThreadIdsFlush(): void {
   );
 }
 
-function retainThreadId(threadId: string): () => void {
-  subscribedThreadCounts.set(
-    threadId,
-    (subscribedThreadCounts.get(threadId) ?? 0) + 1,
-  );
+function retainThreadId(
+  threadId: string,
+  placement: PluginThreadActionPlacement,
+): () => void {
+  const counts = subscribedThreadCounts[placement];
+  counts.set(threadId, (counts.get(threadId) ?? 0) + 1);
   scheduleSubscribedThreadIdsFlush();
   return () => {
-    const count = subscribedThreadCounts.get(threadId) ?? 0;
-    if (count <= 1) subscribedThreadCounts.delete(threadId);
-    else subscribedThreadCounts.set(threadId, count - 1);
+    const count = counts.get(threadId) ?? 0;
+    if (count <= 1) counts.delete(threadId);
+    else counts.set(threadId, count - 1);
     scheduleSubscribedThreadIdsFlush();
   };
 }
@@ -219,8 +247,9 @@ export function ThreadActionSurfaceVisibility({
 
 export function resetThreadActionRegistryForTest(): void {
   reportedFailures.clear();
-  subscribedThreadCounts.clear();
-  subscribedThreadIds = [];
+  subscribedThreadCounts.menu.clear();
+  subscribedThreadCounts.header.clear();
+  subscribedThreadIds = NO_SUBSCRIBED_THREAD_IDS;
   cancelThreadIdsFlush();
   setSnapshot({
     records: [],
@@ -238,18 +267,22 @@ function reportFailure(key: string, phase: string, error: unknown): void {
   console.error(`thread action "${key}" failed in ${phase}`, error);
 }
 
-function useLatestNavigate(navigate: BbNavigate, pluginId: string): BbNavigate {
+function useLatestNavigate(
+  navigate: BbNavigate,
+  panel: ExperimentalPanelController,
+): BbNavigate {
   const latest = useRef(navigate);
   useLayoutEffect(() => {
     latest.current = navigate;
   });
-  const [stable] = useState<BbNavigate>(() => ({
+  const [stable] = useState<
+    BbNavigate & { openThreadPanel: ReturnType<typeof createRetiredOpenPanel> }
+  >(() => ({
     toThread: (...args) => latest.current.toThread(...args),
     toProject: (...args) => latest.current.toProject(...args),
     toPluginPanel: (...args) => latest.current.toPluginPanel(...args),
     toCompose: (...args) => latest.current.toCompose(...args),
-    openThreadPanel: (options) =>
-      getActiveThreadPanelOpener()?.({ ...options, pluginId }) ?? false,
+    openThreadPanel: createRetiredOpenPanel(panel),
     openUrl: (...args) => latest.current.openUrl(...args),
     experimental_openFilePreview: (...args) =>
       latest.current.experimental_openFilePreview(...args),
@@ -269,13 +302,16 @@ function ThreadActionCollector({
   const threadIds = useSyncExternalStore(
     subscribeThreadIds,
     getSubscribedThreadIds,
-  );
+  )[record.placement];
   const data = record.registration.useData?.({ threadIds });
   const sdk = useSdk();
-  const navigate = useLatestNavigate(useBbNavigate(), record.pluginId);
+  const [panel] = useState(() =>
+    createPluginPanelController(record.pluginId, getFocusedAppPanelController),
+  );
+  const navigate = useLatestNavigate(useBbNavigate(), panel);
   useLayoutEffect(() => {
-    publishCollected(record.key, { data, sdk, navigate });
-  }, [data, navigate, record.key, sdk]);
+    publishCollected(record.key, { data, sdk, navigate, panel });
+  }, [data, navigate, panel, record.key, sdk]);
   useLayoutEffect(() => () => dropCollected(record.key), [record.key]);
   return null;
 }
@@ -328,7 +364,10 @@ function useThreadActionRecords(
         right.index,
       ),
     )
-    .map(({ record }) => record);
+    .map(({ record }) => ({
+      ...record,
+      placement: record.registration.placement ?? "menu",
+    }));
 }
 
 export function ThreadActionCollectors({
@@ -397,58 +436,85 @@ export function bindThreadAction(
 
 function evaluateRecord(
   record: ThreadActionRegistrationRecord,
-  thread: PluginThreadActionTarget,
+  target: ThreadActionEvaluationTarget,
   registry: ThreadActionRegistrySnapshot,
   requestRename: (threadId: string) => void,
   shortcuts: ThreadActionShortcuts,
 ): PluginThreadActionEntry | null {
   const input = registry.collected.get(record.key);
   if (input === undefined) return null;
+  const { registration } = record;
   try {
-    const action = record.registration.item({
-      thread,
-      data: input.data,
-      sdk: input.sdk,
-      navigate: input.navigate,
-    });
+    const action =
+      target.kind === "thread"
+        ? registration.item({
+            thread: target.thread,
+            data: input.data,
+            sdk: input.sdk,
+            navigate: input.navigate,
+            experimental_panel: input.panel,
+          })
+        : (registration.experimental_bulkItem?.({
+            threads: target.threads,
+            data: input.data,
+            sdk: input.sdk,
+            navigate: input.navigate,
+            experimental_panel: input.panel,
+          }) ?? null);
     if (action === null) return null;
     return {
       key: record.key,
       pluginId: record.pluginId,
       group: record.registration.group,
       action: bindThreadAction(record.key, action, requestRename),
-      experimental_shortcut: threadActionShortcut(
-        record.key,
-        thread,
-        shortcuts,
-      ),
+      experimental_shortcut:
+        target.kind === "thread"
+          ? threadActionShortcut(record.key, target.thread, shortcuts)
+          : null,
     };
   } catch (error) {
-    reportFailure(record.key, "item", error);
+    reportFailure(
+      record.key,
+      target.kind === "thread" ? "item" : "experimental_bulkItem",
+      error,
+    );
     return null;
   }
 }
 
+type ThreadActionEvaluationTarget =
+  | { kind: "thread"; thread: PluginThreadActionTarget }
+  | { kind: "bulk"; threads: readonly PluginThreadActionTarget[] };
+
+function hasPlacement(
+  record: ThreadActionRegistrationRecord,
+  placement: PluginThreadActionPlacement,
+): boolean {
+  return record.placement === placement;
+}
+
 function evaluateThreadActions(
   registry: ThreadActionRegistrySnapshot,
-  thread: PluginThreadActionTarget,
+  target: ThreadActionEvaluationTarget,
   options: PluginThreadActionsOptions | undefined,
+  placement: PluginThreadActionPlacement,
   shortcuts: ThreadActionShortcuts,
 ): PluginThreadActionEntry[] {
   const requestRename = options?.requestRename ?? registry.requestRename;
+  const placed = registry.records.filter((record) =>
+    hasPlacement(record, placement),
+  );
   const records =
     options?.keys === undefined
-      ? registry.records
+      ? placed
       : options.keys.flatMap((key) => {
-          const record = registry.records.find(
-            (candidate) => candidate.key === key,
-          );
+          const record = placed.find((candidate) => candidate.key === key);
           return record === undefined ? [] : [record];
         });
   return records.flatMap((record) => {
     const entry = evaluateRecord(
       record,
-      thread,
+      target,
       registry,
       requestRename,
       shortcuts,
@@ -457,18 +523,106 @@ function evaluateThreadActions(
   });
 }
 
+interface RetainedThreadActionEntries {
+  signature: string;
+  entries: readonly PluginThreadActionEntry[];
+  latest: Map<string, PluginBoundThreadAction>;
+}
+
+const retainedThreadActionEntries = new WeakMap<
+  object,
+  RetainedThreadActionEntries
+>();
+
+function retainThreadActionEntries(
+  owner: object,
+  evaluated: readonly PluginThreadActionEntry[],
+): readonly PluginThreadActionEntry[] {
+  const signature = JSON.stringify(evaluated);
+  let retained = retainedThreadActionEntries.get(owner);
+  if (retained === undefined || retained.signature !== signature) {
+    const latest = new Map<string, PluginBoundThreadAction>();
+    retained = {
+      signature,
+      latest,
+      entries: evaluated.map((entry) => ({
+        ...entry,
+        action: {
+          ...entry.action,
+          run: (value) => (latest.get(entry.key) ?? entry.action).run(value),
+        },
+      })),
+    };
+    retainedThreadActionEntries.set(owner, retained);
+  }
+  for (const entry of evaluated) retained.latest.set(entry.key, entry.action);
+  return retained.entries;
+}
+
+function useThreadEntries(
+  thread: PluginThreadActionTarget,
+  options: PluginThreadActionsOptions | undefined,
+  placement: PluginThreadActionPlacement,
+): readonly PluginThreadActionEntry[] {
+  const [owner] = useState(() => ({}));
+  const shortcuts = useAppCommandShortcuts(THREAD_ACTION_COMMAND_IDS);
+  const entries = useSyncExternalStore(subscribe, () =>
+    retainThreadActionEntries(
+      owner,
+      evaluateThreadActions(
+        getSnapshot(),
+        { kind: "thread", thread },
+        options,
+        placement,
+        shortcuts,
+      ).filter(
+        (entry) => placement === "menu" || entry.action.choices === undefined,
+      ),
+    ),
+  );
+  const surfaceVisible = useContext(ThreadActionSurfaceVisibleContext);
+  useEffect(
+    () => (surfaceVisible ? retainThreadId(thread.id, placement) : undefined),
+    [placement, surfaceVisible, thread.id],
+  );
+  return entries;
+}
+
 export function useThreadActionEntries(
   thread: PluginThreadActionTarget,
   options?: PluginThreadActionsOptions,
 ): readonly PluginThreadActionEntry[] {
+  return useThreadEntries(thread, options, "menu");
+}
+
+export function useThreadHeaderActionEntries(
+  thread: PluginThreadActionTarget,
+): readonly PluginThreadActionEntry[] {
+  return useThreadEntries(thread, undefined, "header");
+}
+
+export function useThreadBulkActionEntries(
+  threads: readonly PluginThreadActionTarget[],
+): readonly PluginThreadActionEntry[] {
   const registry = useSyncExternalStore(subscribe, getSnapshot);
   const surfaceVisible = useContext(ThreadActionSurfaceVisibleContext);
-  const shortcuts = useAppCommandShortcuts(THREAD_ACTION_COMMAND_IDS);
-  useEffect(
-    () => (surfaceVisible ? retainThreadId(thread.id) : undefined),
-    [surfaceVisible, thread.id],
+  const threadIdsKey = threads.map((thread) => thread.id).join("\n");
+  useEffect(() => {
+    if (!surfaceVisible || threadIdsKey === "") return undefined;
+    const releases = threadIdsKey
+      .split("\n")
+      .map((threadId) => retainThreadId(threadId, "menu"));
+    return () => {
+      for (const release of releases) release();
+    };
+  }, [surfaceVisible, threadIdsKey]);
+  return evaluateThreadActions(
+    registry,
+    { kind: "bulk", threads },
+    undefined,
+    "menu",
+    NO_THREAD_ACTION_SHORTCUTS,
   );
-  return evaluateThreadActions(registry, thread, options, shortcuts);
 }
 
 export function useDefaultRequestRename(): (threadId: string) => void {
@@ -477,10 +631,12 @@ export function useDefaultRequestRename(): (threadId: string) => void {
 
 export function useThreadActionRegistrationInfos(): readonly PluginThreadActionRegistrationInfo[] {
   const { records } = useSyncExternalStore(subscribe, getSnapshot);
-  return records.map((record) => ({
-    key: record.key,
-    pluginId: record.pluginId,
-    title: record.registration.title,
-    icon: record.registration.icon,
-  }));
+  return records
+    .filter((record) => hasPlacement(record, "menu"))
+    .map((record) => ({
+      key: record.key,
+      pluginId: record.pluginId,
+      title: record.registration.title,
+      icon: record.registration.icon,
+    }));
 }

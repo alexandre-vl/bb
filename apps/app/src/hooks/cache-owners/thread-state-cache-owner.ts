@@ -39,6 +39,7 @@ import {
   withThreadReadStateIntent,
   type ThreadReadStateIntent,
 } from "./thread-read-state-fences";
+import { readThreadBack } from "./thread-read-back";
 
 interface ThreadIdCacheArgs {
   queryClient: QueryClient;
@@ -59,11 +60,11 @@ type ThreadMetadataPatch = Partial<
 type ThreadFieldsResult = Partial<ThreadWithRuntime>;
 
 export interface ThreadListMutationTransaction {
-  prediction: ThreadEntityPrediction<ThreadFieldsResult>;
+  prediction: ThreadEntityPrediction;
 }
 
 export interface ThreadMetadataBatchTransaction {
-  prediction: ThreadEntityPrediction<ReadonlyMap<string, ThreadFieldsResult>>;
+  prediction: ThreadEntityPrediction;
 }
 
 export interface ArchiveThreadsTransaction {
@@ -120,20 +121,18 @@ export function applyThreadUpdateResult({
       thread.id,
       responseMetadataPatch(thread, request),
     );
-  else transaction.prediction.succeed(responseMetadataPatch(thread, request));
+  else transaction.prediction.confirm([thread], readThreadBack(queryClient));
   invalidateThreadListQueries({ queryClient });
 }
 
 export function predictThreadPinState(
   queryClient: QueryClient,
   { pinnedAt, threadId }: { pinnedAt: number | null; threadId: string },
-): ThreadEntityPrediction<ThreadWithRuntime> {
-  return beginThreadEntityPrediction<ThreadWithRuntime>(queryClient, {
+): ThreadEntityPrediction {
+  return beginThreadEntityPrediction(queryClient, {
     threadIds: [threadId],
-    update: (entity, _threadId, result) => ({
-      ...withThread(entity, {
-        pinnedAt: result === undefined ? pinnedAt : result.value.pinnedAt,
-      }),
+    update: (entity) => ({
+      ...withThread(entity, { pinnedAt }),
       list: entity.list && { ...entity.list, pinSortKey: null },
     }),
   });
@@ -567,14 +566,10 @@ export function beginThreadMetadataTransaction({
     threadId,
     title,
   });
-  const prediction = beginThreadEntityPrediction<ThreadFieldsResult>(
-    queryClient,
-    {
-      threadIds: [threadId],
-      update: (entity, _threadId, result) =>
-        withThread(entity, result?.value ?? patch),
-    },
-  );
+  const prediction = beginThreadEntityPrediction(queryClient, {
+    threadIds: [threadId],
+    update: (entity) => withThread(entity, patch),
+  });
   return Promise.resolve({ prediction });
 }
 
@@ -592,12 +587,9 @@ export async function beginThreadMetadataBatchTransaction({
       ...resolveThreadMetadataPatch({ ...update, queryClient }),
     });
   }
-  const prediction = beginThreadEntityPrediction<
-    ReadonlyMap<string, ThreadFieldsResult>
-  >(queryClient, {
+  const prediction = beginThreadEntityPrediction(queryClient, {
     threadIds: [...patches.keys()],
-    update: (entity, threadId, result) =>
-      withThread(entity, result?.value.get(threadId) ?? patches.get(threadId)!),
+    update: (entity, threadId) => withThread(entity, patches.get(threadId)!),
   });
   return { prediction };
 }
@@ -623,17 +615,21 @@ export function applyThreadMetadataBatchResult({
     request: UpdateThreadRequest;
   }[];
 }): void {
-  const results = new Map<string, ThreadFieldsResult>();
-  for (const { thread, request } of updates) {
-    results.set(thread.id, {
-      ...results.get(thread.id),
-      ...responseMetadataPatch(thread, request),
-    });
-  }
-  if (transaction === undefined)
+  if (transaction === undefined) {
+    const results = new Map<string, ThreadFieldsResult>();
+    for (const { thread, request } of updates) {
+      results.set(thread.id, {
+        ...results.get(thread.id),
+        ...responseMetadataPatch(thread, request),
+      });
+    }
     for (const [threadId, patch] of results)
       patchThreadEntity(queryClient, threadId, patch);
-  else transaction.prediction.succeed(results);
+  } else
+    transaction.prediction.confirm(
+      updates.map(({ thread }) => thread),
+      readThreadBack(queryClient),
+    );
   invalidateThreadListQueries({ queryClient });
 }
 
@@ -690,13 +686,10 @@ export async function beginUnarchiveThreadTransaction({
   threadId,
 }: ThreadIdCacheArgs): Promise<ThreadListMutationTransaction> {
   insertThreadIntoSidebar(queryClient, threadId);
-  const prediction = beginThreadEntityPrediction<ThreadFieldsResult>(
-    queryClient,
-    {
-      threadIds: [threadId],
-      update: (entity) => withThread(entity, { archivedAt: null }),
-    },
-  );
+  const prediction = beginThreadEntityPrediction(queryClient, {
+    threadIds: [threadId],
+    update: (entity) => withThread(entity, { archivedAt: null }),
+  });
   return { prediction };
 }
 

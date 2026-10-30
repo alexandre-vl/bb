@@ -38,6 +38,8 @@ import {
   experimental_ThreadActionsContextMenu as ThreadActionsContextMenu,
   experimental_ThreadActionsMenu as ThreadActionsMenu,
   experimental_ThreadStatusGlyph as ThreadStatusGlyph,
+  experimental_ThreadRowMetadata as ThreadRowMetadata,
+  experimental_useExperiment,
   experimental_useThreadActions,
   experimental_useSidebarThreadSplit,
   experimental_ProviderIcon as ProviderIcon,
@@ -48,6 +50,7 @@ import {
   useSidebarThreadShortcut,
   useSdk,
   type PluginSidebarSplitPane,
+  type PluginThreadActionsContextMenuProps,
   type PluginThreadActionsTriggerProps,
   type PluginSidebarThreadRowStatus,
   type PluginProvidersState,
@@ -60,6 +63,8 @@ import {
 import { useSidebarProjectName } from "../model/use-sidebar-data.js";
 import {
   sidebarShowProviderIconsAtom,
+  sidebarShowRowMetadataAtom,
+  THREAD_ROW_METADATA_EXPERIMENT,
   threadRowActionsAtom,
 } from "../preferences/atoms.js";
 import { ShortcutPill } from "@/components/ui/shortcut-pill";
@@ -85,6 +90,13 @@ import { SidebarThreadDragChip } from "../dnd/sidebarThreadDragChip.js";
 import { SplitPaneMiniMap } from "@/components/ui/split-pane-mini-map";
 import { ThreadRowQuickActions } from "./ThreadRowQuickActions.js";
 import { toThreadActionTarget } from "./threadActionTarget.js";
+import {
+  useIsSelectionHidingActiveRow,
+  useIsThreadSelected,
+  useMultiSelectionContaining,
+  useThreadSelectionStore,
+} from "../selection/threadSelection.js";
+import { useThreadSelectionMenu } from "../selection/useThreadSelectionMenu.js";
 import { useOpenThreadInSplit } from "./threadRowNavigation.js";
 import { Button } from "@/components/ui/button";
 import { COARSE_POINTER_ICON_SIZE_CLASS } from "@/components/ui/coarse-pointer-sizing";
@@ -187,6 +199,7 @@ interface ThreadRowContainerArgs {
   dragBindings?: SidebarSortableDragBindings;
   nestTargetState: SidebarNestTargetState | null;
   reorderPlacement: SidebarReorderPlacement | null;
+  selected: boolean;
   onClick?: MouseEventHandler<HTMLDivElement>;
   onClickCapture?: ThreadRowClickCaptureHandler;
   onSplitDragPointerDown?: PointerEventHandler<HTMLElement>;
@@ -248,6 +261,7 @@ function renderThreadRowContainer({
   onClickCapture,
   onSplitDragPointerDown,
   reorderPlacement,
+  selected,
   stickyLevel,
   style,
   threadId,
@@ -268,6 +282,7 @@ function renderThreadRowContainer({
     style,
     "data-sidebar-nest-target": nestTargetState ?? undefined,
     "data-sidebar-reorder-placement": reorderPlacement ?? undefined,
+    "data-sidebar-thread-selected": selected ? "" : undefined,
     ...(dragBindings?.listeners ?? {}),
     onClick,
     onClickCapture,
@@ -399,13 +414,24 @@ function ThreadRowComponent({
   const [isContextActionsOpen, setIsContextActionsOpen] = useState(false);
   const sdk = useSdk();
   const openThreadInSplit = useOpenThreadInSplit();
+  const selectionStore = useThreadSelectionStore();
+  const isSelected = useIsThreadSelected(thread.id);
+  const selectionHidesActive = useIsSelectionHidingActiveRow(isActive);
+  const multiSelection = useMultiSelectionContaining(thread.id);
+  const selectionMenu = useThreadSelectionMenu(multiSelection);
   const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
+  const rowMetadataEnabled = experimental_useExperiment(
+    THREAD_ROW_METADATA_EXPERIMENT,
+  );
+  const showRowMetadata =
+    useAtomValue(sidebarShowRowMetadataAtom) && rowMetadataEnabled;
   const providers = useContext(SidebarProvidersContext);
   const shortcut = useSidebarThreadShortcut(thread.id);
   const pluginThreadRowStatus = useSidebarThreadRowStatus(thread.id);
   const { hasUnsubmittedDraft: hasComposerDraft } = useSidebarThreadDraft(
     thread.id,
   );
+  const showActive = isSelected || (isActive && !selectionHidesActive);
   const threadStatus = threadListIndicatorStateForThread(
     thread,
     hasComposerDraft,
@@ -446,7 +472,10 @@ function ThreadRowComponent({
   );
   const miniMap = useThreadSplitMiniMap(thread.id);
   const isOpenInSplit = miniMap !== null;
-  const split = experimental_useSidebarThreadSplit(thread.id);
+  const split = experimental_useSidebarThreadSplit(
+    thread.id,
+    multiSelection === null ? undefined : { dragThreadIds: multiSelection },
+  );
   const onSplitDragPointerDown = split.splitProps.onPointerDown;
   const splitAvailable = split.isAvailable;
   const openInSplit = useCallback(() => {
@@ -590,9 +619,11 @@ function ThreadRowComponent({
     SIDEBAR_TREE_ROW_BASE_CLASS,
     parentOptions?.stickyLevel === undefined && "relative",
     SIDEBAR_TREE_ROW_HEIGHT_CLASS,
+    showRowMetadata &&
+      "h-auto min-h-(--bb-sidebar-row-height) pointer-coarse:h-auto pointer-coarse:min-h-(--bb-sidebar-row-height-coarse)",
     "pointer-coarse:touch-pan-y pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]",
-    isActive ? SIDEBAR_TREE_ROW_SELECTED_CLASS : SIDEBAR_TREE_ROW_HOVER_CLASS,
-    !isActive && isOpenInSplit && "bb-sidebar-open-in-split-row",
+    showActive ? SIDEBAR_TREE_ROW_SELECTED_CLASS : SIDEBAR_TREE_ROW_HOVER_CLASS,
+    !showActive && isOpenInSplit && "bb-sidebar-open-in-split-row",
     rowDragBindings && !rowDragBindings.disabled && "select-none",
     !isActionsOpen && "data-[sidebar-touch-armed=true]:!bg-transparent",
     nestTargetState && NEST_TARGET_STATE_CLASS[nestTargetState],
@@ -636,12 +667,20 @@ function ThreadRowComponent({
     (event) => {
       if (event.target !== event.currentTarget) {
         if (!(event.target instanceof Element)) return;
-        if (!event.target.closest("[data-sidebar-thread-trailing]")) return;
+        if (
+          !event.target.closest(
+            "[data-sidebar-thread-trailing], [data-thread-row-metadata]",
+          )
+        )
+          return;
         if (event.target.closest("a, button")) return;
+      }
+      if (selectionStore.handleClick(thread.id, event, event.currentTarget)) {
+        return;
       }
       rowLinkRef.current?.click();
     },
-    [],
+    [selectionStore, thread.id],
   );
   const showsProviderSlot = showProviderIcons && !hasChildren;
   const provider = showsProviderSlot
@@ -677,12 +716,12 @@ function ThreadRowComponent({
             data-sidebar-swipe-plate=""
             className={cn(
               "pointer-events-none absolute inset-0 rounded-md",
-              isActive ? "bg-sidebar-row-selected" : "bg-sidebar",
+              showActive ? "bg-sidebar-row-selected" : "bg-sidebar",
             )}
           />
         </>
       ) : null}
-      {isActive ? <SidebarSelectionMark /> : null}
+      {showActive ? <SidebarSelectionMark /> : null}
       <a
         ref={linkRef}
         href={thread.href}
@@ -700,6 +739,13 @@ function ThreadRowComponent({
         aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
         onClick={(event) => {
           if (isEditing) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          if (
+            selectionStore.handleClick(thread.id, event, event.currentTarget)
+          ) {
             event.preventDefault();
             event.stopPropagation();
             return;
@@ -742,6 +788,8 @@ function ThreadRowComponent({
         aria-hidden={isEditing ? undefined : "true"}
         className={cn(
           "pointer-events-none relative flex min-w-0 flex-1 items-center self-stretch",
+          showRowMetadata &&
+            "flex-wrap content-center gap-y-0 py-1 has-[[data-thread-row-metadata][data-has-items]]:py-1.25 has-[[data-thread-row-metadata][data-has-items]]:[&_.bb-thread-title]:leading-4",
           !isActionsOpen &&
             "group-data-[sidebar-touch-armed=true]/thread-row:hidden",
           !isEditing &&
@@ -750,35 +798,57 @@ function ThreadRowComponent({
         )}
         style={getTitleBoxStyle(titleEnd, reservesStatusBox, hoverActionsWidth)}
       >
-        {showsProviderSlot ? (
+        <span
+          className={
+            showRowMetadata
+              ? "flex min-w-0 basis-full items-center self-stretch"
+              : "contents"
+          }
+        >
+          {showsProviderSlot ? (
+            <span
+              data-sidebar-thread-provider={provider?.id}
+              className="relative z-[1] mr-1.5 flex size-4 shrink-0 items-center justify-center text-sidebar-glyph-faint"
+            >
+              {provider ? (
+                <ProviderIcon
+                  providerKind="agent"
+                  provider={provider}
+                  className="size-4"
+                />
+              ) : null}
+            </span>
+          ) : null}
+          {isEditing ? (
+            <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
+              {editor}
+            </span>
+          ) : (
+            <span
+              data-sidebar-row-title=""
+              className={cn(
+                "bb-thread-title min-w-0",
+                getSidebarTitleToneClass({
+                  isActive: showActive,
+                  isAttention,
+                  isLive,
+                }),
+                "group-hover/thread-row:**:text-clip",
+              )}
+              onDoubleClick={startTitleEditing}
+            >
+              <ThreadTitle threadId={thread.id} />
+            </span>
+          )}
+        </span>
+        {!showRowMetadata || isEditing || isCustomizingActions ? null : (
           <span
-            data-sidebar-thread-provider={provider?.id}
-            className="relative z-[1] mr-1.5 flex size-4 shrink-0 items-center justify-center text-sidebar-glyph-faint"
-          >
-            {provider ? (
-              <ProviderIcon
-                providerKind="agent"
-                provider={provider}
-                className="size-4"
-              />
-            ) : null}
-          </span>
-        ) : null}
-        {isEditing ? (
-          <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
-            {editor}
-          </span>
-        ) : (
-          <span
-            data-sidebar-row-title=""
             className={cn(
-              "bb-thread-title min-w-0",
-              getSidebarTitleToneClass({ isActive, isAttention, isLive }),
-              "group-hover/thread-row:**:text-clip",
+              "mt-px flex min-w-0 basis-full",
+              showsProviderSlot && "pl-5.5",
             )}
-            onDoubleClick={startTitleEditing}
           >
-            <ThreadTitle threadId={thread.id} />
+            <ThreadRowMetadata thread={thread} />
           </span>
         )}
       </span>
@@ -931,6 +1001,7 @@ function ThreadRowComponent({
     dragBindings: rowDragBindings,
     nestTargetState,
     reorderPlacement,
+    selected: isSelected,
     onClick: isEditing ? undefined : handleRowClick,
     onClickCapture:
       !isEditing && options.consumeClickSuppression
@@ -952,14 +1023,29 @@ function ThreadRowComponent({
     tooltipIsTitleOnly: rowSummary.length === 0,
   });
 
+  const bulkMenuProps: Pick<
+    PluginThreadActionsContextMenuProps,
+    "experimental_bulkThreads" | "onEscapeKeyDown"
+  > =
+    selectionMenu === null
+      ? {}
+      : {
+          experimental_bulkThreads: selectionMenu.selection,
+          onEscapeKeyDown: selectionMenu.onEscapeKeyDown,
+        };
+
   return (
     <ThreadActionsContextMenu
       thread={actionTarget}
+      inline={selectionMenu?.inline}
       requestRename={requestRenameFromMenu}
       onOpenChange={setIsContextActionsOpen}
-      onCloseAutoFocus={rename.onCloseAutoFocus}
+      onCloseAutoFocus={
+        selectionMenu?.onCloseAutoFocus ?? rename.onCloseAutoFocus
+      }
       disabled={isEditing || (isCoarsePointer && sheet !== null)}
       dragging={rowDragBindings?.isDragging ?? false}
+      {...bulkMenuProps}
     >
       {row}
     </ThreadActionsContextMenu>
