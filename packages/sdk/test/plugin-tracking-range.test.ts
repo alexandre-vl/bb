@@ -11,8 +11,16 @@ const result = {
   check: {
     id: "notes",
     outcome: "update-available",
-    installed: { version: "a".repeat(40), display: "repo@v0.1.0" },
-    candidate: { version: "b".repeat(40), display: "repo@v0.2.0" },
+    installed: {
+      version: "a".repeat(40),
+      label: "0.1.0",
+      display: "repo@v0.1.0",
+    },
+    candidate: {
+      version: "b".repeat(40),
+      label: "0.2.0",
+      display: "repo@v0.2.0",
+    },
   },
 };
 

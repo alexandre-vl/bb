@@ -11,10 +11,12 @@ import { registerPluginCommands } from "../../commands/plugin.js";
 
 const installed = {
   version: "a".repeat(40),
+  label: "0.1.0",
   display: "repo@v0.1.0 (aaaaaaaaaaaa)",
 };
 const candidate = {
   version: "b".repeat(40),
+  label: "0.2.0",
   display: "repo@v0.2.0 (bbbbbbbbbbbb)",
 };
 
@@ -236,7 +238,11 @@ describe("bb plugin track", () => {
           check: {
             id: "linear",
             outcome: "unavailable",
-            installed: { version: "1.0.0", display: "linear@1.0.0" },
+            installed: {
+              version: "1.0.0",
+              label: "1.0.0",
+              display: "linear@1.0.0",
+            },
             detail: "registry offline",
           },
         }),
@@ -250,7 +256,11 @@ describe("bb plugin track", () => {
           check: {
             id: "linear",
             outcome: "unavailable",
-            installed: { version: "1.0.0", display: "linear@1.0.0" },
+            installed: {
+              version: "1.0.0",
+              label: "1.0.0",
+              display: "linear@1.0.0",
+            },
             detail: "registry offline",
           },
         }),
@@ -365,6 +375,7 @@ describe("bb plugin track", () => {
               outcome: "pinned",
               installed: {
                 version: "1.2.3",
+                label: "1.2.3",
                 display: "bb-plugin-linear@1.2.3",
               },
               ...(detail === undefined ? {} : { detail }),
