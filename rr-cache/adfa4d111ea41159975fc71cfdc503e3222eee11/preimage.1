@@ -1,0 +1,475 @@
+import { describe, expect, it } from "vitest";
+import { makeThreadListEntry } from "@bb/test-helpers/domain-fixtures";
+import {
+  isUnreadDoneThread,
+  threadListIndicatorStateForThread,
+} from "../src/thread/thread-activity.js";
+import { resolveThreadListIndicator } from "../src/thread/thread-list-indicator.js";
+
+describe("isUnreadDoneThread", () => {
+  it.each([
+    ["idle", true],
+    ["error", true],
+    ["active", false],
+    ["starting", false],
+    ["stopping", false],
+    ["pending", false],
+  ] as const)("treats an unread %s thread as done: %s", (status, done) => {
+    expect(
+      isUnreadDoneThread({ status, latestAttentionAt: 20, lastReadAt: 10 }),
+    ).toBe(done);
+  });
+
+  it("treats a read thread as not unread", () => {
+    expect(
+      isUnreadDoneThread({
+        status: "error",
+        latestAttentionAt: 20,
+        lastReadAt: 20,
+      }),
+    ).toBe(false);
+  });
+
+  it("counts child threads like roots", () => {
+    expect(
+      isUnreadDoneThread(
+        makeThreadListEntry({
+          parentThreadId: "thr_parent",
+          status: "error",
+          latestAttentionAt: 20,
+          lastReadAt: 10,
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("threadListIndicatorStateForThread", () => {
+  it("marks an unread error thread as an unread error, not a success", () => {
+    const thread = makeThreadListEntry({
+      status: "error",
+      latestAttentionAt: 20,
+      lastReadAt: 10,
+    });
+
+    expect(threadListIndicatorStateForThread(thread, false)).toMatchObject({
+      hasUnreadError: true,
+      hasUnreadSuccess: false,
+      hasUnsubmittedDraft: false,
+    });
+  });
+
+  it("marks an unread idle thread as an unread success and passes the draft flag through", () => {
+    const thread = makeThreadListEntry({
+      status: "idle",
+      latestAttentionAt: 20,
+      lastReadAt: 10,
+    });
+
+    expect(threadListIndicatorStateForThread(thread, true)).toMatchObject({
+      hasUnreadError: false,
+      hasUnreadSuccess: true,
+      hasUnsubmittedDraft: true,
+    });
+  });
+
+  it("shows a failed child as failed", () => {
+    const child = makeThreadListEntry({
+      parentThreadId: "thr_parent",
+      status: "error",
+      latestAttentionAt: 20,
+      lastReadAt: 10,
+    });
+
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(child, false),
+      ),
+    ).toBe("unread-error");
+  });
+
+  it("shows a child marked unread as new, and a read child as settled", () => {
+    const markedUnread = makeThreadListEntry({
+      parentThreadId: "thr_parent",
+      status: "idle",
+      latestAttentionAt: 20,
+      lastReadAt: null,
+    });
+    const read = makeThreadListEntry({
+      parentThreadId: "thr_parent",
+      status: "idle",
+    });
+
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(markedUnread, false),
+      ),
+    ).toBe("unread-success");
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(read, false),
+      ),
+    ).toBe("none");
+  });
+
+  it("fills activity flags from the list entry", () => {
+    const thread = makeThreadListEntry({
+      hasPendingInteraction: true,
+      queuedWork: "waiting",
+      activity: {
+        activeWorkflowCount: 1,
+        activeBackgroundAgentCount: 0,
+        activeBackgroundCommandCount: 1,
+        activePlanModeCount: 0,
+        activeGoalCount: 1,
+      },
+      runtime: { displayStatus: "active" },
+    });
+
+    expect(threadListIndicatorStateForThread(thread, false)).toEqual({
+      hasPendingInteraction: true,
+      hasUnsubmittedDraft: false,
+      hasUnreadError: false,
+      hasUnreadSuccess: false,
+      isBackgroundAgentActive: false,
+      isBackgroundCommandActive: true,
+      isGoalActive: true,
+      queuedWork: "waiting",
+      isPlanModeActive: false,
+      isRuntimeActive: true,
+      isWaitingForHost: false,
+      isWorkflowActive: true,
+    });
+  });
+
+  it("trades background work for waiting-for-host while the machine is offline", () => {
+    const backgroundOnly = {
+      activeWorkflowCount: 1,
+      activeBackgroundAgentCount: 1,
+      activeBackgroundCommandCount: 1,
+      activePlanModeCount: 0,
+      activeGoalCount: 0,
+    };
+    const offline = makeThreadListEntry({
+      activity: backgroundOnly,
+      runtime: { displayStatus: "idle", hostUnavailable: true },
+    });
+
+    expect(threadListIndicatorStateForThread(offline, false)).toMatchObject({
+      isBackgroundAgentActive: false,
+      isBackgroundCommandActive: false,
+      isWaitingForHost: true,
+      isWorkflowActive: false,
+    });
+<<<<<<<
+
+    it.each([
+      "isWorkflowActive",
+      "isBackgroundAgentActive",
+      "isBackgroundCommandActive",
+      "isPlanModeActive",
+      "isGoalActive",
+    ] as const)("uses the working draft pencil with %s", (flag) => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasUnsubmittedDraft: true,
+          [flag]: true,
+        }),
+      ).toBe("working-draft");
+    });
+
+    it("shows the queued clock over a draft, and never over active work", () => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasUnsubmittedDraft: true,
+          queuedWork: "waiting",
+        }),
+      ).toBe("queued-waiting");
+      // Queued work does not mean the thread is idle — a running thread can
+      // hold a queued follow-up — and what it is DOING outranks what is
+      // waiting behind it.
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          queuedWork: "waiting",
+          isRuntimeActive: true,
+        }),
+      ).toBe("runtime");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasPendingInteraction: true,
+          queuedWork: "waiting",
+        }),
+      ).toBe("waiting-for-input");
+    });
+
+    it("promotes a failed queued row over background work, but not over runtime work", () => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          queuedWork: "failed",
+        }),
+      ).toBe("queued-failed");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          queuedWork: "failed",
+          isBackgroundCommandActive: true,
+        }),
+      ).toBe("queued-failed");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          queuedWork: "failed",
+          isRuntimeActive: true,
+        }),
+      ).toBe("runtime");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasUnreadError: true,
+          queuedWork: "failed",
+        }),
+      ).toBe("unread-error");
+    });
+
+    it.each([
+      ["waiting", "unread-success"],
+      ["failed", "queued-failed"],
+    ] as const)(
+      "resolves unread success and %s queued work as %s",
+      (queuedWork, expectedIndicator) => {
+        expect(
+          resolveThreadListIndicator({
+            ...idleIndicatorState,
+            hasUnreadSuccess: true,
+            queuedWork,
+=======
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(offline, false),
+      ),
+    ).toBe("waiting-for-host");
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(
+          makeThreadListEntry({
+            status: "active",
+            runtime: {
+              displayStatus: "waiting-for-host",
+              hostUnavailable: true,
+            },
+>>>>>>>
+          }),
+<<<<<<<
+          false,
+=======
+        ).toBe(expectedIndicator);
+      },
+    );
+
+    it.each([
+      "isBackgroundAgentActive",
+      "isBackgroundCommandActive",
+    ] as const)("shows the unread success dot over concurrent %s", (flag) => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasUnreadSuccess: true,
+          [flag]: true,
+        }),
+      ).toBe("unread-success");
+    });
+
+    it("shows a running workflow over unread success and a failed queued send", () => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          isWorkflowActive: true,
+          hasUnreadSuccess: true,
+          queuedWork: "failed",
+        }),
+      ).toBe("workflow");
+    });
+
+    it("keeps Plan and Goal independent and applies Plan precedence", () => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          isGoalActive: true,
+          isPlanModeActive: true,
+        }),
+      ).toBe("plan-mode");
+    });
+
+    it("applies idle activity precedence before background work", () => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          isBackgroundAgentActive: true,
+          isBackgroundCommandActive: true,
+          isGoalActive: true,
+          isPlanModeActive: true,
+        }),
+      ).toBe("plan-mode");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          isBackgroundAgentActive: true,
+          isBackgroundCommandActive: true,
+          isGoalActive: true,
+        }),
+      ).toBe("goal");
+    });
+
+    it("applies critical, idle draft, and unread precedence", () => {
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasPendingInteraction: true,
+          hasUnreadError: true,
+          isWorkflowActive: true,
+        }),
+      ).toBe("unread-error");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasPendingInteraction: true,
+          isWorkflowActive: true,
+        }),
+      ).toBe("waiting-for-input");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasUnsubmittedDraft: true,
+          hasUnreadSuccess: true,
+        }),
+      ).toBe("unread-success");
+      expect(
+        resolveThreadListIndicator({
+          ...idleIndicatorState,
+          hasUnreadSuccess: true,
+        }),
+      ).toBe("unread-success");
+    });
+  });
+
+  it("exposes shared running/unread helpers", () => {
+    expect(
+      isUnreadDoneThread({
+        status: "idle",
+        latestAttentionAt: 20,
+        lastReadAt: 10,
+        parentThreadId: null,
+      }),
+    ).toBe(true);
+    expect(
+      isUnreadDoneThread({
+        status: "idle",
+        latestAttentionAt: 20,
+        lastReadAt: 10,
+        parentThreadId: "manager-1",
+      }),
+    ).toBe(false);
+    expect(
+      isUnreadDoneThread({
+        status: "error",
+        latestAttentionAt: 20,
+        lastReadAt: 10,
+        parentThreadId: null,
+      }),
+    ).toBe(true);
+    expect(
+      isUnreadDoneThread({
+        status: "active",
+        latestAttentionAt: 20,
+        lastReadAt: null,
+        parentThreadId: null,
+      }),
+    ).toBe(false);
+  });
+
+  describe("threadListIndicatorStateForThread", () => {
+    it("marks an unread error thread as an unread error, not a success", () => {
+      const thread = makeThreadListEntry({
+        status: "error",
+        latestAttentionAt: 20,
+        lastReadAt: 10,
+      });
+
+      expect(threadListIndicatorStateForThread(thread, false)).toMatchObject({
+        hasUnreadError: true,
+        hasUnreadSuccess: false,
+        hasUnsubmittedDraft: false,
+      });
+    });
+
+    it("marks an unread idle thread as an unread success and passes the draft flag through", () => {
+      const thread = makeThreadListEntry({
+        status: "idle",
+        latestAttentionAt: 20,
+        lastReadAt: 10,
+      });
+
+      expect(threadListIndicatorStateForThread(thread, true)).toMatchObject({
+        hasUnreadError: false,
+        hasUnreadSuccess: true,
+        hasUnsubmittedDraft: true,
+      });
+    });
+
+    it("fills activity flags from the list entry", () => {
+      const thread = makeThreadListEntry({
+        hasPendingInteraction: true,
+        queuedWork: "waiting",
+        activity: {
+          activeWorkflowCount: 1,
+          activeBackgroundAgentCount: 0,
+          activeBackgroundCommandCount: 1,
+          activePlanModeCount: 0,
+          activeGoalCount: 1,
+        },
+        runtime: { displayStatus: "active" },
+      });
+
+      expect(threadListIndicatorStateForThread(thread, false)).toEqual({
+        hasPendingInteraction: true,
+        hasUnsubmittedDraft: false,
+        hasUnreadError: false,
+        hasUnreadSuccess: false,
+        isBackgroundAgentActive: false,
+        isBackgroundCommandActive: true,
+        isGoalActive: true,
+        queuedWork: "waiting",
+        isPlanModeActive: false,
+        isRuntimeActive: true,
+        isWorkflowActive: true,
+      });
+    });
+  });
+
+  describe("getCollapsedChildActivity", () => {
+    it("preserves descendant draft state independently from work", () => {
+      expect(
+        getCollapsedChildActivity(
+          [busyChild, pendingChild],
+          new Set([pendingChild.id]),
+>>>>>>>
+        ),
+      ),
+    ).toBe("waiting-for-host");
+    expect(
+      resolveThreadListIndicator(
+        threadListIndicatorStateForThread(
+          makeThreadListEntry({
+            runtime: { displayStatus: "idle", hostUnavailable: true },
+          }),
+          false,
+        ),
+      ),
+    ).toBe("none");
+  });
+});
