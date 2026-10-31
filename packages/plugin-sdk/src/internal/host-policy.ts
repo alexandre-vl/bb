@@ -26,6 +26,7 @@ import {
   type ProviderNativeRoots,
 } from "@bb/domain";
 import { PLUGIN_CLI_OUTPUT_MAX_BYTES } from "../backend-contract.js";
+import { forkStatementHashes } from "./fork-storage-statements.js";
 import type {
   PluginAgentToolContext,
   PluginRowPresentation,
@@ -2814,14 +2815,22 @@ export function validateServerAccessProviderDeclaration(
 }
 
 const LEGACY_UNKNOWN_MIGRATION_HASH = "legacy-unknown";
+const FORK_MIGRATION_ID_BASE = 1_000_000;
 
 function migrationStatementHash(statement: string): string {
   return createHash("sha256").update(statement).digest("hex");
 }
 
+interface LedgerEntry {
+  id: number;
+  appliedAt: number;
+  statementHash: string;
+}
+
 export function runPluginStorageMigrations(
   database: Database.Database,
   statements: string[],
+  forkStatements: ReadonlyMap<string, number> = forkStatementHashes,
 ): void {
   database.exec(
     "CREATE TABLE IF NOT EXISTS _bb_migrations (id INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL, statement_hash TEXT)",
@@ -2835,43 +2844,111 @@ export function runPluginStorageMigrations(
   const rows = database
     .prepare<
       [],
-      { id: number; statement_hash: string | null }
-    >("SELECT id, statement_hash FROM _bb_migrations ORDER BY id")
+      { id: number; applied_at: number; statement_hash: string | null }
+    >("SELECT id, applied_at, statement_hash FROM _bb_migrations ORDER BY id")
     .all();
-  const applied = new Map<number, string | null>();
-  for (const row of rows) applied.set(row.id, row.statement_hash);
   const statementHashes = statements.map(migrationStatementHash);
+  const occurrences = new Map<string, number>();
+  for (const statementHash of statementHashes) {
+    occurrences.set(statementHash, (occurrences.get(statementHash) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  const fromFork = statementHashes.map((statementHash) => {
+    const occurrence = seen.get(statementHash) ?? 0;
+    seen.set(statementHash, occurrence + 1);
+    const total = occurrences.get(statementHash) ?? 0;
+    return occurrence >= total - (forkStatements.get(statementHash) ?? 0);
+  });
+  const upstreamHashes = statementHashes.filter((_, index) => !fromFork[index]);
+  const unclaimed: LedgerEntry[] = rows.map((row) => ({
+    id: row.id,
+    appliedAt: row.applied_at,
+    statementHash:
+      row.statement_hash ??
+      upstreamHashes[row.id] ??
+      LEGACY_UNKNOWN_MIGRATION_HASH,
+  }));
+  const claim = (
+    statementHash: string,
+    accepts: (id: number) => boolean,
+  ): LedgerEntry | undefined => {
+    const position = unclaimed.findIndex(
+      (entry) => entry.statementHash === statementHash && accepts(entry.id),
+    );
+    return position === -1 ? undefined : unclaimed.splice(position, 1)[0];
+  };
+  const ledger: LedgerEntry[] = [];
+  const forkLedger: LedgerEntry[] = [];
+  const pending: { index: number; id: number | null }[] = [];
+  let rank = 0;
   statementHashes.forEach((statementHash, index) => {
-    const recordedHash = applied.get(index);
-    if (
-      recordedHash !== undefined &&
-      recordedHash !== null &&
-      recordedHash !== statementHash
-    ) {
+    if (fromFork[index]) {
+      const entry =
+        claim(statementHash, (id) => id >= FORK_MIGRATION_ID_BASE) ??
+        claim(statementHash, () => true);
+      if (entry === undefined) pending.push({ index, id: null });
+      else forkLedger.push(entry);
+      return;
+    }
+    const id = rank++;
+    const entry =
+      claim(statementHash, (entryId) => entryId === id) ??
+      claim(statementHash, (entryId) => entryId >= FORK_MIGRATION_ID_BASE);
+    if (entry === undefined) pending.push({ index, id });
+    else ledger.push({ ...entry, id });
+  });
+  const upstreamIds = new Set(
+    [
+      ...ledger.map((entry) => entry.id),
+      ...pending.map((item) => item.id),
+    ].filter((id): id is number => id !== null && id < FORK_MIGRATION_ID_BASE),
+  );
+  for (const entry of unclaimed) {
+    if (upstreamIds.has(entry.id)) {
       throw new Error(
-        `migration ${index} does not match the recorded statement; append a new migration instead of changing or reusing an index`,
+        `migration ${entry.id} does not match the recorded statement; append a new migration instead of changing or reusing an index`,
       );
     }
-  });
-  const adopt = database.prepare(
-    "UPDATE _bb_migrations SET statement_hash = ? WHERE id = ? AND statement_hash IS NULL",
+  }
+  let nextForkId = Math.max(
+    FORK_MIGRATION_ID_BASE,
+    ...rows.map((row) => row.id + 1),
   );
+  for (const entry of forkLedger) {
+    if (entry.id < FORK_MIGRATION_ID_BASE) entry.id = nextForkId++;
+  }
+  const forkIds = new Map(
+    pending
+      .filter((item) => item.id === null)
+      .map((item) => [item.index, nextForkId++]),
+  );
+  const final = [...ledger, ...forkLedger, ...unclaimed].sort(
+    (left, right) => left.id - right.id,
+  );
+  const original = rows
+    .map((row) => `${row.id}:${row.statement_hash}`)
+    .join(",");
+  const rekeyed =
+    final.map((entry) => `${entry.id}:${entry.statementHash}`).join(",") !==
+    original;
   const record = database.prepare(
     "INSERT INTO _bb_migrations (id, applied_at, statement_hash) VALUES (?, ?, ?)",
   );
   database.transaction(() => {
-    for (const row of rows) {
-      if (row.statement_hash !== null) continue;
-      adopt.run(
-        statementHashes[row.id] ?? LEGACY_UNKNOWN_MIGRATION_HASH,
-        row.id,
+    if (rekeyed) {
+      database.exec("DELETE FROM _bb_migrations");
+      for (const entry of final) {
+        record.run(entry.id, entry.appliedAt, entry.statementHash);
+      }
+    }
+    for (const item of pending) {
+      database.exec(statements[item.index]);
+      record.run(
+        item.id ?? forkIds.get(item.index),
+        Date.now(),
+        statementHashes[item.index],
       );
     }
-    statements.forEach((statement, index) => {
-      if (applied.has(index)) return;
-      database.exec(statement);
-      record.run(index, Date.now(), statementHashes[index]);
-    });
   })();
 }
 
