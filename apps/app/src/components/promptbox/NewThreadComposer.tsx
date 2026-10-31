@@ -21,7 +21,6 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  findLocalPathProjectSourceForHost,
   PERSONAL_PROJECT_ID,
   type EnvironmentMachineSelection,
   type Host,
@@ -112,7 +111,11 @@ import {
   usePromptMentionTriggers,
   type PromptMentionSource,
 } from "@/hooks/usePromptMentions";
-import { usePromptBoxMachinePreference } from "@/hooks/thread-creation-options/persisted-selection-fields";
+import {
+  usePromptBoxDraftMachineSelection,
+  usePromptBoxMachinePreference,
+} from "@/hooks/thread-creation-options/persisted-selection-fields";
+import { buildEnvironmentProvidersByHostId } from "@/components/pickers/environment-providers-by-host";
 import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
 import { useComposerTextEffects } from "@/lib/composer-text-effects";
 import { getMutationErrorMessage } from "@/lib/mutation-errors";
@@ -138,6 +141,7 @@ import {
   resolveNewThreadHostEnvironmentProvider,
   resolveRootComposeEffectiveEnvironmentValue,
   type SeededReuseEnvironment,
+  resolveUsableProjectDefaultEnvironment,
 } from "@/views/root-compose-environment-selection";
 import { useEnvironment } from "@/hooks/queries/environment-queries";
 import { resolveRootComposeThreadEnvironment } from "@/views/root-compose-thread-environment";
@@ -663,36 +667,38 @@ export function NewThreadComposer({
   const projectGitRemoteUrl = currentProject?.gitRemoteUrl;
   const environmentProvidersByHostId = useMemo(
     () =>
-      new Map(
-        availableHosts.map((host) => [
-          host.id,
-          (environmentProviders ?? [])
-            .filter(
-              (provider) =>
-                !provider.machineProviderId &&
-                (!(
-                  provider.requires.projectCheckout ||
-                  provider.requires.gitCheckout
-                ) ||
-                  findLocalPathProjectSourceForHost(projectSources, host.id) !==
-                    undefined) &&
-                (!provider.requires.gitRemote || projectGitRemoteUrl != null),
-            )
-            .map((provider) => ({
-              ...provider,
-              availability:
-                projectEnvironmentProviders?.find(
-                  (candidate) => candidate.id === provider.id,
-                )?.machineAvailability[host.id] ?? null,
-            })),
-        ]),
-      ),
+      buildEnvironmentProvidersByHostId({
+        hosts: availableHosts,
+        environmentProviders,
+        projectEnvironmentProviders,
+        projectGitRemoteUrl,
+        projectSources,
+      }),
     [
       availableHosts,
       environmentProviders,
       projectEnvironmentProviders,
       projectGitRemoteUrl,
       projectSources,
+    ],
+  );
+  const usableProjectDefault = useMemo(
+    () =>
+      selectionScope === "new-thread" && !isProjectless
+        ? resolveUsableProjectDefaultEnvironment({
+            project: currentProject ?? null,
+            environmentProviders,
+            environmentProvidersByHostId,
+            knownHostIds,
+          })
+        : null,
+    [
+      currentProject,
+      environmentProviders,
+      environmentProvidersByHostId,
+      isProjectless,
+      knownHostIds,
+      selectionScope,
     ],
   );
   const { providers: machineProviders } = useSystemMachineProviders();
@@ -777,6 +783,14 @@ export function NewThreadComposer({
   ]);
   const { value: storedMachineId, setValue: setStoredMachineId } =
     usePromptBoxMachinePreference(projectId);
+  const { value: draftMachineId, setValue: setDraftMachineId } =
+    usePromptBoxDraftMachineSelection(projectId);
+  const rememberedMachineId =
+    selectionScope !== "new-thread"
+      ? ""
+      : usableProjectDefault === null
+        ? storedMachineId
+        : draftMachineId || (usableProjectDefault.hostId ?? "");
   const [activeSeedSignature, setActiveSeedSignature] = useState(seedSignature);
   const [seedOverridden, setBranchSeedOverridden] = useState(false);
   const [pickedProviderMachine, setPickedProviderMachine] = useState<{
@@ -826,8 +840,8 @@ export function NewThreadComposer({
           ? environmentSeed.providerMachine
           : null;
       const remembered: EnvironmentMachineSelection | null =
-        selectionScope === "new-thread" && storedMachineId !== ""
-          ? { type: "existing", hostId: storedMachineId }
+        rememberedMachineId !== ""
+          ? { type: "existing", hostId: rememberedMachineId }
           : null;
       const candidate = seeded ?? remembered;
       if (candidate?.type === "new") return { provider, machine: candidate };
@@ -849,8 +863,7 @@ export function NewThreadComposer({
       environmentProvidersByHostId,
       knownHostIds,
       pickedProviderMachine,
-      selectionScope,
-      storedMachineId,
+      rememberedMachineId,
       primaryHostId,
     ],
   );
@@ -933,6 +946,7 @@ export function NewThreadComposer({
     initialPermissionMode:
       seed?.permissionMode ?? projectDefaults?.permissionMode,
     initialEnvironmentSelectionValue: environmentSeed?.selectionValue,
+    projectDefaultEnvironmentValue: usableProjectDefault?.value,
   });
   const {
     activeModel,
@@ -967,7 +981,7 @@ export function NewThreadComposer({
     setServiceTier,
     supportsPermissionModeSelection,
     supportsServiceTier,
-    clearReuseEnvironment,
+    clearSentEnvironmentChoice,
     declaredSessionOptions,
     sessionOptionSelections,
     setSessionOption,
@@ -1052,9 +1066,13 @@ export function NewThreadComposer({
         selectionScope === "new-thread" &&
         parseEnvironmentValue(value)?.type === "provider"
       ) {
-        setStoredMachineId(
-          providerMachine?.type === "existing" ? providerMachine.hostId : "",
-        );
+        const machineId =
+          providerMachine?.type === "existing" ? providerMachine.hostId : "";
+        if (usableProjectDefault === null) {
+          setStoredMachineId(machineId);
+        } else {
+          setDraftMachineId(machineId);
+        }
       }
       setCreationEnvironmentSelectionValue(value);
     },
@@ -1063,8 +1081,10 @@ export function NewThreadComposer({
       pickedProviderMachine,
       setCreationEnvironmentSelectionValue,
       selectionScope,
+      setDraftMachineId,
       setStoredMachineId,
       snapshotDraftBeforeOptionChange,
+      usableProjectDefault,
     ],
   );
   const effectiveEnvironmentValue = useMemo(
@@ -1749,7 +1769,9 @@ export function NewThreadComposer({
           name: "new_thread_submit",
           properties: { outcome: "accepted" },
         });
-        clearReuseEnvironment();
+        clearSentEnvironmentChoice();
+        setDraftMachineId("");
+        setPickedProviderMachine(null);
       } catch (submitError) {
         recordTelemetryEvent({
           name: "new_thread_submit",
@@ -1765,7 +1787,8 @@ export function NewThreadComposer({
       }
     },
     [
-      clearReuseEnvironment,
+      clearSentEnvironmentChoice,
+      setDraftMachineId,
       executionInputSources,
       onSubmit,
       permissionMode,
