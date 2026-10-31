@@ -948,8 +948,9 @@ function RootComposeSurface({
         createPanelActionDestination({
           action,
           openPluginPanel: (args) => {
-            openPluginPanel(args);
-            openCompactDrawer();
+            const opened = openPluginPanel(args);
+            if (opened && args.replaceTabId === undefined) openCompactDrawer();
+            return opened;
           },
         }),
       ),
@@ -1448,6 +1449,13 @@ function RootComposeSurface({
                 }
                 isSecondaryPanelOpen={isSecondaryPanelOpen}
                 onToggleSecondaryPanel={handleToggleSecondaryPanel}
+                renderHostedPanel={(hostedPanel) => (
+                  <AppNavigationHostProvider
+                    capabilities={appNavigationCapabilities}
+                  >
+                    {hostedPanel}
+                  </AppNavigationHostProvider>
+                )}
                 secondaryPanel={{
                   activeTab: activeFixedSecondaryTab,
                   environmentId: rootPanelEnvironmentId ?? undefined,

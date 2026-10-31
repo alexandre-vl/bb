@@ -2777,6 +2777,9 @@ export function renderSlot<
         ...(tabOptions.params === undefined
           ? {}
           : { params: strictJsonRoundTrip(tabOptions.params, "tab params") }),
+        ...(tabOptions.experimental_replace === undefined
+          ? {}
+          : { experimental_replace: tabOptions.experimental_replace }),
       };
     } catch {
       return null;
