@@ -670,6 +670,38 @@ function registerCheckoutInputsControl(): void {
   });
 }
 
+const NEW_BRANCH_INPUTS = { branch: { kind: "new", baseBranch: "main" } };
+
+function NewBranchCheckoutInputsControl({
+  value,
+  onChange,
+}: PluginEnvironmentProviderInputsProps) {
+  useEffect(() => {
+    if (value === null) onChange({ status: "ready", value: {} });
+  }, [onChange, value]);
+  return (
+    <button
+      type="button"
+      data-testid="checkout-new-branch"
+      onClick={() => onChange({ status: "ready", value: NEW_BRANCH_INPUTS })}
+    >
+      new branch from main
+    </button>
+  );
+}
+
+function registerNewBranchCheckoutInputsControl(): void {
+  setPluginSlotRegistrations("environment-project-checkout", {
+    ...EMPTY_SLOT_REGISTRATIONS,
+    environmentProviderInputs: [
+      {
+        environmentProviderId: "project-checkout",
+        component: NewBranchCheckoutInputsControl,
+      },
+    ],
+  });
+}
+
 const STORED_REQUEST: NewThreadRequest = {
   projectId: "proj_1",
   providerId: "claude-code",
@@ -1041,6 +1073,55 @@ describe("PluginNewThreadComposer seeding", () => {
     expect(window.localStorage.getItem("bb.promptbox.machine-proj_default-1")).toBe(
       "host_1",
     );
+  });
+
+  it("restores the environment inputs picked for a project and machine after reload", async () => {
+    registerNewBranchCheckoutInputsControl();
+    window.localStorage.setItem(
+      "bb.promptbox.environment-inputs-proj_2:provider%3Aproject-checkout:host_1-1",
+      "{not json",
+    );
+    const selectedEnvironment = () =>
+      (
+        latestPromptBoxProps().pluginComposerHost as PluginComposerHost
+      ).getSelection?.()?.environment;
+    const checkoutOn = (hostId: string, inputs: object) => ({
+      type: "provider",
+      environmentProviderId: "project-checkout",
+      machine: { type: "existing", hostId },
+      inputs,
+    });
+    const first = render(newThreadElement("proj_1"));
+    await waitFor(() => {
+      expect(selectedEnvironment()).toEqual(checkoutOn("host_1", {}));
+    });
+    fireEvent.click(screen.getByTestId("checkout-new-branch"));
+    await waitFor(() => {
+      expect(selectedEnvironment()).toEqual(
+        checkoutOn("host_1", NEW_BRANCH_INPUTS),
+      );
+    });
+    first.rerender(newThreadElement("proj_2"));
+    await waitFor(() => {
+      expect(selectedEnvironment()).toEqual(checkoutOn("host_1", {}));
+    });
+    first.unmount();
+
+    render(newThreadElement("proj_1"));
+    await waitFor(() => {
+      expect(selectedEnvironment()).toEqual(
+        checkoutOn("host_1", NEW_BRANCH_INPUTS),
+      );
+    });
+    await act(async () => {
+      latestPromptBoxProps().modeConfig.environment.onSelectProvider(
+        CHECKOUT_PROVIDER,
+        "host_2",
+      );
+    });
+    await waitFor(() => {
+      expect(selectedEnvironment()).toEqual(checkoutOn("host_2", {}));
+    });
   });
 
   it("selects a host immediately with the tab's current environment option", async () => {
@@ -3771,6 +3852,7 @@ describe("NewThreadComposer setSelection", () => {
       permissionMode: "auto",
     });
     expect(latestPromptBoxProps().execution.model.selected).toBe("gpt-5.6");
+    fireEvent.click(screen.getByTestId("worktree-default-branch"));
     expect(
       Object.keys(window.localStorage).filter((key) =>
         /^bb\.promptbox\.(model|reasoning|provider|service-tier|permission-mode|environment|machine)/.test(
