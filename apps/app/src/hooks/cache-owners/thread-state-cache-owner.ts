@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { isThreadRead } from "@bb/client-core";
 import type { ThreadListEntry, ThreadWithRuntime } from "@bb/domain";
 import type {
   UpdateThreadRequest,
@@ -143,13 +144,18 @@ type ThreadReadStateResult = Pick<
 >;
 
 type ThreadReadStateRequest =
-  | { kind: "read"; throughAttentionAt: number | undefined }
+  | {
+      kind: "read";
+      throughAttentionAt: number | undefined;
+      descendantsThroughAttentionAt: number | undefined;
+    }
   | { kind: "unread" };
 
 export interface ThreadReadStateTransaction {
   readonly threadId: string;
   readonly intent: ThreadReadStateIntent;
   readonly prediction: ThreadEntityPrediction;
+  readonly descendantPrediction: ThreadEntityPrediction | null;
   readonly supersededListeners: Set<() => void>;
 }
 
@@ -179,6 +185,48 @@ function resolveThreadReadStateIntent(
       null,
     latestAttentionAt: null,
   };
+}
+
+function isUnreadThrough(
+  thread: Partial<ThreadWithRuntime>,
+  throughAttentionAt: number | null,
+): boolean {
+  const { lastReadAt, latestAttentionAt } = thread;
+  return (
+    latestAttentionAt !== undefined &&
+    (lastReadAt ?? 0) < latestAttentionAt &&
+    (throughAttentionAt === null || latestAttentionAt <= throughAttentionAt)
+  );
+}
+
+function beginDescendantReadPrediction(
+  queryClient: QueryClient,
+  threadId: string,
+  throughAttentionAt: number | null,
+): ThreadEntityPrediction | null {
+  const descendantIds = findThreadTreeIds(
+    queryClient,
+    (thread) => thread.id === threadId,
+  ).filter((id) => {
+    const entity = getThreadEntity(queryClient, id);
+    return (
+      id !== threadId &&
+      entity !== undefined &&
+      isUnreadThrough(entity.thread, throughAttentionAt)
+    );
+  });
+  if (descendantIds.length === 0) return null;
+  return beginThreadEntityPrediction(queryClient, {
+    threadIds: descendantIds,
+    update: (entity) =>
+      isUnreadThrough(entity.thread, throughAttentionAt)
+        ? withThreadReadStateIntent(entity, {
+            kind: "read",
+            lastReadAt: entity.thread.latestAttentionAt ?? null,
+            latestAttentionAt: null,
+          })
+        : entity,
+  });
 }
 
 function withThreadReadStateResult(
@@ -362,6 +410,16 @@ export function beginThreadReadStateTransaction({
       threadIds: [threadId],
       update: (entity) => withThreadReadStateIntent(entity, resolvedIntent),
     }),
+    descendantPrediction:
+      intent.kind === "read"
+        ? beginDescendantReadPrediction(
+            queryClient,
+            threadId,
+            intent.descendantsThroughAttentionAt ??
+              intent.throughAttentionAt ??
+              null,
+          )
+        : null,
     supersededListeners: new Set(),
   };
   let byThread = pendingReadStateTransactions.get(queryClient);
@@ -392,6 +450,8 @@ export function settleThreadReadStateSuccess({
     transaction,
   );
   if (!found) return;
+  if (isThreadRead(thread)) transaction.descendantPrediction?.succeed();
+  else transaction.descendantPrediction?.fail();
   writeThreadEntity(queryClient, transaction.threadId, (entity) =>
     withThreadReadStateResult(entity, {
       lastReadAt: thread.lastReadAt,
@@ -423,9 +483,11 @@ export function settleThreadReadStateFailure({
   );
   if (!found) return;
   if (!wasLatest) {
+    transaction.descendantPrediction?.fail();
     transaction.prediction.fail();
     return;
   }
+  transaction.descendantPrediction?.succeed();
   rememberFailedThreadRead(queryClient, transaction);
   releaseThreadReadStateFences(queryClient, transaction.threadId);
   writeThreadEntity(queryClient, transaction.threadId, (entity) =>
@@ -452,6 +514,7 @@ export function abandonThreadReadStateTransaction({
     transaction,
   );
   if (!found) return;
+  transaction.descendantPrediction?.fail();
   transaction.prediction.fail();
   if (!wasLatest) return;
   rememberFailedThreadRead(queryClient, transaction);

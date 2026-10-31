@@ -68,7 +68,7 @@ export const threadRowActionKeySchema = z
     }),
   );
 
-const collapsibleSectionIdSchema = z.enum(["pinned", "threads"]);
+export const collapsibleSectionIdSchema = z.enum(["pinned", "threads"]);
 
 const hiddenGroupsSchema = z
   .array(
@@ -124,10 +124,16 @@ export const preferenceDefinitions = {
     "Whether sibling threads sharing a worktree collapse into one row. auto groups them in every organization except chronological.",
     "sidebar.threadGrouping.environment",
   ),
-  groupByReadStatus: definePreference(
+  attentionFirst: definePreference(
     z.boolean(),
-    false,
-    "List threads that show an unread dot above the rest, keeping the selected sort within each group. The open thread keeps its place until another thread is opened.",
+    true,
+    "List threads that need you, failed or have a new result first in each group. Rows never move under the pointer.",
+    null,
+  ),
+  foldSettled: definePreference(
+    z.boolean(),
+    true,
+    "Fold settled threads: project threads idle for 7 days go under 'Show N older', and sub-agents beyond five rows under 'Show N more', only when at least five would fold.",
     null,
   ),
   chronologicalSort: definePreference(
@@ -190,10 +196,22 @@ export const preferenceDefinitions = {
     "Project ids whose rows are collapsed.",
     null,
   ),
+  parentsStartCollapsed: definePreference(
+    z.boolean(),
+    false,
+    "Collapse new parents. Expanded parents are remembered.",
+    null,
+  ),
   collapsedThreads: definePreference(
     stringListSchema,
     [],
-    "Thread ids whose child threads are collapsed.",
+    "Thread ids whose child threads are collapsed, used while parentsStartCollapsed is off.",
+    null,
+  ),
+  expandedThreads: definePreference(
+    stringListSchema,
+    [],
+    "Thread ids whose child threads are expanded, used instead of collapsedThreads while parentsStartCollapsed is on.",
     null,
   ),
   collapsedEnvironments: definePreference(
@@ -205,7 +223,7 @@ export const preferenceDefinitions = {
   collapsedThreadSections: definePreference(
     stringListSchema,
     [],
-    "Custom section ids that are collapsed.",
+    "Custom sections that are collapsed, as chronological::<sectionId>.",
     null,
   ),
   collapsedMachines: definePreference(

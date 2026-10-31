@@ -8,7 +8,9 @@ The sidebar thread list, as a plugin.
 - Inline rename, keyboard jump shortcuts, and the same status glyphs bb draws elsewhere.
 - Agent provider icons before thread titles, controlled by Organize → Rows → Provider icons.
 - A metadata line under thread titles where plugins show details such as the pull request number, controlled by Organize → Rows → Metadata while the Thread row metadata experiment is on.
-- Unread threads listed above read ones, controlled by Organize → Groups → By read status.
+- Threads that need you, failed, or have a new result listed first in each group (`attentionFirst`), without moving rows under the pointer.
+- Parents that start collapsed (`parentsStartCollapsed`) and settled threads folded under Show N older (`foldSettled`).
+- `bb thread-list attention`, `collapse`, and `expand`, with matching `listAttention` and `setCollapsed` RPC methods.
 
 ## How it works
 

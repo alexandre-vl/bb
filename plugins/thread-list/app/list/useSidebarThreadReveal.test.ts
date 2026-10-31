@@ -11,6 +11,9 @@ import {
   resolveThreadRevealExpansion,
   stepSidebarThreadReveal,
 } from "./useSidebarThreadReveal.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 function thread(id: string, overrides: SidebarThreadOverrides = {}) {
   return makeSidebarThread({
@@ -48,7 +51,7 @@ function startReveal(
       threadById: new Map(threads.map((item) => [item.id, item])),
     });
     state = step.state;
-    return [...step.revealIds];
+    return step.revealId === undefined ? [] : [step.revealId];
   };
   return { initial: reveal(), reveal };
 }
@@ -100,9 +103,9 @@ describe("useSidebarThreadReveal", () => {
     expect(reveal({ selectedThreadId: "first" })).toEqual(["first"]);
   });
 
-  it("keeps initially unread threads collapsed and ignores hidden unread threads", () => {
+  it("never expands toward a thread that needs attention", () => {
     const { initial, reveal } = startReveal({
-      threads: [thread("first"), thread("second", { latestAttentionAt: 2 })],
+      threads: [thread("first"), thread("second"), thread("third")],
     });
     expect(initial).toEqual(["first"]);
     expect(
@@ -110,7 +113,7 @@ describe("useSidebarThreadReveal", () => {
         threads: [
           thread("first"),
           thread("second", { latestAttentionAt: 2 }),
-          thread("third", { latestAttentionAt: 2, isHidden: true }),
+          thread("third", { status: "error", latestAttentionAt: 2 }),
         ],
       }),
     ).toEqual([]);
@@ -122,21 +125,9 @@ describe("useSidebarThreadReveal", () => {
       threadsReady: false,
     });
     expect(initial).toEqual([]);
-
+    expect(reveal({ threadsReady: true })).toEqual(["first"]);
     expect(
-      reveal({
-        threadsReady: true,
-        threads: [thread("first"), thread("second", { latestAttentionAt: 2 })],
-      }),
-    ).toEqual(["first"]);
-
-    expect(reveal({ threads: [thread("first"), thread("second")] })).toEqual(
-      [],
-    );
-    expect(
-      reveal({
-        threads: [thread("first"), thread("second", { latestAttentionAt: 2 })],
-      }),
+      reveal({ threads: [thread("first", { title: "Renamed" })] }),
     ).toEqual([]);
   });
 
@@ -150,7 +141,7 @@ describe("useSidebarThreadReveal", () => {
     expect(reveal({ threads: [thread("first")] })).toEqual(["first"]);
   });
 
-  it("reveals the pinned ancestors and environment when navigating to a child", () => {
+  it("reveals the pinned ancestors and environment of a child navigated to", () => {
     const parent = thread("parent", {
       pinnedAt: 1,
       environment: makeSidebarEnvironment({ id: "env_parent" }),

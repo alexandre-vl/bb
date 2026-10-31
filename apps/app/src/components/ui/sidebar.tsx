@@ -898,8 +898,10 @@ const SIDEBAR_MOBILE_TAB_STOP_SELECTOR = [
   "input",
   "select",
   "textarea",
-  '[tabindex]:not([tabindex="-1"])',
-].join(", ");
+  "[tabindex]",
+]
+  .map((selector) => `${selector}:not([tabindex="-1"])`)
+  .join(", ");
 
 function getSidebarMobileTabStops(panel: HTMLElement): HTMLElement[] {
   const doc = panel.ownerDocument;
@@ -1461,10 +1463,7 @@ const SidebarInset = React.forwardRef<
       }
 
       const touch = event.touches.item(0);
-      if (
-        touch == null ||
-        touch.clientX < browserNavigationEdgeGuardPx()
-      ) {
+      if (touch == null || touch.clientX < browserNavigationEdgeGuardPx()) {
         return;
       }
 

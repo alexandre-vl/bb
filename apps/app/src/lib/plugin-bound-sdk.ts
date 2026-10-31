@@ -207,7 +207,12 @@ export function bindSdkToPlugin(
     threads: {
       ...sdk.threads,
       ...threadMutations,
-      markRead({ experimental_throughAttentionAt, signal, threadId }) {
+      markRead({
+        experimental_descendantsThroughAttentionAt,
+        experimental_throughAttentionAt,
+        signal,
+        threadId,
+      }) {
         return runThreadReadStateCommand(
           queryClient,
           {
@@ -215,6 +220,8 @@ export function bindSdkToPlugin(
             signal,
             threadId,
             throughAttentionAt: experimental_throughAttentionAt,
+            descendantsThroughAttentionAt:
+              experimental_descendantsThroughAttentionAt,
           },
           sdk.threads,
         );

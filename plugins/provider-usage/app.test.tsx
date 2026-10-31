@@ -47,6 +47,7 @@ function threadOnMachine(
     },
     indicator: "none",
     indicatorLabel: null,
+    experimental_attention: null,
     isUnread: false,
     isPinned: false,
     pinnedAt: null,

@@ -3,6 +3,7 @@ import { setQueryDataOverInFlightFetch } from "./cache-effect-utils";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   applyAppKeybindingOverrides,
+  withoutSidebarListKeybindings,
   type AppKeybindingOverrides,
   type AppSettings,
   type ExperimentUpdates,
@@ -44,9 +45,8 @@ export async function beginKeyboardSettingsCacheTransaction({
   if (previous !== undefined) {
     queryClient.setQueryData<SystemConfigResponse>(queryKey, {
       ...previous,
-      keybindings: applyAppKeybindingOverrides(
-        previous.defaultKeybindings,
-        overrides,
+      keybindings: withoutSidebarListKeybindings(
+        applyAppKeybindingOverrides(previous.defaultKeybindings, overrides),
       ),
       keybindingOverrides: overrides,
     });

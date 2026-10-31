@@ -107,6 +107,14 @@ describe("AppToaster", () => {
     const toaster = await renderToaster(false);
     expect(toaster?.getAttribute("data-x-position")).toBe("right");
     expect(toaster?.getAttribute("data-y-position")).toBe("bottom");
+    expect(toaster?.style.getPropertyValue("--offset-right")).toBe("32px");
+  });
+
+  it("lifts desktop toasts above the bottom clearance a surface reserves", async () => {
+    const toaster = await renderToaster(false);
+    expect(toaster?.style.getPropertyValue("--offset-bottom")).toBe(
+      "max(32px, var(--bb-toast-bottom-clearance, 0px))",
+    );
   });
 
   it.each([

@@ -15,8 +15,10 @@ import {
   AppCommandProvider,
   useAppCommandContext,
   useAppCommandHandler,
+  useAppCommandRunner,
   useAppCommandShortcut,
   useIsAppCommandModifierHeld,
+  useSidebarListCommandHandler,
 } from "./AppCommandProvider";
 
 const testState = vi.hoisted(() => ({
@@ -195,6 +197,37 @@ const testState = vi.hoisted(() => ({
         none: [],
       },
     },
+    {
+      command: "thread.markRead" as const,
+      desktopOnly: false,
+      shortcut: {
+        key: "u",
+        mod: false,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      },
+      when: { all: ["mainSurface" as const], none: [] },
+    },
+  ],
+  defaultKeybindings: [
+    {
+      command: "thread.archive" as const,
+      desktopOnly: false,
+      shortcut: {
+        key: "e",
+        mod: false,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      },
+      when: {
+        all: ["mainSurface" as const, "sidebarListFocus" as const],
+        none: ["modalOpen" as const, "editableFocus" as const],
+      },
+    },
   ],
 }));
 
@@ -206,6 +239,7 @@ vi.mock("@/hooks/queries/system-queries", () => ({
         showKeyboardHints: testState.showKeyboardHints,
       },
       keybindings: testState.keybindings,
+      defaultKeybindings: testState.defaultKeybindings,
     },
   }),
 }));
@@ -241,6 +275,41 @@ function Handler({
   return null;
 }
 
+function SidebarListHandler() {
+  useSidebarListCommandHandler("thread.archive", ({ target }) => {
+    testState.calls.push(`list:${target.textContent}`);
+    return true;
+  });
+  return null;
+}
+
+function DrawerWithThreadTree({ dialogOpen }: { dialogOpen: boolean }) {
+  return (
+    <>
+      <Handler command="thread.archive" name="archive" result={true} />
+      <Handler command="thread.new" name="new thread" result={true} />
+      <div
+        data-sidebar="panel"
+        role="dialog"
+        aria-modal="true"
+        data-state="open"
+      >
+        <div data-sidebar-thread-tree="">
+          <a href="#row" role="treeitem">
+            Row
+          </a>
+        </div>
+        <button type="button">Drawer footer</button>
+      </div>
+      {dialogOpen ? (
+        <div role="dialog" aria-modal="true" data-state="open">
+          Rename
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function QuestionContext() {
   useAppCommandContext("questionOpen", true);
   return <Handler command="question.select.1" name="question" result={true} />;
@@ -262,6 +331,37 @@ function FocusScopedHandler({ name }: { name: string }) {
       <button type="button">{name}</button>
     </div>
   );
+}
+
+function PaletteSearchField() {
+  const runner = useAppCommandRunner();
+  const record = (event: KeyboardEvent) => {
+    testState.calls.push(
+      runner.getShortcutCommand(event, ["thread.archive", "thread.search"]) ??
+        "typed",
+    );
+  };
+  return (
+    <>
+      <input
+        aria-label="Search commands"
+        onKeyDown={(event) => record(event.nativeEvent)}
+      />
+      <button type="button" onKeyDown={(event) => record(event.nativeEvent)}>
+        Result
+      </button>
+    </>
+  );
+}
+
+function pressKey(target: Element, key: string): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    key,
+  });
+  target.dispatchEvent(event);
+  return event;
 }
 
 function ShortcutLabel({ command }: { command: AppCommandId }) {
@@ -666,6 +766,115 @@ describe("AppCommandProvider", () => {
       }
     },
   );
+
+  it("derives sidebar list focus only from events inside the thread tree", () => {
+    renderProvider(
+      <>
+        <Handler command="thread.archive" name="archive" result={true} />
+        <button type="button">Outside</button>
+        <div data-sidebar-thread-tree="">
+          <a href="#row" role="treeitem">
+            Row
+          </a>
+          <input aria-label="Rename thread" />
+        </div>
+      </>,
+    );
+
+    expect(pressKey(screen.getByText("Outside"), "e").defaultPrevented).toBe(
+      false,
+    );
+    expect(
+      pressKey(screen.getByLabelText("Rename thread"), "e").defaultPrevented,
+    ).toBe(false);
+    expect(testState.calls).toEqual([]);
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["archive"]);
+  });
+
+  it("runs the list's handler instead of the open thread's while focus is in the list", () => {
+    renderProvider(
+      <>
+        <Handler command="thread.archive" name="open thread" result={true} />
+        <SidebarListHandler />
+        <div data-sidebar-thread-tree="">
+          <a href="#row" role="treeitem">
+            Row
+          </a>
+        </div>
+      </>,
+    );
+
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["list:Row"]);
+  });
+
+  it("runs list keys in the compact drawer's tree, but not under a dialog, elsewhere in the drawer, or for keys that block on modals", () => {
+    const { rerender } = renderProvider(
+      <DrawerWithThreadTree dialogOpen={false} />,
+    );
+
+    expect(
+      pressKey(screen.getByText("Drawer footer"), "e").defaultPrevented,
+    ).toBe(false);
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(true);
+    const newThread = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      shiftKey: true,
+      key: "o",
+    });
+    screen.getByText("Row").dispatchEvent(newThread);
+    expect(newThread.defaultPrevented).toBe(false);
+    expect(testState.calls).toEqual(["archive"]);
+
+    rerender(
+      <MemoryRouter>
+        <AppCommandProvider>
+          <DrawerWithThreadTree dialogOpen />
+        </AppCommandProvider>
+      </MemoryRouter>,
+    );
+    expect(pressKey(screen.getByText("Row"), "e").defaultPrevented).toBe(false);
+    expect(testState.calls).toEqual(["archive"]);
+  });
+
+  it("never runs a single-letter binding from an editable target, even when its context allows it", () => {
+    renderProvider(
+      <>
+        <Handler command="thread.markRead" name="toggle" result={true} />
+        <button type="button">Row</button>
+        <textarea aria-label="Composer" />
+        <div contentEditable data-testid="editor" />
+      </>,
+    );
+
+    for (const editable of [
+      screen.getByLabelText("Composer"),
+      screen.getByTestId("editor"),
+    ]) {
+      expect(pressKey(editable, "u").defaultPrevented).toBe(false);
+    }
+    expect(testState.calls).toEqual([]);
+    expect(pressKey(screen.getByText("Row"), "u").defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["toggle"]);
+  });
+
+  it("leaves single letters typed into the palette search to the field", () => {
+    renderProvider(<PaletteSearchField />);
+    const search = screen.getByLabelText("Search commands");
+
+    fireEvent.keyDown(search, { key: "e" });
+    fireEvent.keyDown(search, { key: "k", ctrlKey: true });
+    fireEvent.keyDown(screen.getByText("Result"), { key: "e" });
+
+    expect(testState.calls).toEqual([
+      "typed",
+      "thread.search",
+      "thread.archive",
+    ]);
+  });
 
   it("suppresses main-surface commands while a drawer is actually open", () => {
     renderProvider(

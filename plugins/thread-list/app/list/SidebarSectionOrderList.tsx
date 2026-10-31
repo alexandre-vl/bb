@@ -22,7 +22,10 @@ export function SidebarSectionOrderList({
 }: SidebarSectionOrderListProps) {
   const content = (
     <SortableContext items={[...order]} strategy={verticalListSortingStrategy}>
-      <div className="space-y-4 max-md:pointer-coarse:space-y-8">
+      <div
+        data-sidebar-section-list=""
+        className="space-y-3 pointer-coarse:space-y-8"
+      >
         {order.map(children)}
       </div>
     </SortableContext>

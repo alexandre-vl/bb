@@ -23,6 +23,9 @@ import {
   resolveThreadRowNestCollisions,
 } from "./useSectionThreadDnd.js";
 import { getSidebarThreadRowDroppableId } from "../rows/sidebarThreadRowDroppable.js";
+import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+
+installTestPluginRuntime();
 
 function createThread(overrides: SidebarThreadOverrides): SidebarThread {
   return makeSidebarThread({

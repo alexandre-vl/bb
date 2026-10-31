@@ -912,6 +912,29 @@ describe("mobile sidebar persistence", () => {
     expect(panel?.dataset.state).toBe("open");
   });
 
+  it("leaves a closing swipe that a nested gesture already claimed", () => {
+    vi.useFakeTimers();
+    renderCompactSidebarHarness();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
+    settleMobileToggle();
+
+    const panel = getMobilePanel();
+    const backdrop = screen.getByTestId("sidebar-mobile-backdrop");
+    const claimTouch = (event: Event) => event.preventDefault();
+    window.addEventListener("touchmove", claimTouch, { passive: false });
+    try {
+      fireTouch(backdrop, "touchstart", createTouch(360, 160));
+      fireTouch(window, "touchmove", createTouch(180, 164));
+      fireTouchEnd(window, createTouch(180, 164));
+    } finally {
+      window.removeEventListener("touchmove", claimTouch);
+    }
+    settleMobileToggle();
+
+    expect(panel?.dataset.state).toBe("open");
+  });
+
   it("keeps closed drawer content mounted, inert, and offscreen", () => {
     vi.useFakeTimers();
     renderCompactSidebarHarness();
@@ -1131,6 +1154,40 @@ describe("mobile sidebar persistence", () => {
 
     act(() => insetAction.focus());
     fireEvent.keyDown(insetAction, { key: "Tab" });
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("skips rows and controls a roving list took out of the Tab order", () => {
+    vi.useFakeTimers();
+    render(
+      <CompactViewportOverrideProvider isCompactViewport>
+        <SidebarProvider>
+          <Sidebar>
+            <a href="#first" tabIndex={-1}>
+              First row
+            </a>
+            <a href="#open" tabIndex={0}>
+              Open row
+            </a>
+            <button type="button" tabIndex={-1}>
+              Row action
+            </button>
+          </Sidebar>
+          <div data-testid="trigger-overlay">
+            <SidebarTrigger />
+          </div>
+        </SidebarProvider>
+      </CompactViewportOverrideProvider>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Toggle Sidebar" });
+    fireEvent.click(trigger);
+    settleMobileToggle();
+
+    act(() => trigger.focus());
+    fireEvent.keyDown(trigger, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByText("Open row"));
+    fireEvent.keyDown(screen.getByText("Open row"), { key: "Tab" });
     expect(document.activeElement).toBe(trigger);
   });
 

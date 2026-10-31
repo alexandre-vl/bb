@@ -30,6 +30,7 @@ import {
   isBuiltInThemeId,
   PERSONAL_PROJECT_ID,
   resolveCodeTheme,
+  withoutSidebarListKeybindings,
   type AppKeybindingOverrides,
   type AppTheme,
 } from "@bb/domain";
@@ -212,9 +213,11 @@ export function registerSystemRoutes(
     return {
       generalSettings: compatibleGeneralSettings(),
       serverAccess: await serverAccessStatus(deps),
-      keybindings: applyAppKeybindingOverrides(
-        DEFAULT_APP_KEYBINDINGS,
-        keybindingOverrides,
+      keybindings: withoutSidebarListKeybindings(
+        applyAppKeybindingOverrides(
+          DEFAULT_APP_KEYBINDINGS,
+          keybindingOverrides,
+        ),
       ),
       defaultKeybindings: DEFAULT_APP_KEYBINDINGS,
       keybindingOverrides,

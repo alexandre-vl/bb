@@ -158,6 +158,10 @@ export function useHorizontalDismissDrag(options: Options) {
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
       if (!session.dragging) {
+        if (event.defaultPrevented) {
+          clearSession();
+          return;
+        }
         if (absY > DRAG_INTENT_PX && absY > absX * 1.15) {
           clearSession();
           return;
@@ -260,8 +264,7 @@ export function useHorizontalDismissDrag(options: Options) {
         (optionsRef.current.direction === "left" &&
           view !== null &&
           x > view.innerWidth - edgeGuardPx) ||
-        (optionsRef.current.direction === "right" &&
-          x < edgeGuardPx)
+        (optionsRef.current.direction === "right" && x < edgeGuardPx)
       ) {
         return;
       }

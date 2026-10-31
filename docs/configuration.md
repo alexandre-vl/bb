@@ -487,6 +487,22 @@ Control-arrow editing. `pane.focus.previous` / `pane.focus.next` and
 unassigned and act on the focused pane's open thread; Mark read and Pin toggle
 like the matching thread menu item.
 
+In the sidebar thread list, `E` (`thread.archive`), `F2` (`thread.rename`) and
+`U` (`thread.markRead`) act on the focused row, and `Alt+ArrowUp` /
+`Alt+ArrowDown` (`thread.previousAttention` / `thread.nextAttention`) move to
+the previous or next thread that needs you, failed, or has a new result. These
+keys apply only while keyboard focus is in the list (the `sidebarListFocus`
+context), never from a text field such as the inline rename field, and not
+while a dialog is open. `Mod+Shift+L` (`sidebar.focus`) moves focus to the list
+at the open thread. One override sets a command's list key and its global
+slot, so a shortcut bound to `thread.archive` works everywhere and replaces `E`
+in the list. A key that types a character never runs a command from a text
+field. Released bb Desktop builds reject the whole `keybindings` array of
+`GET /api/v1/system/config` when one binding names `sidebarListFocus`, so the
+server leaves the thread-list keys out of it; the app and
+`bb settings keyboard list` rebuild them from `defaultKeybindings` and
+`keybindingOverrides`.
+
 | Area      | Command                                      | Default                     | Availability             |
 | --------- | -------------------------------------------- | --------------------------- | ------------------------ |
 | Palette   | Quick palette                                | `Mod+Shift+P`               | All clients              |
@@ -497,6 +513,8 @@ like the matching thread menu item.
 | Threads   | Archive focused thread                       | Unassigned                  | Thread view              |
 | Threads   | Mark focused thread read or unread           | Unassigned                  | Thread view              |
 | Threads   | Pin or unpin focused thread                  | Unassigned                  | Thread view              |
+| Threads   | Archive / rename / mark read on list row     | `E` / `F2` / `U`            | Thread list focus        |
+| Threads   | Previous / next thread needing attention     | `Alt+ArrowUp/Down`          | Thread list focus        |
 | Threads   | Previous / next thread                       | Surface defaults above      | Desktop / web            |
 | Threads   | Open visible thread 1–9                      | Platform defaults above     | Web / desktop            |
 | Layout    | Previous / next chat pane                    | Unassigned                  | While split              |
@@ -504,6 +522,7 @@ like the matching thread menu item.
 | Layout    | Maximize / restore chat pane                 | `Mod+Shift+E`               | While split              |
 | Layout    | Close focused chat pane                      | `Mod+Shift+X`               | While split              |
 | Layout    | Toggle sidebar                               | `Mod+\`                     | All clients              |
+| Layout    | Focus thread list                            | `Mod+Shift+L`               | All clients              |
 | Window    | New window                                   | `Mod+Shift+N`               | Desktop                  |
 | Window    | Find in window                               | `Mod+F`                     | Desktop                  |
 | Window    | Settings                                     | `Mod+,`                     | All clients              |
@@ -1242,24 +1261,29 @@ the `workflows` skill.
 ### Thread list plugin
 
 The bundled Thread list plugin owns the sidebar thread list layout, synced to
-every window. Change it from the list header's Organize and Filter menus, a
-row's Customize actions, or `bb thread-list prefs get|set|reset <key>`
-(`set` takes JSON; a bare word is a string). See the `thread-list` skill.
+every window. Change it from the list header's Organize and Filter menus
+(Organize → Customize actions edits a row's quick actions), or
+`bb thread-list prefs get|set|reset <key>`
+(`set` takes JSON; a bare word is a string). `bb thread-list collapse|expand
+<ref>|--all` writes the collapse lists. See the `thread-list` skill.
 
-| Key                   | Default                           | Values                                                                                                                                      |
-| --------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `organizationMode`    | `chronological`                   | `project`, `chronological` (Custom), or `machine`                                                                                           |
-| `environmentGrouping` | `auto`                            | `true` collapses sibling threads sharing a worktree into one row, `false` never does, `auto` groups except in `chronological`               |
-| `groupByReadStatus`   | `false`                           | Lists unread threads above the rest; exclusive with environment grouping                                                                    |
-| `chronologicalSort`   | `updated`                         | Sort field for `chronological`                                                                                                              |
-| `sortDirection`       | `default`                         | `default`, `ascending`, or `descending`                                                                                                     |
-| `sectionOrder`        | `["pinned","projects","threads"]` | Top-level order by project; `manualSectionOrder` and `machineSectionOrder` cover the other modes                                            |
-| `hiddenGroups`        | `[]`                              | Groups moved into More: `threads`, `project:<id>`, `section:<id>`, `machine:<hostId>` (`machine:no-machine`); `set` replaces the whole list |
-| `threadLifecycles`    | `["active"]`                      | `["active"]`, `["archived"]`, or both; empty and duplicate values are rejected                                                              |
-| `rowActions`          | `["bb--core/archive"]`            | Up to three thread action keys in display order; see below                                                                                  |
-| `showProviderIcons`   | `false`                           | Shows the provider icon before each thread title                                                                                            |
-| `showRowMetadata`     | `false`                           | Shows plugins' metadata on a line under each thread title; needs the `threadRowMetadata` experiment                                         |
-| `collapsed*`          | `[]`                              | Collapsed sections, projects, threads, environments, custom sections, and machines                                                          |
+| Key                     | Default                           | Values                                                                                                                                      |
+| ----------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `organizationMode`      | `chronological`                   | `project`, `chronological` (Custom), or `machine`                                                                                           |
+| `environmentGrouping`   | `auto`                            | `true` collapses sibling threads sharing a worktree into one row, `false` never does, `auto` groups except in `chronological`               |
+| `attentionFirst`        | `true`                            | Lists threads that need you, failed, or have a new result first in each group                                                               |
+| `foldSettled`           | `true`                            | Folds project threads idle for 7 days and sub-agents beyond five rows, only when at least five would fold                                   |
+| `chronologicalSort`     | `updated`                         | Sort field for `chronological`                                                                                                              |
+| `sortDirection`         | `default`                         | `default`, `ascending`, or `descending`                                                                                                     |
+| `sectionOrder`          | `["pinned","projects","threads"]` | Top-level order by project; `manualSectionOrder` and `machineSectionOrder` cover the other modes                                            |
+| `hiddenGroups`          | `[]`                              | Groups moved into More: `threads`, `project:<id>`, `section:<id>`, `machine:<hostId>` (`machine:no-machine`); `set` replaces the whole list |
+| `threadLifecycles`      | `["active"]`                      | `["active"]`, `["archived"]`, or both; empty and duplicate values are rejected                                                              |
+| `rowActions`            | `["bb--core/archive"]`            | Up to three thread action keys in display order; see below                                                                                  |
+| `showProviderIcons`     | `true`                            | Shows the provider icon before each thread title                                                                                            |
+| `showRowMetadata`       | `false`                           | Shows plugins' metadata on a line under each thread title; needs the `threadRowMetadata` experiment                                         |
+| `parentsStartCollapsed` | `false`                           | Collapses every parent thread until expanded; expanded parents are kept in `expandedThreads` instead of `collapsedThreads`                  |
+| `collapsed*`            | `[]`                              | Collapsed sections, projects, threads, environments, custom sections, and machines                                                          |
+| `expandedThreads`       | `[]`                              | Expanded parent threads, used while `parentsStartCollapsed` is on                                                                           |
 
 `rowActions` keys are `bb--core/<id>` (`split`, `newThreadInEnvironment`,
 `copyLink`, `read`, `pin`, `rename`, `archive`, `delete`), `thread-list/move`,

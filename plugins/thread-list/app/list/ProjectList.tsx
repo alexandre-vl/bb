@@ -17,8 +17,15 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
+import {
+  SidebarComposerFocus,
+  SidebarRowCommandsProvider,
+  useSidebarTreeKeyboard,
+} from "./keyboard/SidebarTreeKeyboard.js";
+import { SidebarAttentionAnnouncer } from "./SidebarAttentionAnnouncer.js";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
+import { useComposedRefs } from "@radix-ui/react-compose-refs";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import {
   experimental_useProviders,
@@ -38,7 +45,7 @@ import {
   getProjectThreadItemDescendants,
   type ProjectThreadNode,
 } from "../model/project-thread-groups.js";
-import { getCollapsedChildActivity } from "../model/thread-activity.js";
+import { rollUpThreads } from "../model/thread-activity.js";
 import { useSectionThreadDnd } from "../dnd/useSectionThreadDnd.js";
 import { useNestDropPreview } from "../dnd/useNestDropPreview.js";
 import {
@@ -52,7 +59,12 @@ import {
   ConfirmDeleteDialogContent,
 } from "@/components/ui/confirm-delete-dialog";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ThreadRowSheetProvider } from "../rows/ThreadRowSheet.js";
+import {
+  SidebarListSkeleton,
+  SidebarLoadErrorRow,
+  SidebarNoThreadsLine,
+} from "./SidebarListStates.js";
 import {
   SidebarContentElementProvider,
   SidebarGroupContent,
@@ -92,6 +104,7 @@ import {
   type PinnedThreadTreeProps,
 } from "./PinnedThreadTree.js";
 import {
+  sidebarShowProviderIconsAtom,
   collapsedEnvironmentIdsAtom,
   collapsedProjectIdsAtom,
   collapsedSidebarSectionIdsAtom,
@@ -121,7 +134,16 @@ import {
 } from "./BuiltInSidebarSection.js";
 import { ReorderableSidebarSectionOrderList } from "./ReorderableSidebarSectionOrderList.js";
 import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder.js";
-import { useReadStatusGrouping } from "./useReadStatusGrouping.js";
+import { useAttentionOrdering } from "./useAttentionOrdering.js";
+import { SidebarFoldProvider } from "./useFoldedItems.js";
+import {
+  SidebarOrderStabilityBoundary,
+  useSidebarOrderStability,
+  type SidebarOrderStability,
+} from "./stability/SidebarOrderStability.js";
+import { SIDEBAR_TREE_GEOMETRY_CLASS } from "../ui/tree-geometry.js";
+import { SidebarEdgeRows } from "./edge-rows/SidebarEdgeRows.js";
+import { SidebarRowTooltip } from "./row-tooltip/SidebarRowTooltip.js";
 import { haveSameOrder } from "../model/stored-order.js";
 import {
   SidebarProjectsContext,
@@ -136,11 +158,10 @@ export interface ProjectListProps {
 }
 
 interface ProjectListShellProps {
+  activeThreadId: string | null;
   children: ReactNode;
-}
-
-interface ProjectListNavigationLoadingRowProps {
-  textWidthClassName: string;
+  after?: ReactNode;
+  stability?: SidebarOrderStability;
 }
 
 type ThreadListStatus = "loading" | "ready" | "unavailable";
@@ -295,6 +316,18 @@ function compareProjectThreadItemsByTitleAscending(
     : 0;
 }
 
+export function listEmptyProjectsLast(
+  order: readonly SidebarSectionId[],
+  isEmptyProject: (sectionId: SidebarSectionId) => boolean,
+): SidebarSectionId[] {
+  const filled: SidebarSectionId[] = [];
+  const empty: SidebarSectionId[] = [];
+  for (const sectionId of order) {
+    (isEmptyProject(sectionId) ? empty : filled).push(sectionId);
+  }
+  return empty.length === 0 ? [...order] : [...filled, ...empty];
+}
+
 export function getSidebarThreadComparator(
   sort: SidebarChronologicalSort,
   direction: SidebarSortDirection = "default",
@@ -341,43 +374,60 @@ function getSectionMutationErrorMessage(
   return getMutationErrorMessage({ error, fallbackMessage });
 }
 
-export function ProjectListNavigationLoadingState() {
-  return (
-    <div
-      aria-label="Loading sidebar navigation"
-      className="space-y-1.5 px-2 pt-1"
-    >
-      <ProjectListNavigationLoadingRow textWidthClassName="w-2/3" />
-      <ProjectListNavigationLoadingRow textWidthClassName="w-1/2" />
-    </div>
+export function ProjectListShell({
+  activeThreadId,
+  children,
+  after,
+  stability,
+}: ProjectListShellProps) {
+  const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
+  const [tree, setTree] = useState<HTMLDivElement | null>(null);
+  const { keyboard, rows } = useSidebarTreeKeyboard();
+  const attachStability = stability?.controller.attachRef;
+  const attachTree = useCallback(
+    (node: HTMLDivElement | null) => {
+      const detachKeyboard = keyboard.attachRef(node);
+      const detachStability = attachStability?.(node);
+      return () => {
+        detachStability?.();
+        detachKeyboard?.();
+      };
+    },
+    [attachStability, keyboard],
   );
-}
-
-function ProjectListNavigationLoadingRow({
-  textWidthClassName,
-}: ProjectListNavigationLoadingRowProps) {
-  return (
-    <div
-      data-sidebar="navigation-loading-row"
-      className="flex h-7 items-center gap-2 rounded-md"
-    >
-      <Skeleton className="size-4 shrink-0 rounded-md bg-sidebar-border/60" />
-      <Skeleton
-        className={cn(
-          "h-3 rounded-sm bg-sidebar-border/50",
-          textWidthClassName,
-        )}
-      />
-    </div>
-  );
-}
-
-export function ProjectListShell({ children }: ProjectListShellProps) {
+  const treeRef = useComposedRefs<HTMLDivElement>(attachTree, setTree);
   return (
     <ThreadRowNavigationProvider>
       <SidebarContentElementProvider>
+        <SidebarComposerFocus
+          activeThreadId={activeThreadId}
+          keyboard={keyboard}
+        />
         <SidebarStickyStack data-sidebar-sticky-density="compact-actions">
-          <SidebarGroupContent>{children}</SidebarGroupContent>
+          <SidebarEdgeRows tree={tree}>
+            <SidebarGroupContent
+              ref={treeRef}
+              role="tree"
+              aria-label="Threads"
+              data-sidebar-thread-tree=""
+              data-sidebar-provider-icons={
+                showProviderIcons ? "true" : undefined
+              }
+              className={SIDEBAR_TREE_GEOMETRY_CLASS}
+            >
+              <SidebarRowCommandsProvider rows={rows}>
+                {stability ? (
+                  <SidebarOrderStabilityBoundary stability={stability}>
+                    {children}
+                  </SidebarOrderStabilityBoundary>
+                ) : (
+                  children
+                )}
+              </SidebarRowCommandsProvider>
+            </SidebarGroupContent>
+          </SidebarEdgeRows>
+          <SidebarRowTooltip tree={tree} />
+          {after}
         </SidebarStickyStack>
       </SidebarContentElementProvider>
     </ThreadRowNavigationProvider>
@@ -439,7 +489,7 @@ function buildGroupSectionItem(
       name,
       items,
       threadCount: getProjectThreadItemDescendants(items).length,
-      activity: getCollapsedChildActivity(threads),
+      rollup: rollUpThreads(threads),
     },
   };
 }
@@ -611,12 +661,27 @@ function ProjectModeSections({
       EMPTY_THREAD_LIST
     );
   }, [personalProjectId, threadsByProject]);
-  const { onOrderChange, order, persistedOrder } = useSidebarModeSectionOrder({
+  const {
+    onOrderChange,
+    order: storedOrder,
+    persistedOrder,
+  } = useSidebarModeSectionOrder({
     mode: "project",
     entitySectionIds: projectSectionIds,
     hasThreadsSection: personalThreads.length > 0 || projectRows.length === 0,
     showPinnedSection,
   });
+  const order = useMemo(
+    () =>
+      listEmptyProjectsLast(storedOrder, (sectionId) => {
+        const row = projectRowsBySectionId.get(sectionId);
+        return (
+          row?.threadListState.status === "ready" &&
+          row.threadListState.threads.length === 0
+        );
+      }),
+    [projectRowsBySectionId, storedOrder],
+  );
   const reorderDisabled = order.length < 2;
   const personalItems = useMemo(
     () =>
@@ -679,7 +744,7 @@ function ProjectModeSections({
     pinned: pinnedSection,
     threads: {
       ...threadsSection,
-      activity: getCollapsedChildActivity(personalThreads),
+      rollup: rollUpThreads(personalThreads),
       collapsedThreads: personalThreads,
       content: (
         <ProjectThreadTree
@@ -1054,7 +1119,7 @@ export function MachineModeSections({
   const machineSections = useMemo(
     () =>
       buildMachineThreadGroups(nonPinnedThreads, hosts).map((group) => ({
-        activity: getCollapsedChildActivity(group.threads),
+        rollup: rollUpThreads(group.threads),
         key: group.key,
         label: group.label,
         threadListState: {
@@ -1149,7 +1214,7 @@ export function MachineModeSections({
     pinned: pinnedSection,
     threads: {
       ...threadsSection,
-      activity: getCollapsedChildActivity(nonPinnedThreads),
+      rollup: rollUpThreads(nonPinnedThreads),
       collapsedThreads: nonPinnedThreads,
       content: (
         <ProjectThreadTree
@@ -1266,7 +1331,7 @@ export function MachineModeSections({
                 )}
                 actionsOpen={isSectionDisplayOptionsOpen(sectionId)}
                 actionsMobileAlways
-                collapsedActivity={section.activity}
+                rollup={section.rollup}
                 collapsedThreads={section.threadListState.threads}
                 collapseControl={{
                   isCollapsed: collapsedMachineKeys.has(section.key),
@@ -1310,7 +1375,7 @@ function ProjectListComponent({
   const sdk = useSdk();
   const navigate = useBbNavigate();
   const { providers } = experimental_useProviders();
-  const { status, sections, projects, personalProject, archived } =
+  const { status, sections, projects, personalProject, archived, refetch } =
     useSidebarData();
   const personalProjectId = personalProject?.id ?? null;
   const threads = useMemo<SidebarThread[]>(
@@ -1320,6 +1385,14 @@ function ProjectListComponent({
   const preferencesReady = usePreferencesReady();
   const threadListStatus = toThreadListStatus(status);
   const selectedThreadId = activeThreadId ?? undefined;
+  const [loadRetry, setLoadRetry] = useState<"idle" | "requested" | "loading">(
+    "idle",
+  );
+  if (loadRetry === "requested" && threadListStatus === "loading") {
+    setLoadRetry("loading");
+  } else if (loadRetry === "loading" && threadListStatus !== "loading") {
+    setLoadRetry("idle");
+  }
   const [isPinnedReorderPending, setIsPinnedReorderPending] = useState(false);
   const [isCreateThreadSectionPending, setIsCreateThreadSectionPending] =
     useState(false);
@@ -1556,14 +1629,16 @@ function ProjectListComponent({
       getSidebarThreadComparator(chronologicalSort, sortDirection, sortRename),
     [chronologicalSort, sortDirection, sortRename],
   );
+  const orderStability = useSidebarOrderStability(threads);
   const {
     comparator: sidebarThreadComparator,
     collapsedThreadIds,
     toggleThreadCollapsed,
-  } = useReadStatusGrouping({
+  } = useAttentionOrdering({
     threads,
     selectedThreadId,
     comparator: baseThreadComparator,
+    versionOf: orderStability.versionOf,
   });
   const collapsedEnvironmentIds = useMemo(
     () => new Set(collapsedEnvironmentIdList),
@@ -1651,7 +1726,7 @@ function ProjectListComponent({
       isSidebarProjectThread(thread),
   );
   const pinnedSection: BuiltInSidebarSectionOptions = {
-    activity: getCollapsedChildActivity(pinnedSectionThreads),
+    rollup: rollUpThreads(pinnedSectionThreads),
     collapsedThreads: pinnedSectionThreads,
     label: "Pinned",
     content: pinnedSectionContent,
@@ -1690,10 +1765,31 @@ function ProjectListComponent({
     </ConfirmDeleteDialog>
   );
 
+  if (
+    threadListStatus === "unavailable" ||
+    (loadRetry !== "idle" && threadListStatus === "loading")
+  ) {
+    return (
+      <ProjectListShell activeThreadId={activeThreadId}>
+        <SidebarLoadErrorRow
+          retrying={loadRetry !== "idle"}
+          onRetry={() => {
+            setLoadRetry("requested");
+            void refetch().finally(() =>
+              setLoadRetry((current) =>
+                current === "requested" ? "idle" : current,
+              ),
+            );
+          }}
+        />
+      </ProjectListShell>
+    );
+  }
+
   if (threadListStatus === "loading" || !preferencesReady) {
     return (
-      <ProjectListShell>
-        <ProjectListNavigationLoadingState />
+      <ProjectListShell activeThreadId={activeThreadId}>
+        <SidebarListSkeleton />
       </ProjectListShell>
     );
   }
@@ -1705,126 +1801,143 @@ function ProjectListComponent({
         isCreatingSection: isCreateThreadSectionPending,
       }}
     >
-      <ProjectListShell>
-        <SidebarDraftPresenceSync />
-        <ActiveSidebarModeSections
-          mode={organizationMode}
-          renderMachine={() => (
-            <MachineModeSections
-              threads={threads}
-              effectivePinnedThreadIds={
-                pinnedSidebarState.effectivePinnedThreadIds
-              }
-              status={threadListStatus}
-              showPinnedSection={hasPinnedSection}
-              pinnedSection={pinnedSection}
-              pinnedReorderPending={isPinnedReorderPending}
-              pinnedRootItems={pinnedSidebarState.rootItems}
-              pinnedRootNodes={pinnedSidebarState.rootNodes}
-              pinnedThreads={pinnedRootThreads}
-              onReorderPinnedThread={handleReorderPinnedRoot}
-              threadsSection={threadsSection}
-              selectedThreadId={selectedThreadId}
-              collapsedSectionIds={collapsedSidebarSectionIds}
-              collapsedThreadIds={collapsedThreadIds}
-              collapsedEnvironmentIds={collapsedEnvironmentIds}
-              compareThreads={sidebarThreadComparator}
-              renderSectionDisplayOptions={renderSectionDisplayOptions}
-              isSectionDisplayOptionsOpen={isSectionDisplayOptionsOpen}
-              onCreateThread={handleCreateProjectlessThread}
-              onProjectSelect={onProjectSelect}
-              onToggleCollapsed={toggleSidebarSectionCollapsed}
-              onToggleThreadCollapsed={toggleThreadCollapsed}
-              onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+      <ThreadRowSheetProvider threads={threads}>
+        <ProjectListShell
+          activeThreadId={activeThreadId}
+          stability={orderStability}
+          after={
+            archived === null ? null : (
+              <>
+                {status === "ready" && archived.status !== "ready" && (
+                  <div role="status">
+                    {archived.status === "error"
+                      ? "Archived threads unavailable"
+                      : "Loading archived threads…"}
+                  </div>
+                )}
+                {archived.hasNextPage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={archived.isFetchingNextPage}
+                    onClick={() => void archived.fetchNextPage()}
+                    aria-label="Load more archived threads"
+                  >
+                    {archived.isFetchingNextPage
+                      ? "Loading…"
+                      : archived.isFetchNextPageError
+                        ? "Retry loading"
+                        : "Show more"}
+                  </Button>
+                )}
+              </>
+            )
+          }
+        >
+          <SidebarFoldProvider
+            versionOf={orderStability.versionOf}
+            heldThreadIds={orderStability.held}
+          >
+            <SidebarDraftPresenceSync />
+            {threads.length === 0 ? <SidebarNoThreadsLine /> : null}
+            <ActiveSidebarModeSections
+              mode={organizationMode}
+              renderMachine={() => (
+                <MachineModeSections
+                  threads={threads}
+                  effectivePinnedThreadIds={
+                    pinnedSidebarState.effectivePinnedThreadIds
+                  }
+                  status={threadListStatus}
+                  showPinnedSection={hasPinnedSection}
+                  pinnedSection={pinnedSection}
+                  pinnedReorderPending={isPinnedReorderPending}
+                  pinnedRootItems={pinnedSidebarState.rootItems}
+                  pinnedRootNodes={pinnedSidebarState.rootNodes}
+                  pinnedThreads={pinnedRootThreads}
+                  onReorderPinnedThread={handleReorderPinnedRoot}
+                  threadsSection={threadsSection}
+                  selectedThreadId={selectedThreadId}
+                  collapsedSectionIds={collapsedSidebarSectionIds}
+                  collapsedThreadIds={collapsedThreadIds}
+                  collapsedEnvironmentIds={collapsedEnvironmentIds}
+                  compareThreads={sidebarThreadComparator}
+                  renderSectionDisplayOptions={renderSectionDisplayOptions}
+                  isSectionDisplayOptionsOpen={isSectionDisplayOptionsOpen}
+                  onCreateThread={handleCreateProjectlessThread}
+                  onProjectSelect={onProjectSelect}
+                  onToggleCollapsed={toggleSidebarSectionCollapsed}
+                  onToggleThreadCollapsed={toggleThreadCollapsed}
+                  onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+                />
+              )}
+              renderChronological={() => (
+                <SectionModeSections
+                  threads={threads}
+                  effectivePinnedThreadIds={
+                    pinnedSidebarState.effectivePinnedThreadIds
+                  }
+                  status={threadListStatus}
+                  showPinnedSection={hasPinnedSection}
+                  sections={sections}
+                  pinnedSection={pinnedSection}
+                  pinnedReorderPending={isPinnedReorderPending}
+                  pinnedRootItems={pinnedSidebarState.rootItems}
+                  pinnedRootNodes={pinnedSidebarState.rootNodes}
+                  pinnedThreads={pinnedRootThreads}
+                  onReorderPinnedThread={handleReorderPinnedRoot}
+                  threadsSection={threadsSection}
+                  selectedThreadId={selectedThreadId}
+                  collapsedSectionIds={collapsedSidebarSectionIds}
+                  collapsedThreadIds={collapsedThreadIds}
+                  collapsedEnvironmentIds={collapsedEnvironmentIds}
+                  compareThreads={sidebarThreadComparator}
+                  onProjectSelect={onProjectSelect}
+                  onCreateThread={handleCreateProjectlessThread}
+                  onCreateThreadInSection={handleCreateThreadInSection}
+                  onRemoveSection={handleRemoveThreadSection}
+                  onToggleCollapsed={toggleSidebarSectionCollapsed}
+                  onToggleThreadCollapsed={toggleThreadCollapsed}
+                  onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+                />
+              )}
+              renderProject={() => (
+                <ProjectModeSections
+                  personalProjectId={personalProjectId}
+                  projects={projects}
+                  threads={threads}
+                  effectivePinnedThreadIds={
+                    pinnedSidebarState.effectivePinnedThreadIds
+                  }
+                  status={threadListStatus}
+                  showPinnedSection={hasPinnedSection}
+                  pinnedSection={pinnedSection}
+                  pinnedReorderPending={isPinnedReorderPending}
+                  pinnedRootItems={pinnedSidebarState.rootItems}
+                  pinnedRootNodes={pinnedSidebarState.rootNodes}
+                  pinnedThreads={pinnedRootThreads}
+                  onReorderPinnedThread={handleReorderPinnedRoot}
+                  threadsSection={threadsSection}
+                  selectedThreadId={selectedThreadId}
+                  collapsedSectionIds={collapsedSidebarSectionIds}
+                  collapsedThreadIds={collapsedThreadIds}
+                  collapsedEnvironmentIds={collapsedEnvironmentIds}
+                  compareThreads={sidebarThreadComparator}
+                  onProjectSelect={onProjectSelect}
+                  onCreateProjectThread={handleCreateProjectThread}
+                  onToggleCollapsed={toggleSidebarSectionCollapsed}
+                  onToggleThreadCollapsed={toggleThreadCollapsed}
+                  onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+                />
+              )}
             />
-          )}
-          renderChronological={() => (
-            <SectionModeSections
-              threads={threads}
-              effectivePinnedThreadIds={
-                pinnedSidebarState.effectivePinnedThreadIds
-              }
-              status={threadListStatus}
-              showPinnedSection={hasPinnedSection}
-              sections={sections}
-              pinnedSection={pinnedSection}
-              pinnedReorderPending={isPinnedReorderPending}
-              pinnedRootItems={pinnedSidebarState.rootItems}
-              pinnedRootNodes={pinnedSidebarState.rootNodes}
-              pinnedThreads={pinnedRootThreads}
-              onReorderPinnedThread={handleReorderPinnedRoot}
-              threadsSection={threadsSection}
-              selectedThreadId={selectedThreadId}
-              collapsedSectionIds={collapsedSidebarSectionIds}
-              collapsedThreadIds={collapsedThreadIds}
-              collapsedEnvironmentIds={collapsedEnvironmentIds}
-              compareThreads={sidebarThreadComparator}
-              onProjectSelect={onProjectSelect}
-              onCreateThread={handleCreateProjectlessThread}
-              onCreateThreadInSection={handleCreateThreadInSection}
-              onRemoveSection={handleRemoveThreadSection}
-              onToggleCollapsed={toggleSidebarSectionCollapsed}
-              onToggleThreadCollapsed={toggleThreadCollapsed}
-              onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
-            />
-          )}
-          renderProject={() => (
-            <ProjectModeSections
-              personalProjectId={personalProjectId}
-              projects={projects}
-              threads={threads}
-              effectivePinnedThreadIds={
-                pinnedSidebarState.effectivePinnedThreadIds
-              }
-              status={threadListStatus}
-              showPinnedSection={hasPinnedSection}
-              pinnedSection={pinnedSection}
-              pinnedReorderPending={isPinnedReorderPending}
-              pinnedRootItems={pinnedSidebarState.rootItems}
-              pinnedRootNodes={pinnedSidebarState.rootNodes}
-              pinnedThreads={pinnedRootThreads}
-              onReorderPinnedThread={handleReorderPinnedRoot}
-              threadsSection={threadsSection}
-              selectedThreadId={selectedThreadId}
-              collapsedSectionIds={collapsedSidebarSectionIds}
-              collapsedThreadIds={collapsedThreadIds}
-              collapsedEnvironmentIds={collapsedEnvironmentIds}
-              compareThreads={sidebarThreadComparator}
-              onProjectSelect={onProjectSelect}
-              onCreateProjectThread={handleCreateProjectThread}
-              onToggleCollapsed={toggleSidebarSectionCollapsed}
-              onToggleThreadCollapsed={toggleThreadCollapsed}
-              onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
-            />
-          )}
-        />
-        {archived !== null && (
-          <>
-            {status === "ready" && archived.status !== "ready" && (
-              <div role="status">
-                {archived.status === "error"
-                  ? "Archived threads unavailable"
-                  : "Loading archived threads…"}
-              </div>
-            )}
-            {archived.hasNextPage && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={archived.isFetchingNextPage}
-                onClick={() => void archived.fetchNextPage()}
-                aria-label="Load more archived threads"
-              >
-                {archived.isFetchingNextPage
-                  ? "Loading…"
-                  : archived.isFetchNextPageError
-                    ? "Retry loading"
-                    : "Show more"}
-              </Button>
-            )}
-          </>
-        )}
-      </ProjectListShell>
+          </SidebarFoldProvider>
+        </ProjectListShell>
+      </ThreadRowSheetProvider>
+      <SidebarAttentionAnnouncer
+        threads={threads}
+        activeThreadId={activeThreadId}
+      />
       {sectionCreateDialog}
       {sectionDeleteDialogContent}
     </SidebarHeaderActionsProvider>

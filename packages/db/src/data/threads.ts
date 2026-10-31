@@ -73,6 +73,13 @@ function liveThreads(...where: ThreadWhere[]): ThreadWhere {
   return nonDeletedThreads(...where, isNull(threads.archivedAt));
 }
 
+function unreadThreads(): ThreadWhere {
+  return or(
+    isNull(threads.lastReadAt),
+    lt(threads.lastReadAt, threads.latestAttentionAt),
+  );
+}
+
 function countThreadsWhere(
   db: ThreadWriteConnection,
   where: ThreadWhere,
@@ -1473,11 +1480,6 @@ export function listThreadsWithPendingInteractionState(
 }
 
 export function hasActiveThreadAttention(db: DbConnection): boolean {
-  const unreadThread = or(
-    isNull(threads.lastReadAt),
-    lt(threads.lastReadAt, threads.latestAttentionAt),
-  );
-
   const row = db
     .select({ id: threads.id })
     .from(threads)
@@ -1491,7 +1493,7 @@ export function hasActiveThreadAttention(db: DbConnection): boolean {
     .where(
       liveThreads(
         eq(threads.visibility, "visible"),
-        or(unreadThread, isNotNull(pendingInteractions.id)),
+        or(unreadThreads(), isNotNull(pendingInteractions.id)),
       ),
     )
     .limit(1)
@@ -1924,35 +1926,56 @@ export function updateThread(
 
 interface MarkThreadReadInput {
   throughAttentionAt: number | null;
+  descendantsThroughAttentionAt: number | null;
+}
+
+function readThreadTreeIds(id: string, throughAttentionAt: number | null): SQL {
+  const seed =
+    throughAttentionAt === null
+      ? sql`SELECT id FROM threads WHERE id = ${id}`
+      : sql`SELECT id FROM threads WHERE id = ${id} AND latest_attention_at <= ${throughAttentionAt}`;
+  return sql`(WITH RECURSIVE tree(id) AS (
+    ${seed} UNION SELECT t.id FROM threads t JOIN tree ON t.parent_thread_id = tree.id
+      WHERE t.deleted_at IS NULL
+  ) SELECT id FROM tree)`;
 }
 
 export function markThreadRead(
   db: ThreadWriteConnection,
   notifier: DbNotifier,
   id: string,
-  { throughAttentionAt }: MarkThreadReadInput,
+  { throughAttentionAt, descendantsThroughAttentionAt }: MarkThreadReadInput,
 ) {
   const now = Date.now();
   const updated = db
     .update(threads)
     .set({ lastReadAt: now, updatedAt: now })
     .where(
-      throughAttentionAt === null
-        ? eq(threads.id, id)
-        : and(
-            eq(threads.id, id),
-            lte(threads.latestAttentionAt, throughAttentionAt),
+      and(
+        inArray(threads.id, readThreadTreeIds(id, throughAttentionAt)),
+        or(
+          eq(threads.id, id),
+          and(
+            unreadThreads(),
+            descendantsThroughAttentionAt === null
+              ? undefined
+              : lte(threads.latestAttentionAt, descendantsThroughAttentionAt),
           ),
+        ),
+      ),
     )
     .returning()
-    .get();
-  if (!updated) {
+    .all();
+  const thread = updated.find((row) => row.id === id);
+  if (!thread) {
     return db.select().from(threads).where(eq(threads.id, id)).get() ?? null;
   }
-  notifier.notifyThread(id, ["read-state-changed"], {
-    projectId: updated.projectId,
-  });
-  return updated;
+  for (const row of updated) {
+    notifier.notifyThread(row.id, ["read-state-changed"], {
+      projectId: row.projectId,
+    });
+  }
+  return thread;
 }
 
 export interface ThreadExecutionOverride {

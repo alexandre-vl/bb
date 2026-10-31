@@ -67,6 +67,7 @@ describe("useThreadReadTracking", () => {
     renderHook(() =>
       useThreadReadTracking({
         markThreadRead,
+        descendants: [],
         thread: undefined,
       }),
     );
@@ -81,6 +82,7 @@ describe("useThreadReadTracking", () => {
     renderHook(() =>
       useThreadReadTracking({
         markThreadRead,
+        descendants: [],
         thread: {
           id: "thr_mobile_restore",
           lastReadAt: 10,
@@ -114,6 +116,7 @@ describe("useThreadReadTracking", () => {
       ({ latestAttentionAt }: { latestAttentionAt: number }) =>
         useThreadReadTracking({
           markThreadRead,
+          descendants: [],
           thread: {
             id: "thr_side_chat",
             lastReadAt: 10,
@@ -135,12 +138,130 @@ describe("useThreadReadTracking", () => {
     expect(markThreadRead.mutateAsync).toHaveBeenCalledTimes(2);
   });
 
+  it("reads a read thread again with its descendants when it opens with one unread", () => {
+    const markThreadRead = makeMarkThreadRead();
+
+    renderHook(() =>
+      useThreadReadTracking({
+        markThreadRead,
+        thread: { id: "thr_parent", lastReadAt: 20, latestAttentionAt: 20 },
+        descendants: [
+          { id: "thr_child", lastReadAt: 10, latestAttentionAt: 40 },
+          { id: "thr_grandchild", lastReadAt: 30, latestAttentionAt: 30 },
+        ],
+      }),
+    );
+
+    expect(markThreadRead.mutateAsync).toHaveBeenCalledExactlyOnceWith({
+      threadId: "thr_parent",
+      throughAttentionAt: 20,
+      descendantsThroughAttentionAt: 40,
+    });
+  });
+
+  it("reads a descendant that turns up unread after the thread opened", () => {
+    const markThreadRead = makeMarkThreadRead();
+    type Descendants = {
+      id: string;
+      lastReadAt: number;
+      latestAttentionAt: number;
+    }[];
+    const { rerender } = renderHook(
+      ({ descendants }: { descendants: Descendants }) =>
+        useThreadReadTracking({
+          markThreadRead,
+          thread: { id: "thr_parent", lastReadAt: 20, latestAttentionAt: 20 },
+          descendants,
+        }),
+      { initialProps: { descendants: [] as Descendants } },
+    );
+    expect(markThreadRead.mutateAsync).not.toHaveBeenCalled();
+
+    rerender({
+      descendants: [
+        { id: "thr_spawned", lastReadAt: 25, latestAttentionAt: 25 },
+      ],
+    });
+    expect(markThreadRead.mutateAsync).not.toHaveBeenCalled();
+
+    rerender({
+      descendants: [
+        { id: "thr_spawned", lastReadAt: 25, latestAttentionAt: 25 },
+        { id: "thr_failed", lastReadAt: 10, latestAttentionAt: 30 },
+      ],
+    });
+    expect(markThreadRead.mutateAsync).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ descendantsThroughAttentionAt: 30 }),
+    );
+  });
+
+  it("reads the descendants again when one gets new attention while the thread stays open", () => {
+    const markThreadRead = makeMarkThreadRead();
+    const { rerender } = renderHook(
+      ({ childAttentionAt }: { childAttentionAt: number }) =>
+        useThreadReadTracking({
+          markThreadRead,
+          thread: { id: "thr_parent", lastReadAt: 20, latestAttentionAt: 20 },
+          descendants: [
+            {
+              id: "thr_child",
+              lastReadAt: 30,
+              latestAttentionAt: childAttentionAt,
+            },
+          ],
+        }),
+      { initialProps: { childAttentionAt: 30 } },
+    );
+    expect(markThreadRead.mutateAsync).not.toHaveBeenCalled();
+
+    rerender({ childAttentionAt: 50 });
+
+    expect(markThreadRead.mutateAsync).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ descendantsThroughAttentionAt: 50 }),
+    );
+  });
+
+  it("leaves a descendant marked unread while the thread stays open, and reads it on reopen", async () => {
+    const markThreadRead = makeMarkThreadRead();
+    type FamilyProps = { childReadAt: number | null; open: boolean };
+    const initialProps: FamilyProps = { childReadAt: 30, open: true };
+    const { rerender } = renderHook(
+      ({ childReadAt, open }: FamilyProps) =>
+        useThreadReadTracking({
+          markThreadRead,
+          thread: open
+            ? { id: "thr_parent", lastReadAt: 20, latestAttentionAt: 20 }
+            : undefined,
+          descendants: open
+            ? [
+                {
+                  id: "thr_child",
+                  lastReadAt: childReadAt,
+                  latestAttentionAt: 30,
+                },
+              ]
+            : [],
+        }),
+      { initialProps },
+    );
+
+    rerender({ childReadAt: null, open: true });
+    expect(markThreadRead.mutateAsync).not.toHaveBeenCalled();
+
+    rerender({ childReadAt: null, open: false });
+    await act(async () => {});
+    rerender({ childReadAt: null, open: true });
+
+    expect(markThreadRead.mutateAsync).toHaveBeenCalledTimes(1);
+  });
+
   it("retries a failed read after pageshow while already visible", async () => {
     const markThreadRead = makeMarkThreadRead();
     markThreadRead.mutateAsync.mockRejectedValueOnce(new Error("Failed"));
     renderHook(() =>
       useThreadReadTracking({
         markThreadRead,
+        descendants: [],
         thread: {
           id: "thr_side_chat",
           lastReadAt: 10,
@@ -165,6 +286,7 @@ describe("useThreadReadTracking", () => {
       ({ lastReadAt }: VisibleThreadProps) =>
         useThreadReadTracking({
           markThreadRead,
+          descendants: [],
           thread: {
             id: "thr_side_chat",
             lastReadAt,
@@ -203,6 +325,7 @@ describe("useThreadReadTracking", () => {
       ({ lastReadAt, visible }: ReopenThreadProps) =>
         useThreadReadTracking({
           markThreadRead,
+          descendants: [],
           thread: visible
             ? {
                 id: "thr_side_chat",
@@ -236,6 +359,7 @@ describe("useThreadReadTracking", () => {
     renderHook(() =>
       useThreadReadTracking({
         markThreadRead,
+        descendants: [],
         thread: { id: "thr_unfocused", lastReadAt: 10, latestAttentionAt: 20 },
       }),
     );
@@ -260,6 +384,7 @@ describe("useThreadReadTracking", () => {
       ({ latestAttentionAt }: { latestAttentionAt: number }) =>
         useThreadReadTracking({
           markThreadRead,
+          descendants: [],
           thread: { id: "thr_idle", lastReadAt: 20, latestAttentionAt },
         }),
       { initialProps: { latestAttentionAt: 20 } },
@@ -284,6 +409,7 @@ describe("useThreadReadTracking", () => {
       ({ latestAttentionAt }: { latestAttentionAt: number }) =>
         useThreadReadTracking({
           markThreadRead,
+          descendants: [],
           thread: { id: "thr_blurred", lastReadAt: 20, latestAttentionAt },
         }),
       { initialProps: { latestAttentionAt: 20 } },
@@ -306,6 +432,7 @@ describe("useThreadReadTracking", () => {
       ({ lastReadAt }: { lastReadAt: number | null }) =>
         useThreadReadTracking({
           markThreadRead,
+          descendants: [],
           thread: {
             id: "thr_remote_unread",
             lastReadAt,

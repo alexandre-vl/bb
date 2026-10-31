@@ -97,6 +97,22 @@
       }
     },
     {
+      "command": "sidebar.focus",
+      "desktopOnly": false,
+      "shortcut": {
+        "key": "l",
+        "mod": true,
+        "meta": false,
+        "control": false,
+        "alt": false,
+        "shift": true
+      },
+      "when": {
+        "all": ["mainSurface"],
+        "none": ["modalOpen"]
+      }
+    },
+    {
       "command": "thread.previous",
       "desktopOnly": false,
       "shortcut": {
@@ -1703,6 +1719,22 @@
       }
     },
     {
+      "command": "sidebar.focus",
+      "desktopOnly": false,
+      "shortcut": {
+        "key": "l",
+        "mod": true,
+        "meta": false,
+        "control": false,
+        "alt": false,
+        "shift": true
+      },
+      "when": {
+        "all": ["mainSurface"],
+        "none": ["modalOpen"]
+      }
+    },
+    {
       "command": "thread.previous",
       "desktopOnly": false,
       "shortcut": {
@@ -3199,6 +3231,86 @@
       "when": {
         "all": ["mainSurface"],
         "none": ["modalOpen"]
+      }
+    },
+    {
+      "command": "thread.archive",
+      "desktopOnly": false,
+      "shortcut": {
+        "key": "e",
+        "mod": false,
+        "meta": false,
+        "control": false,
+        "alt": false,
+        "shift": false
+      },
+      "when": {
+        "all": ["mainSurface", "sidebarListFocus"],
+        "none": ["modalOpen", "editableFocus"]
+      }
+    },
+    {
+      "command": "thread.rename",
+      "desktopOnly": false,
+      "shortcut": {
+        "key": "F2",
+        "mod": false,
+        "meta": false,
+        "control": false,
+        "alt": false,
+        "shift": false
+      },
+      "when": {
+        "all": ["mainSurface", "sidebarListFocus"],
+        "none": ["modalOpen", "editableFocus"]
+      }
+    },
+    {
+      "command": "thread.markRead",
+      "desktopOnly": false,
+      "shortcut": {
+        "key": "u",
+        "mod": false,
+        "meta": false,
+        "control": false,
+        "alt": false,
+        "shift": false
+      },
+      "when": {
+        "all": ["mainSurface", "sidebarListFocus"],
+        "none": ["modalOpen", "editableFocus"]
+      }
+    },
+    {
+      "command": "thread.previousAttention",
+      "desktopOnly": false,
+      "shortcut": {
+        "key": "ArrowUp",
+        "mod": false,
+        "meta": false,
+        "control": false,
+        "alt": true,
+        "shift": false
+      },
+      "when": {
+        "all": ["mainSurface", "sidebarListFocus"],
+        "none": ["modalOpen", "editableFocus"]
+      }
+    },
+    {
+      "command": "thread.nextAttention",
+      "desktopOnly": false,
+      "shortcut": {
+        "key": "ArrowDown",
+        "mod": false,
+        "meta": false,
+        "control": false,
+        "alt": true,
+        "shift": false
+      },
+      "when": {
+        "all": ["mainSurface", "sidebarListFocus"],
+        "none": ["modalOpen", "editableFocus"]
       }
     }
   ],

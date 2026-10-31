@@ -40,6 +40,7 @@ import {
   didThreadDetailBootstrapRefreshAfterMount,
   resolveSidebarDerivedThreadList,
   selectChildThreads,
+  selectThreadDescendantReadStates,
   selectThreadMentionCandidates,
   shouldFetchSidebarThreadListFallback,
   threadDetailBootstrapQueryOptions,
@@ -431,6 +432,38 @@ describe("useThreadDetailBootstrap", () => {
       signal: expect.any(AbortSignal),
       threadId: "thread-1",
     });
+  });
+});
+
+describe("selectThreadDescendantReadStates", () => {
+  it("selects the read state of every descendant, grandchildren included, and of nothing else", () => {
+    const entry = (id: string, parentThreadId: string | null) =>
+      makeThreadListEntry({
+        id,
+        parentThreadId,
+        lastReadAt: 10,
+        latestAttentionAt: id.length,
+      });
+    const threads = [
+      entry("A", null),
+      entry("B", "A"),
+      entry("CCC", "B"),
+      entry("DD", "A"),
+      entry("E", null),
+      entry("F", "E"),
+      entry("X", "Y"),
+      entry("Y", "X"),
+    ];
+
+    expect(selectThreadDescendantReadStates(threads, "A")).toEqual([
+      { id: "B", lastReadAt: 10, latestAttentionAt: 1 },
+      { id: "DD", lastReadAt: 10, latestAttentionAt: 2 },
+      { id: "CCC", lastReadAt: 10, latestAttentionAt: 3 },
+    ]);
+    expect(selectThreadDescendantReadStates(threads, "X")).toEqual([
+      { id: "Y", lastReadAt: 10, latestAttentionAt: 1 },
+    ]);
+    expect(selectThreadDescendantReadStates(threads, "F")).toEqual([]);
   });
 });
 

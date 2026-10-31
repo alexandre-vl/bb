@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import type { ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +16,7 @@ import {
   SidebarContentElementProvider,
 } from "../ui/sidebar.js";
 import { SidebarWindowedItems } from "./SidebarWindowedItems.js";
+import { SidebarTreeKeyboard } from "./keyboard/sidebar-tree-keyboard.js";
 
 const selectorMatch = SIDEBAR_CONTENT_SELECTOR.match(/^\[([\w-]+)="(.+)"\]$/);
 if (!selectorMatch) {
@@ -161,6 +168,58 @@ afterEach(() => {
 });
 
 describe("SidebarWindowedItems", () => {
+  it("realizes a windowed row before keyboard focus moves into it, and keeps the focused row mounted", () => {
+    const keyboard = new SidebarTreeKeyboard();
+    render(
+      withScrollRef(
+        { current: scrollElement },
+        <div ref={keyboard.attachRef} role="tree" data-sidebar-thread-tree="">
+          <span
+            role="treeitem"
+            tabIndex={-1}
+            aria-level={1}
+            data-sidebar-tree-item=""
+          >
+            Header
+          </span>
+          <SidebarWindowedItems
+            itemKeys={["first", "second", "third"]}
+            estimateRows={() => 1}
+            renderItem={(index) => (
+              <a
+                href={`#thread-${index}`}
+                role="treeitem"
+                tabIndex={-1}
+                aria-level={2}
+                data-sidebar-tree-item=""
+              >
+                Thread {index}
+              </a>
+            )}
+          />
+        </div>,
+      ),
+    );
+    const header = screen.getByRole("treeitem", { name: "Header" });
+    expect(screen.queryByText("Thread 0")).toBeNull();
+
+    header.focus();
+    fireEvent.keyDown(header, { key: "ArrowDown" });
+    const first = screen.getByRole("treeitem", { name: "Thread 0" });
+    expect(document.activeElement).toBe(first);
+    expect(screen.queryByText("Thread 1")).toBeNull();
+
+    act(() => {
+      emitIntersections([{ target: wrapperAt(0), isIntersecting: false }]);
+    });
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(first, { key: "End" });
+    expect(document.activeElement).toBe(
+      screen.getByRole("treeitem", { name: "Thread 2" }),
+    );
+  });
+
   it("mounts and focuses an offscreen item on request without refocusing on updates", () => {
     const tree = (focusItemKey?: string) =>
       withScrollRef(
@@ -170,7 +229,12 @@ describe("SidebarWindowedItems", () => {
           focusItemKey={focusItemKey}
           estimateRows={() => 1}
           renderItem={(index) => (
-            <a href="#thread" data-sidebar-thread-id={`thr_${index}`}>
+            <a
+              href="#thread"
+              role="treeitem"
+              tabIndex={-1}
+              data-sidebar-tree-item=""
+            >
               Thread {index}
             </a>
           )}
@@ -179,14 +243,14 @@ describe("SidebarWindowedItems", () => {
     const { rerender } = render(tree());
     expect(screen.queryByText("Thread 1")).toBeNull();
     rerender(tree("second"));
-    const target = screen.getByRole("link", { name: "Thread 1" });
+    const target = screen.getByRole("treeitem", { name: "Thread 1" });
     expect(document.activeElement).toBe(target);
     target.blur();
     rerender(tree("second"));
     expect(document.activeElement).not.toBe(target);
   });
 
-  it("focuses a collapsed group disclosure when no thread link is rendered", () => {
+  it("focuses the treeitem of a group that renders no thread", () => {
     render(
       withScrollRef(
         { current: scrollElement },
@@ -194,12 +258,26 @@ describe("SidebarWindowedItems", () => {
           itemKeys={["group"]}
           focusItemKey="group"
           estimateRows={() => 1}
-          renderItem={() => <button aria-expanded={false}>Worktree</button>}
+          renderItem={() => (
+            <div>
+              <button type="button" aria-label="Expand">
+                ›
+              </button>
+              <span
+                role="treeitem"
+                tabIndex={-1}
+                aria-expanded={false}
+                data-sidebar-tree-item=""
+              >
+                Worktree
+              </span>
+            </div>
+          )}
         />,
       ),
     );
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Worktree" }),
+      screen.getByRole("treeitem", { name: "Worktree" }),
     );
   });
 
