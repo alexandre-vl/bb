@@ -1,0 +1,84 @@
+name: Fork Release
+
+on:
+  workflow_run:
+    workflows: ["Fork CI"]
+    types: [completed]
+    branches: [alex]
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: The id of a successful Fork CI run on alex to publish
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish the tested bb-app tarball
+    if: github.repository == 'alexandre-vl/bb' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve the Fork CI run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id || inputs.run-id }}
+        run: |
+          gh run view "$RUN" --repo "$GITHUB_REPOSITORY" --json workflowName,headBranch,conclusion,headSha \
+            --jq '"workflow=\(.workflowName)\nbranch=\(.headBranch)\nconclusion=\(.conclusion)\nsha=\(.headSha)"' >> "$GITHUB_OUTPUT"
+          echo "id=$RUN" >> "$GITHUB_OUTPUT"
+      - name: Refuse anything but a green Fork CI run on alex
+        if: steps.run.outputs.workflow != 'Fork CI' || steps.run.outputs.branch != 'alex' || steps.run.outputs.conclusion != 'success'
+        run: |
+          echo "::error::Run ${{ steps.run.outputs.id }} is ${{ steps.run.outputs.workflow }} on ${{ steps.run.outputs.branch }}, ${{ steps.run.outputs.conclusion }}."
+          exit 1
+      - name: Checkout the tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+          fetch-depth: 0
+      - name: Download the tarball
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bb-app-release
+          path: ${{ runner.temp }}/out
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          SHA: ${{ steps.run.outputs.sha }}
+          RUN: ${{ steps.run.outputs.id }}
+          OUT: ${{ runner.temp }}/out
+        run: |
+          set -euo pipefail
+          (cd "$OUT" && sha256sum -c SHA256SUMS)
+          version=$(cat "$OUT/version.txt")
+          tag="fork-v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag already exists."
+            exit 0
+          fi
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "bb $version built from alex@${SHA:0:9}, tested by Fork CI run $RUN."
+            echo
+            echo "Upstream main: \`$(git merge-base origin/main "$SHA" | cut -c1-9)\`"
+            echo
+            echo "Layers, in merge order:"
+            git log --first-parent --merges --format='%s' "origin/main..$SHA" | tac | sed -E 's/^Merge (.*) into alex$/- \1/'
+          } > "$notes"
+          gh release create "$tag" "$OUT/bb-app.tgz" "$OUT/version.txt" "$OUT/SHA256SUMS" \
+            --repo "$GITHUB_REPOSITORY" --target "$SHA" --latest \
+            --title "bb $version (alex)" --notes-file "$notes"
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' |
+            grep '^fork-v' | tail -n +11 |
+            while read -r old; do gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes; done

@@ -1,0 +1,43 @@
+name: Fork PR Health
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: fork-pr-health
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: Report my upstream pull requests
+    if: github.repository == 'alexandre-vl/bb'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout fork-infra
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fork-infra
+          fetch-depth: 0
+      - name: Write the report
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          FORK_ALEX_REF: origin/alex
+        run: bash fork/pr-health.sh "$GITHUB_REPOSITORY_OWNER" "$RUNNER_TEMP/pr-health.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Upstream pull requests"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/pr-health.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/pr-health.md"
+          fi
