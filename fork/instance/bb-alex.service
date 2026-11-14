@@ -1,0 +1,16 @@
+[Unit]
+Description=bb built from alexandre-vl/bb alex (second instance)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=PATH=@NODE_DIR@:/usr/local/bin:/usr/bin:/bin
+UnsetEnvironment=BB_SERVER_URL BB_HOST_DAEMON_PORT BB_DATA_DIR
+ExecStart=@NODE@ @ROOT@/current/bin/bb-app start --data-dir @DATA@ --server-port @PORT@ --host-daemon-port @DAEMON_PORT@ --no-in-app-updates
+ExecStop=@NODE@ @ROOT@/current/bin/bb-app stop --data-dir @DATA@
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target
