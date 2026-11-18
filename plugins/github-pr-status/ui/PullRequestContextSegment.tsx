@@ -122,6 +122,7 @@ export function PullRequestLink({
       {showLabel ? (
         <PullRequestSummaryLabel
           pullRequest={pullRequest}
+          numberPrefix="#"
           showState={isAlone}
           hideNumberWhenCompact={!isAlone}
         />
@@ -132,10 +133,12 @@ export function PullRequestLink({
 
 export function PullRequestSummaryLabel({
   pullRequest,
+  numberPrefix,
   showState,
   hideNumberWhenCompact,
 }: {
   pullRequest: PullRequest;
+  numberPrefix: "PR #" | "#";
   showState: boolean;
   hideNumberWhenCompact: boolean;
 }) {
@@ -150,7 +153,8 @@ export function PullRequestSummaryLabel({
         className="min-w-0 truncate"
         data-promptbox-hide-compact={hideNumberWhenCompact ? "" : undefined}
       >
-        PR #{pullRequest.number}
+        {numberPrefix}
+        {pullRequest.number}
         {showState && pullRequest.state !== "open"
           ? ` · ${PULL_REQUEST_STATE_DISPLAY[pullRequest.state].label}`
           : ""}
