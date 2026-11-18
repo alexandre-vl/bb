@@ -1,0 +1,9 @@
+[Unit]
+Description=Install the newest alexandre-vl/bb alex release into bb-alex
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+UnsetEnvironment=BB_SERVER_URL BB_HOST_DAEMON_PORT BB_DATA_DIR
+ExecStart=%h/.local/bin/bb-alex-update
