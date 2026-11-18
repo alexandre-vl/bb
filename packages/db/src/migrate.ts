@@ -5,6 +5,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { DbConnection } from "./connection.js";
 import {
+  applyForkMigrations,
+  prepareForkMigrations,
+  type ForkMigrationRun,
+} from "./fork-migrations.js";
+import {
   compatibleMigrationHashes,
   publishedMigrationWhensByTag,
 } from "./migration-history.js";
@@ -1453,7 +1458,9 @@ export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
     );
     const stagedThreadStorageDeletedAt =
       stageExistingThreadStorageDeletedAtColumn(db, migrationsFolder);
+    let forkMigrations: ForkMigrationRun;
     try {
+      forkMigrations = prepareForkMigrations(db, migrationsFolder);
       drizzleMigrate(db, { migrationsFolder });
     } finally {
       if (stagedConnectMachineId) restoreStagedConnectMachineIdColumn(db);
@@ -1461,6 +1468,7 @@ export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
         restoreStagedThreadStorageDeletedAtColumn(db);
     }
     applyReorderedCleanupMigrations(db, migrationsFolder);
+    applyForkMigrations(db, forkMigrations);
     seedKeepAwakePluginConfiguration(db);
   } finally {
     sqlite.pragma("foreign_keys = ON");
